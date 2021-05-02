@@ -1,10 +1,19 @@
 {
-    "author" : ["Author", "Co-Author (optional)", "Co-Author 2 (optional)"],
-    "install_msg" : "A message you wish to display to users after they sucessfully install your cog.",
-    "name" : "Course Listings",
-    "short" : "A short description. Displayed in the `[p]cog list` command.",
-    "requirements" : ["Example library", "Example 2", "Example 3"],
-    "description" : "Full description of your cog. Displayed on the Red Portal and with `[p]cog info`",
-    "permissions" : ["List of Bot permissions required"],
-    "tags" : ["List of search tags for the Red portal"]
+    "name": "CourseListings",
+    "short": "Various developer utilities.",
+    "description": "Various developer utilities.",
+    "end_user_data_statement": "This cog does not persistently store any data or metadata about users.",
+    "install_msg": "Thanks for installing PhenUtils!",
+    "author": [
+        "MISC"
+    ],
+    "required_cogs": {},
+    "requirements": [],
+    "tags": [
+        "utility"
+    ],
+    "min_bot_version": "3.3.10",
+    "hidden": false,
+    "disabled": false,
+    "type": "COG"
 }
