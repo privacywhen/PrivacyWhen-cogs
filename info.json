@@ -1,0 +1,8 @@
+{
+    "author" : ["MISC"],
+    "install_msg" : "Private community Cogs, contact myself for issues",
+    "name" : "PrivacyWhen-cogs",
+    "short" : "Cogs by MISC",
+    "description" : "Private Community Cogs",
+    "tags" : ["MISC", "COGS"]
+}
