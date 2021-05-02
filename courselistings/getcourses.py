@@ -1,6 +1,6 @@
 import discord
 from .course_finder import Course
-from discord.ext import commands
+from redbot.core import commands
 
 course_finder = Course()
 
