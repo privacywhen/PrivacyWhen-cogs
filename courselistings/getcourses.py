@@ -1,5 +1,5 @@
 import discord
-from course_finder import Course
+from .course_finder import Course
 from discord.ext import commands
 
 course_finder = Course()
