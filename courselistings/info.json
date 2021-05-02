@@ -1,9 +1,9 @@
 {
     "name": "CourseListings",
-    "short": "Various developer utilities.",
-    "description": "Various developer utilities.",
+    "short": "McMaster Course Finder",
+    "description": "Looks up courses for McMaster University",
     "end_user_data_statement": "This cog does not persistently store any data or metadata about users.",
-    "install_msg": "Thanks for installing PhenUtils!",
+    "install_msg": "Thank you for installing successfully",
     "author": [
         "MISC"
     ],
