@@ -8,7 +8,9 @@
         "MISC"
     ],
     "required_cogs": {},
-    "requirements": [],
+    "requirements" : [
+        "requests"
+    ],
     "tags": [
         "utility"
     ],
