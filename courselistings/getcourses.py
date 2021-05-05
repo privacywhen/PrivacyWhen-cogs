@@ -21,7 +21,7 @@ class GetCourses(commands.Cog):
           print(f"{ctx.author.name} ran command {ctx.message.content} in {ctx.guild.name}")
 
      @commands.command()
-     async def search(self, ctx, *query):
+     async def course_search(self, ctx, *query):
           course_list = course_finder.search_for_course(query)
           courses = "\n".join(course_list)
           if len(courses) > 1950:
