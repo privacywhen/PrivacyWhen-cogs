@@ -18,7 +18,7 @@ class GetCourses(commands.Cog):
                if course_data[4]:
                     embed.add_field(name="Other Info", value=course_data[4])
                await ctx.send(embed=embed)
-          print(f"{ctx.author.id} ran command {ctx.message.content} in {ctx.guild.name}")
+#          print(f"{ctx.author.name} ran command {ctx.message.content} in {ctx.guild.name}")
 
      @commands.command()
      async def course_search(self, ctx, *query):
@@ -31,4 +31,4 @@ class GetCourses(commands.Cog):
           else:
                embed = discord.Embed(title=f"Courses Containing Keyword(s) `{', '.join(query)}`", color=discord.Color.blue(), description=courses)
                await ctx.send(embed=embed)
-               print(f"{ctx.author.name} ran command {ctx.message.content} in {ctx.guild.name}")
+#               print(f"{ctx.author.name} ran command {ctx.message.content} in {ctx.guild.name}")
