@@ -10,7 +10,8 @@ class GetCourses(commands.Cog):
 
      @commands.command()
      async def course(self, ctx, dept, code):
-          course_data = course_finder.find_course(dept+" "+code)
+          dept, code = dept.upper().replace("'", ''), code.upper().replace("'", '')
+          course_data = course_finder.find_course(dept, code)
           if course_data == "Error":
                await ctx.send(f"Failed to retrieve course data for {str(dept+' '+code).upper()}")
           else:
@@ -18,7 +19,6 @@ class GetCourses(commands.Cog):
                if course_data[4]:
                     embed.add_field(name="Other Info", value=course_data[4])
                await ctx.send(embed=embed)
-#          print(f"{ctx.author.name} ran command {ctx.message.content} in {ctx.guild.name}")
 
      @commands.command()
      async def course_search(self, ctx, *query):
@@ -31,4 +31,12 @@ class GetCourses(commands.Cog):
           else:
                embed = discord.Embed(title=f"Courses Containing Keyword(s) `{', '.join(query)}`", color=discord.Color.blue(), description=courses)
                await ctx.send(embed=embed)
-#               print(f"{ctx.author.name} ran command {ctx.message.content} in {ctx.guild.name}")
+
+     @commands.command()
+     async def reqs(self, ctx, dept, code):
+          course_data = course_mod.find_course(dept+" "+code)
+          if course_data == "Error":
+               await ctx.send(f"Failed to retrieve prerequisite data for {str(dept+' '+code).upper()}")
+          else:
+               embed = discord.Embed(title=f"Requisites/Info for {course_data[0]}", color=discord.Color.blue(), description=course_data[4] if course_data[4] else "Not Available")
+               await ctx.send(embed=embed)

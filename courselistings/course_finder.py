@@ -8,12 +8,11 @@ warnings.filterwarnings('ignore')
 db_file = "courses.db"
 
 class Course():
-    def find_course(self,course_code):
+    def find_course(self, course_dept, course_code):
         conn = sqlite3.connect(db_file)
-        dept, code = course_code.split()
         try:
             cur = conn.cursor()
-            cur.execute(f"SELECT * FROM {dept.upper()} WHERE ID = '{code.upper()}'")
+            cur.execute(f"SELECT * FROM '{course_dept}' WHERE ID = '{course_code}'")
             course = cur.fetchone()
             if course == None:
                 return "Error"
