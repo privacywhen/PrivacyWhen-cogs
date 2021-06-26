@@ -9,7 +9,7 @@
     ],
     "required_cogs": {},
     "requirements" : [
-        "requests"
+        "requests", "bs4"
     ],
     "tags": [
         "utility"
