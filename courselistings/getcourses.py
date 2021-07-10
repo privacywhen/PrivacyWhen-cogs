@@ -11,9 +11,10 @@ class GetCourses(commands.Cog):
      @commands.command()
      async def course(self, ctx, *args):
           if args:
-               if args[0] == "SHOW":
+               subcommand = args[0].upper()
+               if subcommand == "SHOW":
                     await self.show(ctx, args[1], args[2])
-               elif args[0] == "SEARCH":
+               elif subcommand == "SEARCH":
                     await self.search(ctx, args[1:])
                else:
                     await ctx.send(f"Unknown command: {args[0]}")
