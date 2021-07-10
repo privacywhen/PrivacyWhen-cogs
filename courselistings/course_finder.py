@@ -7,7 +7,7 @@ warnings.filterwarnings('ignore')
 
 import os
 
-db_file = "courselistings\courses.db"
+db_file = os.path.dirname(os.path.realpath(__file__)) + "\courses.db"
 
 class Course():
     def find_course(self, course_dept, course_code):
@@ -35,7 +35,7 @@ class Course():
             course_list.append(name)
         return course_list
 
-print("ABS PATH: " + os.path.abspath('.'))
+print("DB PATH: " + db_file)
 
 if __name__ == "__main__":
     test = Course()
