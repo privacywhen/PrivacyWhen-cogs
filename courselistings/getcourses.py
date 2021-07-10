@@ -34,7 +34,7 @@ class GetCourses(commands.Cog):
 
      @commands.command()
      async def reqs(self, ctx, dept, code):
-          course_data = course_mod.find_course(dept+" "+code)
+          course_data = course_finder.find_course(dept, code)
           if course_data == "Error":
                await ctx.send(f"Failed to retrieve prerequisite data for {str(dept+' '+code).upper()}")
           else:
