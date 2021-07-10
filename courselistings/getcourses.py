@@ -9,7 +9,19 @@ class GetCourses(commands.Cog):
           self.bot = bot
 
      @commands.command()
-     async def course(self, ctx, dept, code):
+     async def course(self, ctx, *args):
+          if args:
+               if args[0] == "SHOW":
+                    await self.show(ctx, args[1], args[2])
+               elif args[0] == "SEARCH":
+                    await self.search(ctx, args[1:])
+               else:
+                    await ctx.send(f"Unknown command: {args[0]}")
+          else:
+               await ctx.send(f"Available commands: COURSE SHOW, COURSE SEARCH")
+          
+          
+     async def show(self, ctx, dept, code):
           dept, code = dept.upper().replace("'", ''), code.upper().replace("'", '')
           course_data = course_finder.find_course(dept, code)
           if course_data == "Error":
@@ -20,8 +32,7 @@ class GetCourses(commands.Cog):
                     embed.add_field(name="Other Info", value=course_data[4])
                await ctx.send(embed=embed)
 
-     @commands.command()
-     async def course_search(self, ctx, *query):
+     async def search(self, ctx, *query):
           course_list = course_finder.search_for_course(query)
           courses = "\n".join(course_list)
           if len(courses) > 1950:
