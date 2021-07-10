@@ -33,7 +33,7 @@ class GetCourses(commands.Cog):
                     embed.add_field(name="Other Info", value=course_data[4])
                await ctx.send(embed=embed)
 
-     async def search(self, ctx, *query):
+     async def search(self, ctx, query):
           course_list = course_finder.search_for_course(query)
           courses = "\n".join(course_list)
           if len(courses) > 1950:
