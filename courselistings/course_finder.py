@@ -4,7 +4,6 @@ from bs4 import BeautifulSoup
 import requests
 import warnings
 warnings.filterwarnings('ignore')
-
 import os
 
 db_file = os.path.dirname(os.path.realpath(__file__)) + "/courses.db"
@@ -34,9 +33,3 @@ class Course():
             name = course.text
             course_list.append(name)
         return course_list
-
-print("DB PATH: " + db_file)
-
-if __name__ == "__main__":
-    test = Course()
-    print(test.find_course("MATH", "1ZC3"))
