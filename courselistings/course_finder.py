@@ -7,7 +7,7 @@ warnings.filterwarnings('ignore')
 
 import os
 
-db_file = os.path.dirname(os.path.realpath(__file__)) + "\courses.db"
+db_file = os.path.dirname(os.path.realpath(__file__)) + "/courses.db"
 
 class Course():
     def find_course(self, course_dept, course_code):
