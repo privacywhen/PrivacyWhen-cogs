@@ -5,20 +5,22 @@ import requests
 import warnings
 warnings.filterwarnings('ignore')
 
+import os
+
 db_file = "courselistings\courses.db"
 
 class Course():
     def find_course(self, course_dept, course_code):
         conn = sqlite3.connect(db_file)
-    #try:
-        cur = conn.cursor()
-        cur.execute(f"SELECT * FROM '{course_dept}' WHERE ID = '{course_code}'")
-        course = cur.fetchone()
-        if course == None:
+        try:
+            cur = conn.cursor()
+            cur.execute(f"SELECT * FROM '{course_dept}' WHERE ID = '{course_code}'")
+            course = cur.fetchone()
+            if course == None:
+                return "Error"
+        except Error as e:
+            print(e)
             return "Error"
-    #except Error as e:
-    #    print(e)
-    #    return "Error"
         conn.close()
         return [course[0], str(course[1]) + " unit(s)", course[2], course[3], course[4]]
 
@@ -32,3 +34,9 @@ class Course():
             name = course.text
             course_list.append(name)
         return course_list
+
+print("ABS PATH: " + os.path.abspath('.'))
+
+if __name__ == "__main__":
+    test = Course()
+    print(test.find_course("MATH", "1ZC3"))
