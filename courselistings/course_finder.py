@@ -5,7 +5,7 @@ import requests
 import warnings
 warnings.filterwarnings('ignore')
 
-db_file = "courses.db"
+db_file = "courselistings/courses.db"
 
 class Course():
     def find_course(self, course_dept, course_code):
