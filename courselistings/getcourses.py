@@ -16,10 +16,12 @@ class GetCourses(commands.Cog):
                     await self.show(ctx, args[1], args[2])
                elif subcommand == "SEARCH":
                     await self.search(ctx, args[1:])
+               elif subcommand == "REQS":
+                    await self.reqs(ctx, args[1], args[2])
                else:
                     await ctx.send(f"Unknown command: {args[0]}")
           else:
-               await ctx.send(f"Available commands: COURSE SHOW, COURSE SEARCH")
+               await ctx.send(f"Available commands: COURSE SHOW, COURSE SEARCH, COURSE REQS")
           
           
      async def show(self, ctx, dept, code):
@@ -43,8 +45,7 @@ class GetCourses(commands.Cog):
           else:
                embed = discord.Embed(title=f"Courses Containing Keyword(s) `{', '.join(query)}`", color=discord.Color.blue(), description=courses)
                await ctx.send(embed=embed)
-
-     @commands.command()
+     
      async def reqs(self, ctx, dept, code):
           course_data = course_finder.find_course(dept, code)
           if course_data == "Error":
