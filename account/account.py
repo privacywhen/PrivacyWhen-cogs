@@ -63,7 +63,7 @@ class Account(commands.Cog):
         user = user if user else ctx.author
 
         if user.id not in db:
-            await self._reg(self, ctx, user)
+            await self._reg(ctx, user)
 
         userdata = await self.config.member(user).all()
         pic = userdata["Characterpic"]
