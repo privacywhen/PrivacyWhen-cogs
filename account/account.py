@@ -12,10 +12,11 @@ class Account(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         default_member = {
+            "Name": None,
             "Age": None,
             "Site": None,
             "About": None,
-            "Gender": None,
+            "Pronoun": None,
             "Job": None,
             "Email": None,
             "Other": None,
@@ -28,43 +29,55 @@ class Account(commands.Cog):
         self.config.register_guild(**default_guild)
         self.config.register_member(**default_member)
     
-    @commands.command(name="signup")
-    @commands.guild_only()
-    async def _reg(self, ctx):
+    #@commands.command(name="signup")
+    #@commands.guild_only()
+    async def _reg(self, ctx, user):
         """Sign up to get your own account today!"""
 
         server = ctx.guild
-        user = ctx.author
+        #user = ctx.author
         db = await self.config.guild(server).db()
         if user.id not in db:
             db.append(user.id)
             await self.config.guild(server).db.set(db)
-            data = discord.Embed(colour=user.colour)
-            data.add_field(name="Congrats!:sparkles:", value="You have officially created your account for **{}**, {}.".format(server.name, user.mention))
-            await ctx.send(embed=data)
-        else: 
-            data = discord.Embed(colour=user.colour)
-            data.add_field(name="Error:warning:",value="Opps, it seems like you already have an account, {}.".format(user.mention))
-            await ctx.send(embed=data)
+            name = user.nick if user.nick else str(user)        # register and set up name field
+            await self.config.member(user).Name.set(name)
+
+
+        #     data = discord.Embed(colour=user.colour)
+        #     data.add_field(name="Congrats!:sparkles:", value="You have officially created your account for **{}**, {}.".format(server.name, user.mention))
+        #     await ctx.send(embed=data)
+        # else: 
+        #     data = discord.Embed(colour=user.colour)
+        #     data.add_field(name="Error:warning:",value="Opps, it seems like you already have an account, {}.".format(user.mention))
+        #     await ctx.send(embed=data)
         
     
     @commands.command(name="account")
     @commands.guild_only()
-    async def _acc(self, ctx, user : discord.Member=None):
+    async def _acc(self, ctx, user : discord.Member=None, *args):
         """Your/Others Account"""
                     
         server = ctx.guild
         db = await self.config.guild(server).db()
         user = user if user else ctx.author
+
+        if user.id not in db:
+            await self._reg(self, ctx, user)
+
         userdata = await self.config.member(user).all()
         pic = userdata["Characterpic"]
         
         data = discord.Embed(description="{}".format(server), colour=user.colour)
-        fields = [data.add_field(name=k, value=v) for k,v in userdata.items() if v and not k == "Characterpic"] ##let's not add image url to the embed, would look bad
-        
+        if not args:
+            fields = [data.add_field(name=k, value=v) for k,v in userdata.items() if v and not (k == "Characterpic" or k == "name")] ##let's not add image url to the embed, would look bad
+        else:   # filter for fields
+            fieldfilter = set([arg.lower() for arg in args])
+            fields = [data.add_field(name=k, value=v) for k,v in userdata.items() if k.lower() in fieldfilter and v and not (k == "Characterpic" or k == "name")]
         if user.avatar_url and not pic:
-            name = str(user)
-            name = " ~ ".join((name, user.nick)) if user.nick else name
+            # name = str(user)
+            # name = " ~ ".join((name, user.nick)) if user.nick else name
+            name = userdata["Name"]
             data.set_author(name=name, url=user.avatar_url)
             data.set_thumbnail(url=user.avatar_url)
         elif pic:
@@ -75,16 +88,39 @@ class Account(commands.Cog):
         
         if len(fields) != 0:
             await ctx.send(embed=data)
-        else:
-            data = discord.Embed(colour=user.colour)
-            data.add_field(name="Error:warning:",value="{} doesn't have an account at the moment, sorry.".format(user.mention))
-            await ctx.send(embed=data)
+        # else:
+            # data = discord.Embed(colour=user.colour)
+            # data.add_field(name="Error:warning:",value="{} doesn't have an account at the moment, sorry.".format(user.mention))
+            # await ctx.send(embed=data)
 
     @commands.group(name="update")
     @commands.guild_only()
     async def update(self, ctx):
         """Update your TPC"""
         pass
+
+    @update.command(pass_context=True)
+    @commands.guild_only()
+    async def name(self, ctx, *, name):
+        """Your name"""
+        
+        server = ctx.guild
+        user = ctx.author
+        prefix = ctx.prefix
+        db = await self.config.guild(server).db()
+        
+        if user.id not in db:
+            data = discord.Embed(colour=user.colour)
+            data.add_field(name="Error:warning:",value="Sadly, this feature is only available for people who had registered for an account. \n\nYou can register for a account today for free. All you have to do is say `{}signup` and you'll be all set.".format(prefix))
+            await ctx.send(embed=data)
+        else:
+            if not name.strip():                # check for empty name input
+                name = user.nick if user.nick else str(user)
+            await self.config.member(user).Name.set(name)
+            data = discord.Embed(colour=user.colour)
+            data.add_field(name="Congrats!:sparkles:",value="You have updated your name to {}".format(name))
+            await ctx.send(embed=data)
+
 
     @update.command(pass_context=True)
     @commands.guild_only()
@@ -168,8 +204,8 @@ class Account(commands.Cog):
     
     @update.command(pass_context=True)
     @commands.guild_only()
-    async def gender(self, ctx, *, gender):
-        """What's your gender?"""
+    async def pronoun(self, ctx, *, pronoun):
+        """What's your pronoun?"""
 
         server = ctx.guild
         user = ctx.author
@@ -181,9 +217,9 @@ class Account(commands.Cog):
             data.add_field(name="Error:warning:",value="Sadly, this feature is only available for people who had registered for an account. \n\nYou can register for a account today for free. All you have to do is say `{}signup` and you'll be all set.".format(prefix))
             await ctx.send(embed=data)
         else:
-            await self.config.member(user).Gender.set(gender)
+            await self.config.member(user).Pronoun.set(pronoun)
             data = discord.Embed(colour=user.colour)
-            data.add_field(name="Congrats!:sparkles:",value="You have set your Gender to {}".format(gender))
+            data.add_field(name="Congrats!:sparkles:",value="You have set your pronoun to {}".format(pronoun))
             await ctx.send(embed=data)
  
     @update.command(pass_context=True)
