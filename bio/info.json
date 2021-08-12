@@ -1,0 +1,13 @@
+{
+    "author" : ["CrunchBangDev"],
+    "install_msg" : "You've just installed the Bio cog!\nUse `[p]bio` to see your bio.\nAdd information to your bio with `[p]bio [field] [value]`\nUse `[p]bio @[user]` to see someone else's bio\nUse `[p]biofields` to list available fields\nUse `[p]biofields add [field]` and `[p]biofields remove [field]` to add and remove fields\nUser `[p]biosearch [field]` to search all users for a field\nUse `[p]bioreset` to reset your bio",
+    "name" : "Bio",
+    "short" : "Add player bios",
+    "description" : "Add information to your player bio and lookup information others have shared.",
+    "required_cogs": {},
+    "requirements": [],
+    "min_bot_version": "3.1.8",
+    "max_bot_version": "0.0.0",
+    "tags": [],
+    "type": "COG"
+}
