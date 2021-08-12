@@ -69,7 +69,7 @@ class Account(commands.Cog):
         pic = userdata["Characterpic"]
         
         data = discord.Embed(description="{}".format(server), colour=user.colour)
-        hiddenfields = {"Characterpic", "NameTEST"}  ## fields to hide on bio cards
+        hiddenfields = {"Characterpic", "Name"}  ## fields to hide on bio cards
         if not args:
             fields = [data.add_field(name=k, value=v) for k,v in userdata.items() if v and k not in hiddenfields]
         else:   # filter for fields
@@ -87,8 +87,8 @@ class Account(commands.Cog):
         else:
             data.set_author(name=user.name)
         
-        if len(fields) != 0:
-            await ctx.send(embed=data)
+        # if len(fields) != 0:
+        await ctx.send(embed=data)
         # else:
             # data = discord.Embed(colour=user.colour)
             # data.add_field(name="Error:warning:",value="{} doesn't have an account at the moment, sorry.".format(user.mention))
