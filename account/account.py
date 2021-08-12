@@ -69,7 +69,7 @@ class Account(commands.Cog):
         pic = userdata["Characterpic"]
         
         data = discord.Embed(description="{}".format(server), colour=user.colour)
-        hiddenfields = {"Characterpic", "Name"}  ## fields to hide on bio cards
+        hiddenfields = {"Characterpic", "NameTEST"}  ## fields to hide on bio cards
         if not args:
             fields = [data.add_field(name=k, value=v) for k,v in userdata.items() if v and k not in hiddenfields]
         else:   # filter for fields
@@ -190,7 +190,7 @@ class Account(commands.Cog):
 
         await self.config.member(user).Interests.set(interests)
         data = discord.Embed(colour=user.colour)
-        data.add_field(name="Congrats!:sparkles:",value="You have set your Job to {}".format(interests))
+        data.add_field(name="Congrats!:sparkles:",value="You have set your interests to {}".format(interests))
         await ctx.send(embed=data)
     
     @update.command(pass_context=True)
