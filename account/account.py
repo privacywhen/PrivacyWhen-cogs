@@ -13,14 +13,14 @@ class Account(commands.Cog):
         self.bot = bot
         default_member = {
             "Name": None,
-            "Age": None,
-            "Site": None,
-            "About": None,
-            "Pronoun": None,
-            "Interests": None,
-            "Email": None,
             "Program": None,
             "Level": None,
+            "Age": None,
+            "Pronoun": None,
+            "Site": None,
+            "About": None,
+            "Interests": None,
+            "Email": None,
             "Characterpic": None
         }
         default_guild = {
