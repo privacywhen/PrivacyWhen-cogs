@@ -17,10 +17,10 @@ class Account(commands.Cog):
             "Level": None,
             "Age": None,
             "Pronoun": None,
-            "Site": None,
             "About": None,
             "Interests": None,
             "Email": None,
+            "Site": None,
             "Characterpic": None
         }
         default_guild = {
@@ -83,14 +83,14 @@ class Account(commands.Cog):
 
         userdata = await self.config.member(user).all()
         pic = userdata["Characterpic"]
-        
         data = discord.Embed(description="{}".format(server), colour=user.colour)
         hiddenfields = {"Characterpic", "Name"}  ## fields to hide on bio cards
+        newlinefields = {"About", "Interests", "Email", "Site"}
         if not args:
-            fields = [data.add_field(name=k, value=v) for k,v in userdata.items() if v and k not in hiddenfields]
+            fields = [data.add_field(name=k, value=v, inline=k not in newlinefields) for k,v in userdata.items() if v and k not in hiddenfields]
         else:   # filter for fields
             fieldfilter = set([arg.lower() for arg in args])
-            fields = [data.add_field(name=k, value=v) for k,v in userdata.items() if k.lower() in fieldfilter and v and k not in hiddenfields]
+            fields = [data.add_field(name=k, value=v, inline=k not in newlinefields) for k,v in userdata.items() if k.lower() in fieldfilter and v and k not in hiddenfields]
 
         name = userdata["Name"]
         if user.avatar_url and not pic:
