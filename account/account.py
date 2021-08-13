@@ -41,7 +41,7 @@ class Account(commands.Cog):
         if user.id not in db:
             db.append(user.id)
             await self.config.guild(server).db.set(db)
-            name = user.display_name if user.display_name else str(user)        # register and set up name field
+            name = user.display_name #user.display_name if user.display_name else str(user)        # register and set up name field
             await self.config.member(user).Name.set(name)
 
 
@@ -84,17 +84,18 @@ class Account(commands.Cog):
         else:   # filter for fields
             fieldfilter = set([arg.lower() for arg in args])
             fields = [data.add_field(name=k, value=v) for k,v in userdata.items() if k.lower() in fieldfilter and v and k not in hiddenfields]
+
+        name = userdata["Name"]
         if user.avatar_url and not pic:
             # name = str(user)
             # name = " ~ ".join((name, user.nick)) if user.nick else name
-            name = userdata["Name"]
             data.set_author(name=name, url=user.avatar_url)
             data.set_thumbnail(url=user.avatar_url)
         elif pic:
-            data.set_author(name=user.name, url=user.avatar_url)
+            data.set_author(name=name, url=user.avatar_url)
             data.set_thumbnail(url=pic)
         else:
-            data.set_author(name=user.name)
+            data.set_author(name=name)
         
         # if len(fields) != 0:
         await ctx.send(embed=data)
@@ -122,8 +123,6 @@ class Account(commands.Cog):
         if user.id not in db:
             await self._reg(ctx, user)
 
-        if not name.strip():                # check for empty name input
-            name = user.display_name if user.display_name else str(user)
         await self.config.member(user).Name.set(name)
         data = discord.Embed(colour=user.colour)
         data.add_field(name="Congrats!:sparkles:",value="You have updated your name to {}".format(name))
