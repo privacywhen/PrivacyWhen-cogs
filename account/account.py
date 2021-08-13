@@ -70,7 +70,7 @@ class Account(commands.Cog):
             await self.config.member(user).clear()
             await self._reg(ctx, user)
             data = discord.Embed(colour=user.colour)
-            data.add_field(name="Your profile has been reset!".format(name))
+            data.add_field(name = "Success", value="Your profile has been reset!")
             await ctx.send(embed=data)
             return            
 
