@@ -34,8 +34,8 @@ class Account(commands.Cog):
         data = discord.Embed(colour=user.colour)
         data.add_field(name = title, value=msg)
         msg_id = await ctx.send(embed=data)       
-        await asyncio.sleep(3)
-        await utils.mod.slow_deletion([msg_id])
+        await asyncio.sleep(5)
+        await utils.mod.slow_deletion([msg_id, ctx.message])
 
     #@commands.command(name="signup")
     #@commands.guild_only()
