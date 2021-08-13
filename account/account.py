@@ -1,4 +1,4 @@
-from redbot.core import checks, Config
+from redbot.core import checks, Config, utils
 from redbot.core.i18n import Translator, cog_i18n
 import discord
 from redbot.core import commands
@@ -34,8 +34,8 @@ class Account(commands.Cog):
         data = discord.Embed(colour=user.colour)
         data.add_field(name = title, value=msg)
         msg_id = await ctx.send(embed=data)       
-        await asyncio.sleep(5)
-        await self.bot.core.utils.mod.slow_deletion([msg_id])
+        await asyncio.sleep(3)
+        await utils.mod.slow_deletion([msg_id])
 
     #@commands.command(name="signup")
     #@commands.guild_only()
