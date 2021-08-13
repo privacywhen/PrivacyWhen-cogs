@@ -19,7 +19,8 @@ class Account(commands.Cog):
             "Pronoun": None,
             "Interests": None,
             "Email": None,
-            "Other": None,
+            "Program": None,
+            "Level": None,
             "Characterpic": None
         }
         default_guild = {
@@ -232,8 +233,8 @@ class Account(commands.Cog):
 
     @update.command(pass_context=True)
     @commands.guild_only()
-    async def other(self, ctx, *, other):
-        """Incase you want to add anything else..."""
+    async def program(self, ctx, *, program):
+        """Which academic program are you in?"""
         
         server = ctx.guild
         user = ctx.author
@@ -243,11 +244,29 @@ class Account(commands.Cog):
         if user.id not in db:
             await self._reg(ctx, user)
 
-        await self.config.member(user).Other.set(other)
+        await self.config.member(user).Program.set(program)
         data = discord.Embed(colour=user.colour)
-        data.add_field(name="Congrats!:sparkles:",value="You have set your Other to {}".format(other))
+        data.add_field(name="Congrats!:sparkles:",value="You have set your academic program to {}".format(program))
         await ctx.send(embed=data)
-            
+
+    @update.command(pass_context=True)
+    @commands.guild_only()
+    async def level(self, ctx, *, level):
+        """Which level/year are you currently enrolled in?"""
+        
+        server = ctx.guild
+        user = ctx.author
+        prefix = ctx.prefix
+        db = await self.config.guild(server).db()
+
+        if user.id not in db:
+            await self._reg(ctx, user)
+
+        await self.config.member(user).Level.set(level)
+        data = discord.Embed(colour=user.colour)
+        data.add_field(name="Congrats!:sparkles:",value="You have set your enrolled level to {}".format(level))
+        await ctx.send(embed=data)
+
     @update.command(pass_context=True)
     @commands.guild_only()
     async def characterpic(self, ctx, *, characterpic):
