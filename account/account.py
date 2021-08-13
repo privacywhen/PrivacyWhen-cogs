@@ -135,6 +135,9 @@ class Account(commands.Cog):
         if user.id not in db:
             await self._reg(ctx, user)
 
+        if about.lower() == "reset":
+            about = ""
+
         await self.config.member(user).About.set(about)
         data = discord.Embed(colour=user.colour)
         data.add_field(name="Congrats!:sparkles:",value="You have updated your About Me to {}".format(about))
@@ -152,6 +155,9 @@ class Account(commands.Cog):
 
         if user.id not in db:
             await self._reg(ctx, user)
+
+        if site.lower() == "reset":
+            site = ""
 
         await self.config.member(user).Site.set(site)
         data = discord.Embed(colour=user.colour)
@@ -171,6 +177,9 @@ class Account(commands.Cog):
         if user.id not in db:
             await self._reg(ctx, user)
 
+        if age.lower() == "reset":
+            age = ""
+
         await self.config.member(user).Age.set(age)
         data = discord.Embed(colour=user.colour)
         data.add_field(name="Congrats!:sparkles:",value="You have set your age to {}".format(age))
@@ -189,6 +198,9 @@ class Account(commands.Cog):
         if user.id not in db:
             await self._reg(ctx, user)
 
+        if interests.lower() == "reset":
+            interests = ""
+
         await self.config.member(user).Interests.set(interests)
         data = discord.Embed(colour=user.colour)
         data.add_field(name="Congrats!:sparkles:",value="You have set your interests to {}".format(interests))
@@ -206,6 +218,9 @@ class Account(commands.Cog):
 
         if user.id not in db:
             await self._reg(ctx, user)
+
+        if pronoun.lower() == "reset":
+            pronoun = ""
 
         await self.config.member(user).Pronoun.set(pronoun)
         data = discord.Embed(colour=user.colour)
@@ -226,6 +241,9 @@ class Account(commands.Cog):
         if user.id not in db:
             await self._reg(ctx, user)
 
+        if email.lower() == "reset":
+            email = ""
+
         await self.config.member(user).Email.set(email)
         data = discord.Embed(colour=user.colour)
         data.add_field(name="Congrats!:sparkles:",value="You have set your Email to {}".format(email))
@@ -243,6 +261,9 @@ class Account(commands.Cog):
 
         if user.id not in db:
             await self._reg(ctx, user)
+
+        if program.lower() == "reset":
+            program = ""
 
         await self.config.member(user).Program.set(program)
         data = discord.Embed(colour=user.colour)
@@ -262,6 +283,9 @@ class Account(commands.Cog):
         if user.id not in db:
             await self._reg(ctx, user)
 
+        if level.lower() == "reset":
+            level = ""
+
         await self.config.member(user).Level.set(level)
         data = discord.Embed(colour=user.colour)
         data.add_field(name="Congrats!:sparkles:",value="You have set your enrolled level to {}".format(level))
@@ -279,6 +303,9 @@ class Account(commands.Cog):
 
         if user.id not in db:
             await self._reg(ctx, user)
+
+        if characterpic.lower() == "reset":
+            characterpic = ""
 
         await self.config.member(user).Characterpic.set(characterpic)
         data = discord.Embed(colour=user.colour)
