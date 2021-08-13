@@ -65,6 +65,14 @@ class Account(commands.Cog):
 
         if user.id not in db:
             await self._reg(ctx, user)
+        
+        if user == ctx.author and args and arg[0] == "reset":
+            await db.member.clear_raw(user)
+            await self._reg(ctx, user)
+            data = discord.Embed(colour=user.colour)
+            data.add_field(name="Your profile has been reset!".format(name))
+            await ctx.send(embed=data)
+            return            
 
         userdata = await self.config.member(user).all()
         pic = userdata["Characterpic"]
