@@ -41,7 +41,7 @@ class Account(commands.Cog):
         if user.id not in db:
             db.append(user.id)
             await self.config.guild(server).db.set(db)
-            name = user.nick if user.nick else str(user)        # register and set up name field
+            name = user.display_name if user.display_name else str(user)        # register and set up name field
             await self.config.member(user).Name.set(name)
 
 
@@ -123,7 +123,7 @@ class Account(commands.Cog):
             await self._reg(ctx, user)
 
         if not name.strip():                # check for empty name input
-            name = user.nick if user.nick else str(user)
+            name = user.display_name if user.display_name else str(user)
         await self.config.member(user).Name.set(name)
         data = discord.Embed(colour=user.colour)
         data.add_field(name="Congrats!:sparkles:",value="You have updated your name to {}".format(name))
