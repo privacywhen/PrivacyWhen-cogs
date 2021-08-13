@@ -66,7 +66,7 @@ class Account(commands.Cog):
         if user.id not in db:
             await self._reg(ctx, user)
         
-        if user == ctx.author and args and arg[0] == "reset":
+        if user == ctx.author and args and args[0].lower() == "reset":
             await db.member.clear_raw(user)
             await self._reg(ctx, user)
             data = discord.Embed(colour=user.colour)
