@@ -29,6 +29,11 @@ class Account(commands.Cog):
         self.config = Config.get_conf(self, identifier=42)
         self.config.register_guild(**default_guild)
         self.config.register_member(**default_member)
+
+    async def _sendMsg(self, ctx, user, title, msg):
+        data = discord.Embed(colour=user.colour)
+        data.add_field(name = title, value=msg)
+        await ctx.send(embed=data)       
     
     #@commands.command(name="signup")
     #@commands.guild_only()
@@ -67,11 +72,11 @@ class Account(commands.Cog):
             await self._reg(ctx, user)
         
         if user == ctx.author and args and args[0].lower() == "reset":
+            db.remove(user.id)
+            await self.config.guild(server).db.set(db)
             await self.config.member(user).clear()
             await self._reg(ctx, user)
-            data = discord.Embed(colour=user.colour)
-            data.add_field(name = "Success", value="Your profile has been reset!")
-            await ctx.send(embed=data)
+            await self._sendMsg(ctx, user, "Success", "Your profile has been reset!")
             return            
 
         userdata = await self.config.member(user).all()
@@ -124,9 +129,7 @@ class Account(commands.Cog):
             await self._reg(ctx, user)
 
         await self.config.member(user).Name.set(name)
-        data = discord.Embed(colour=user.colour)
-        data.add_field(name="Congrats!:sparkles:",value="You have updated your name to {}".format(name))
-        await ctx.send(embed=data)
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your name to {}".format(name))
 
 
     @update.command(pass_context=True)
@@ -146,9 +149,7 @@ class Account(commands.Cog):
             about = ""
 
         await self.config.member(user).About.set(about)
-        data = discord.Embed(colour=user.colour)
-        data.add_field(name="Congrats!:sparkles:",value="You have updated your About Me to {}".format(about))
-        await ctx.send(embed=data)
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your About Me to {}".format(about))
 
     @update.command(pass_context=True)
     @commands.guild_only()
@@ -167,9 +168,7 @@ class Account(commands.Cog):
             site = ""
 
         await self.config.member(user).Site.set(site)
-        data = discord.Embed(colour=user.colour)
-        data.add_field(name="Congrats!:sparkles:",value="You have set your Website to {}".format(site))
-        await ctx.send(embed=data)
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your Website to {}".format(site))
 
     @update.command(pass_context=True)
     @commands.guild_only()
@@ -188,9 +187,7 @@ class Account(commands.Cog):
             age = ""
 
         await self.config.member(user).Age.set(age)
-        data = discord.Embed(colour=user.colour)
-        data.add_field(name="Congrats!:sparkles:",value="You have set your age to {}".format(age))
-        await ctx.send(embed=data)
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your age to {}".format(age))
 
     @update.command(pass_context=True)
     @commands.guild_only()
@@ -209,9 +206,7 @@ class Account(commands.Cog):
             interests = ""
 
         await self.config.member(user).Interests.set(interests)
-        data = discord.Embed(colour=user.colour)
-        data.add_field(name="Congrats!:sparkles:",value="You have set your interests to {}".format(interests))
-        await ctx.send(embed=data)
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your interests to {}".format(interests))
     
     @update.command(pass_context=True)
     @commands.guild_only()
@@ -230,9 +225,7 @@ class Account(commands.Cog):
             pronoun = ""
 
         await self.config.member(user).Pronoun.set(pronoun)
-        data = discord.Embed(colour=user.colour)
-        data.add_field(name="Congrats!:sparkles:",value="You have set your pronoun to {}".format(pronoun))
-        await ctx.send(embed=data)
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your pronoun to {}".format(pronoun))
  
     @update.command(pass_context=True)
     @commands.guild_only()
@@ -252,9 +245,7 @@ class Account(commands.Cog):
             email = ""
 
         await self.config.member(user).Email.set(email)
-        data = discord.Embed(colour=user.colour)
-        data.add_field(name="Congrats!:sparkles:",value="You have set your Email to {}".format(email))
-        await ctx.send(embed=data)
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your email to {}".format(email))
 
     @update.command(pass_context=True)
     @commands.guild_only()
@@ -273,9 +264,7 @@ class Account(commands.Cog):
             program = ""
 
         await self.config.member(user).Program.set(program)
-        data = discord.Embed(colour=user.colour)
-        data.add_field(name="Congrats!:sparkles:",value="You have set your academic program to {}".format(program))
-        await ctx.send(embed=data)
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your program to {}".format(program))
 
     @update.command(pass_context=True)
     @commands.guild_only()
@@ -294,9 +283,7 @@ class Account(commands.Cog):
             level = ""
 
         await self.config.member(user).Level.set(level)
-        data = discord.Embed(colour=user.colour)
-        data.add_field(name="Congrats!:sparkles:",value="You have set your enrolled level to {}".format(level))
-        await ctx.send(embed=data)
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your level to {}".format(level))
 
     @update.command(pass_context=True)
     @commands.guild_only()
@@ -316,6 +303,4 @@ class Account(commands.Cog):
 
         await self.config.member(user).Characterpic.set(characterpic)
         data = discord.Embed(colour=user.colour)
-        data.add_field(name="Congrats!:sparkles:",value="You have set your characterpic to {}".format(characterpic))
-        data.set_image(url="{}".format(characterpic))
-        await ctx.send(embed=data)
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your profile picture to {}".format(characterpic))
