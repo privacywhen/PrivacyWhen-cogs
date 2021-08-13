@@ -67,7 +67,7 @@ class Account(commands.Cog):
             await self._reg(ctx, user)
         
         if user == ctx.author and args and args[0].lower() == "reset":
-            await db.member.clear_raw(user)
+            await self.config.member.clear_raw(user)
             await self._reg(ctx, user)
             data = discord.Embed(colour=user.colour)
             data.add_field(name="Your profile has been reset!".format(name))
