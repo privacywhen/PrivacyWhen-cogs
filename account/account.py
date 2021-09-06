@@ -114,7 +114,7 @@ class Account(commands.Cog):
         if not silent:
             await ctx.send(embed=data)
         else:
-            await user.send(embed=data)
+            await ctx.author.send(embed=data)
             await asyncio.sleep(1)
             await utils.mod.slow_deletion([ctx.message])
         # else:
