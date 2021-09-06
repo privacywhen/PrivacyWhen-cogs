@@ -85,7 +85,9 @@ class Account(commands.Cog):
         else:
             user = user.lower()
             users = []
-            for member in self.bot.get_all_members():
+            for id in db:
+                member = server.get_member(id)
+                print(member)
                 if user in str(self.config.member(member).Name()).lower():
                     users.append(member)
                     
