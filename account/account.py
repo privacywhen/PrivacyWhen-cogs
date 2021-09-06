@@ -92,7 +92,7 @@ class Account(commands.Cog):
 
         userdata = await self.config.member(user).all()
         pic = userdata["Characterpic"]
-        data = discord.Embed(description="{}".format(server), colour=user.colour)
+        data = discord.Embed(description="{}".format(debug_type), colour=user.colour)   #server
         hiddenfields = {"Characterpic", "Name"}  ## fields to hide on bio cards
         newlinefields = {"About", "Interests", "Email", "Site"}
         if not args:
