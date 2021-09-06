@@ -87,7 +87,7 @@ class Account(commands.Cog):
             users = []
             for id in db:
                 member = server.get_member(id)
-                print(member)
+                print(member, self.config.member(member).Name(), str(self.config.member(member).Name()).lower())
                 if user in str(self.config.member(member).Name()).lower():
                     users.append(member)
                     
