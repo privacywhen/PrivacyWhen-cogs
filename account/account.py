@@ -70,6 +70,12 @@ class Account(commands.Cog):
         db = await self.config.guild(server).db()
         user = user if user else ctx.author
 
+        if args and args[-1] == "-s":
+            args.pop()
+            silent = True
+        else:
+            silent = False
+
         if user.id not in db:
             await self._reg(ctx, user)
         
@@ -105,7 +111,12 @@ class Account(commands.Cog):
             data.set_author(name=name)
         
         # if len(fields) != 0:
-        await ctx.send(embed=data)
+        if not silent:
+            await ctx.send(embed=data)
+        else:
+            await user.send(embed=data)
+            await asyncio.sleep(1)
+            await utils.mod.slow_deletion([ctx.message])
         # else:
             # data = discord.Embed(colour=user.colour)
             # data.add_field(name="Error:warning:",value="{} doesn't have an account at the moment, sorry.".format(user.mention))
