@@ -86,7 +86,8 @@ class Account(commands.Cog):
             user = user.lower()
             users = []
             for id in db:
-                if user in self.config.member(self.bot.get_user(id)).Name().lower():
+                member = await self.bot.fetch_user(id)
+                if user in self.config.member(member).Name().lower():
                     users.append(id)
                     
         if args and args[-1] == "-s":
