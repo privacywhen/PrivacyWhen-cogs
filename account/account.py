@@ -1,4 +1,4 @@
-from redbot.core import checks, Config
+from redbot.core import checks, Config, utils
 from redbot.core.i18n import Translator, cog_i18n
 import discord
 from redbot.core import commands
@@ -17,10 +17,10 @@ class Account(commands.Cog):
             "Level": None,
             "Age": None,
             "Pronoun": None,
-            "Site": None,
             "About": None,
             "Interests": None,
             "Email": None,
+            "Site": None,
             "Characterpic": None
         }
         default_guild = {
@@ -29,7 +29,14 @@ class Account(commands.Cog):
         self.config = Config.get_conf(self, identifier=42)
         self.config.register_guild(**default_guild)
         self.config.register_member(**default_member)
-    
+
+    async def _sendMsg(self, ctx, user, title, msg):
+        data = discord.Embed(colour=user.colour)
+        data.add_field(name = title, value=msg)
+        msg_id = await ctx.send(embed=data)       
+        #await asyncio.sleep(5)
+        #await utils.mod.slow_deletion([msg_id, ctx.message])
+
     #@commands.command(name="signup")
     #@commands.guild_only()
     async def _reg(self, ctx, user):
@@ -41,7 +48,7 @@ class Account(commands.Cog):
         if user.id not in db:
             db.append(user.id)
             await self.config.guild(server).db.set(db)
-            name = user.nick if user.nick else str(user)        # register and set up name field
+            name = user.display_name #user.display_name if user.display_name else str(user)        # register and set up name field
             await self.config.member(user).Name.set(name)
 
 
@@ -61,35 +68,56 @@ class Account(commands.Cog):
                     
         server = ctx.guild
         db = await self.config.guild(server).db()
+        await self._sendMsg(ctx, ctx.author, "DEBUG", type(user))
         user = user if user else ctx.author
+
+        if args and args[-1] == "-s":
+            args = args[:-1]
+            silent = True
+        else:
+            silent = False
 
         if user.id not in db:
             await self._reg(ctx, user)
+        
+        if user == ctx.author and args and args[0].lower() == "reset":
+            db.remove(user.id)
+            await self.config.guild(server).db.set(db)
+            await self.config.member(user).clear()
+            await self._reg(ctx, user)
+            await self._sendMsg(ctx, user, "Success", "Your profile has been reset!")
+            return            
 
         userdata = await self.config.member(user).all()
         pic = userdata["Characterpic"]
-        
         data = discord.Embed(description="{}".format(server), colour=user.colour)
         hiddenfields = {"Characterpic", "Name"}  ## fields to hide on bio cards
+        newlinefields = {"About", "Interests", "Email", "Site"}
         if not args:
-            fields = [data.add_field(name=k, value=v) for k,v in userdata.items() if v and k not in hiddenfields]
+            fields = [data.add_field(name=k, value=v, inline=k not in newlinefields) for k,v in userdata.items() if v and k not in hiddenfields]
         else:   # filter for fields
             fieldfilter = set([arg.lower() for arg in args])
-            fields = [data.add_field(name=k, value=v) for k,v in userdata.items() if k.lower() in fieldfilter and v and k not in hiddenfields]
+            fields = [data.add_field(name=k, value=v, inline=k not in newlinefields) for k,v in userdata.items() if k.lower() in fieldfilter and v and k not in hiddenfields]
+
+        name = userdata["Name"]
         if user.avatar_url and not pic:
             # name = str(user)
             # name = " ~ ".join((name, user.nick)) if user.nick else name
-            name = userdata["Name"]
             data.set_author(name=name, url=user.avatar_url)
             data.set_thumbnail(url=user.avatar_url)
         elif pic:
-            data.set_author(name=user.name, url=user.avatar_url)
+            data.set_author(name=name, url=user.avatar_url)
             data.set_thumbnail(url=pic)
         else:
-            data.set_author(name=user.name)
+            data.set_author(name=name)
         
         # if len(fields) != 0:
-        await ctx.send(embed=data)
+        if not silent:
+            await ctx.send(embed=data)
+        else:
+            await ctx.author.send(embed=data)
+            await asyncio.sleep(1)
+            await utils.mod.slow_deletion([ctx.message])
         # else:
             # data = discord.Embed(colour=user.colour)
             # data.add_field(name="Error:warning:",value="{} doesn't have an account at the moment, sorry.".format(user.mention))
@@ -114,12 +142,8 @@ class Account(commands.Cog):
         if user.id not in db:
             await self._reg(ctx, user)
 
-        if not name.strip():                # check for empty name input
-            name = user.nick if user.nick else str(user)
         await self.config.member(user).Name.set(name)
-        data = discord.Embed(colour=user.colour)
-        data.add_field(name="Congrats!:sparkles:",value="You have updated your name to {}".format(name))
-        await ctx.send(embed=data)
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your name to {}".format(name))
 
 
     @update.command(pass_context=True)
@@ -135,10 +159,11 @@ class Account(commands.Cog):
         if user.id not in db:
             await self._reg(ctx, user)
 
+        if about.lower() == "reset":
+            about = ""
+
         await self.config.member(user).About.set(about)
-        data = discord.Embed(colour=user.colour)
-        data.add_field(name="Congrats!:sparkles:",value="You have updated your About Me to {}".format(about))
-        await ctx.send(embed=data)
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your About Me to {}".format(about))
 
     @update.command(pass_context=True)
     @commands.guild_only()
@@ -153,10 +178,11 @@ class Account(commands.Cog):
         if user.id not in db:
             await self._reg(ctx, user)
 
+        if site.lower() == "reset":
+            site = ""
+
         await self.config.member(user).Site.set(site)
-        data = discord.Embed(colour=user.colour)
-        data.add_field(name="Congrats!:sparkles:",value="You have set your Website to {}".format(site))
-        await ctx.send(embed=data)
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your Website to {}".format(site))
 
     @update.command(pass_context=True)
     @commands.guild_only()
@@ -171,10 +197,11 @@ class Account(commands.Cog):
         if user.id not in db:
             await self._reg(ctx, user)
 
+        if age.lower() == "reset":
+            age = ""
+
         await self.config.member(user).Age.set(age)
-        data = discord.Embed(colour=user.colour)
-        data.add_field(name="Congrats!:sparkles:",value="You have set your age to {}".format(age))
-        await ctx.send(embed=data)
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your age to {}".format(age))
 
     @update.command(pass_context=True)
     @commands.guild_only()
@@ -189,10 +216,11 @@ class Account(commands.Cog):
         if user.id not in db:
             await self._reg(ctx, user)
 
+        if interests.lower() == "reset":
+            interests = ""
+
         await self.config.member(user).Interests.set(interests)
-        data = discord.Embed(colour=user.colour)
-        data.add_field(name="Congrats!:sparkles:",value="You have set your interests to {}".format(interests))
-        await ctx.send(embed=data)
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your interests to {}".format(interests))
     
     @update.command(pass_context=True)
     @commands.guild_only()
@@ -207,10 +235,11 @@ class Account(commands.Cog):
         if user.id not in db:
             await self._reg(ctx, user)
 
+        if pronoun.lower() == "reset":
+            pronoun = ""
+
         await self.config.member(user).Pronoun.set(pronoun)
-        data = discord.Embed(colour=user.colour)
-        data.add_field(name="Congrats!:sparkles:",value="You have set your pronoun to {}".format(pronoun))
-        await ctx.send(embed=data)
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your pronoun to {}".format(pronoun))
  
     @update.command(pass_context=True)
     @commands.guild_only()
@@ -226,10 +255,11 @@ class Account(commands.Cog):
         if user.id not in db:
             await self._reg(ctx, user)
 
+        if email.lower() == "reset":
+            email = ""
+
         await self.config.member(user).Email.set(email)
-        data = discord.Embed(colour=user.colour)
-        data.add_field(name="Congrats!:sparkles:",value="You have set your Email to {}".format(email))
-        await ctx.send(embed=data)
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your email to {}".format(email))
 
     @update.command(pass_context=True)
     @commands.guild_only()
@@ -244,10 +274,11 @@ class Account(commands.Cog):
         if user.id not in db:
             await self._reg(ctx, user)
 
+        if program.lower() == "reset":
+            program = ""
+
         await self.config.member(user).Program.set(program)
-        data = discord.Embed(colour=user.colour)
-        data.add_field(name="Congrats!:sparkles:",value="You have set your academic program to {}".format(program))
-        await ctx.send(embed=data)
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your program to {}".format(program))
 
     @update.command(pass_context=True)
     @commands.guild_only()
@@ -262,10 +293,11 @@ class Account(commands.Cog):
         if user.id not in db:
             await self._reg(ctx, user)
 
+        if level.lower() == "reset":
+            level = ""
+
         await self.config.member(user).Level.set(level)
-        data = discord.Embed(colour=user.colour)
-        data.add_field(name="Congrats!:sparkles:",value="You have set your enrolled level to {}".format(level))
-        await ctx.send(embed=data)
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your level to {}".format(level))
 
     @update.command(pass_context=True)
     @commands.guild_only()
@@ -280,8 +312,9 @@ class Account(commands.Cog):
         if user.id not in db:
             await self._reg(ctx, user)
 
+        if characterpic.lower() == "reset":
+            characterpic = ""
+
         await self.config.member(user).Characterpic.set(characterpic)
         data = discord.Embed(colour=user.colour)
-        data.add_field(name="Congrats!:sparkles:",value="You have set your characterpic to {}".format(characterpic))
-        data.set_image(url="{}".format(characterpic))
-        await ctx.send(embed=data)
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your profile picture to {}".format(characterpic))
