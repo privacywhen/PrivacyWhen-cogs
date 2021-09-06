@@ -65,11 +65,11 @@ class Account(commands.Cog):
     @commands.guild_only()
     async def _acc(self, ctx, user : discord.Member=None, *args):
         """Your/Others Account"""
+        debug_type = "type: " + str(type(user))
+        await ctx.author.send(debug_type)
                     
         server = ctx.guild
         db = await self.config.guild(server).db()
-        debug_type = "type: " + str(type(user))
-        await ctx.author.send(debug_type)
         
         user = user if user else ctx.author
 
