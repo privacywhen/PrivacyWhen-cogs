@@ -76,10 +76,8 @@ class Account(commands.Cog):
         if not user:
             users = [ctx.author]
         elif user[:3] == "<@!":
-            print("user: ", user)
             converter = discord.ext.commands.MemberConverter()
             user = await converter.convert(ctx, user)
-            print("user object: ", user)
             if user.id not in db:
                 await self._reg(ctx, user)
 
@@ -92,7 +90,6 @@ class Account(commands.Cog):
                 return
             users = [user]
         else:
-            print("string user: ", user)
             user = user.lower()
             users = []
             for id in db:
