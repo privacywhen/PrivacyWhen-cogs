@@ -75,7 +75,7 @@ class Account(commands.Cog):
         db = await self.config.guild(server).db()
         if not user:
             users = [ctx.author]
-        elif user[0] == "@":
+        elif user[:3] == "<@!":
             print("user: ", user)
             converter = discord.ext.commands.MemberConverter()
             user = await converter.convert(ctx, user)
