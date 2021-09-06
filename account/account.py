@@ -65,65 +65,71 @@ class Account(commands.Cog):
     @commands.guild_only()
     async def _acc(self, ctx, user : discord.Member=None, *args):
         """Your/Others Account"""
-        debug_type = isinstance(user, discord.member.Member)
-        await ctx.author.send(debug_type)
                     
         server = ctx.guild
         db = await self.config.guild(server).db()
-        
-        user = user if user else ctx.author
+        if not user:
+            users = [ctx.author]
+        elif isinstance(user, discord.member.Member):
+            users = [user]
+            if user.id not in db:
+                await self._reg(ctx, user)
 
+            if user == ctx.author and args and args[0].lower() == "reset":
+                db.remove(user.id)
+                await self.config.guild(server).db.set(db)
+                await self.config.member(user).clear()
+                await self._reg(ctx, user)
+                await self._sendMsg(ctx, user, "Success", "Your profile has been reset!")
+                return            
+        else:
+            user = user.lower()
+            users = []
+            for id in db():
+                if user in self.config.member(id).Name().lower():
+                    users.append(id)
+                    
         if args and args[-1] == "-s":
             args = args[:-1]
             silent = True
         else:
             silent = False
 
-        if user.id not in db:
-            await self._reg(ctx, user)
-        
-        if user == ctx.author and args and args[0].lower() == "reset":
-            db.remove(user.id)
-            await self.config.guild(server).db.set(db)
-            await self.config.member(user).clear()
-            await self._reg(ctx, user)
-            await self._sendMsg(ctx, user, "Success", "Your profile has been reset!")
-            return            
+        for user in users:
+            userdata = await self.config.member(user).all()
+            pic = userdata["Characterpic"]
+            data = discord.Embed(colour=user.colour)   #description="{}".format(server) 
+            hiddenfields = {"Characterpic", "Name"}  ## fields to hide on bio cards
+            newlinefields = {"About", "Interests", "Email", "Site"}
+            if not args:
+                fields = [data.add_field(name=k, value=v, inline=k not in newlinefields) for k,v in userdata.items() if v and k not in hiddenfields]
+            else:   # filter for fields
+                fieldfilter = set([arg.lower() for arg in args])
+                fields = [data.add_field(name=k, value=v, inline=k not in newlinefields) for k,v in userdata.items() if k.lower() in fieldfilter and v and k not in hiddenfields]
 
-        userdata = await self.config.member(user).all()
-        pic = userdata["Characterpic"]
-        data = discord.Embed(description="{}".format(debug_type), colour=user.colour)   #server
-        hiddenfields = {"Characterpic", "Name"}  ## fields to hide on bio cards
-        newlinefields = {"About", "Interests", "Email", "Site"}
-        if not args:
-            fields = [data.add_field(name=k, value=v, inline=k not in newlinefields) for k,v in userdata.items() if v and k not in hiddenfields]
-        else:   # filter for fields
-            fieldfilter = set([arg.lower() for arg in args])
-            fields = [data.add_field(name=k, value=v, inline=k not in newlinefields) for k,v in userdata.items() if k.lower() in fieldfilter and v and k not in hiddenfields]
-
-        name = userdata["Name"]
-        if user.avatar_url and not pic:
-            # name = str(user)
-            # name = " ~ ".join((name, user.nick)) if user.nick else name
-            data.set_author(name=name, url=user.avatar_url)
-            data.set_thumbnail(url=user.avatar_url)
-        elif pic:
-            data.set_author(name=name, url=user.avatar_url)
-            data.set_thumbnail(url=pic)
-        else:
-            data.set_author(name=name)
-        
-        # if len(fields) != 0:
-        if not silent:
-            await ctx.send(embed=data)
-        else:
-            await ctx.author.send(embed=data)
-            await asyncio.sleep(1)
-            await utils.mod.slow_deletion([ctx.message])
-        # else:
-            # data = discord.Embed(colour=user.colour)
-            # data.add_field(name="Error:warning:",value="{} doesn't have an account at the moment, sorry.".format(user.mention))
-            # await ctx.send(embed=data)
+            name = userdata["Name"]
+            if user.avatar_url and not pic:
+                # name = str(user)
+                # name = " ~ ".join((name, user.nick)) if user.nick else name
+                data.set_author(name=name, url=user.avatar_url)
+                data.set_thumbnail(url=user.avatar_url)
+            elif pic:
+                data.set_author(name=name, url=user.avatar_url)
+                data.set_thumbnail(url=pic)
+            else:
+                data.set_author(name=name)
+            
+            # if len(fields) != 0:
+            if not silent:
+                await ctx.send(embed=data)
+            else:
+                await ctx.author.send(embed=data)
+                await asyncio.sleep(1)
+                await utils.mod.slow_deletion([ctx.message])
+            # else:
+                # data = discord.Embed(colour=user.colour)
+                # data.add_field(name="Error:warning:",value="{} doesn't have an account at the moment, sorry.".format(user.mention))
+                # await ctx.send(embed=data)
 
     @commands.group(name="update")
     @commands.guild_only()
