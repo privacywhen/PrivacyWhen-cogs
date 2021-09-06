@@ -30,10 +30,15 @@ class Account(commands.Cog):
         self.config.register_guild(**default_guild)
         self.config.register_member(**default_member)
 
-    async def _sendMsg(self, ctx, user, title, msg):
+    async def _sendMsg(self, ctx, user, title, msg, silent = False):
         data = discord.Embed(colour=user.colour)
         data.add_field(name = title, value=msg)
-        msg_id = await ctx.send(embed=data)       
+        if not silent:
+            await ctx.send(embed=data)
+        else:
+            await ctx.author.send(embed=data)
+            await asyncio.sleep(1)
+            await utils.mod.slow_deletion([ctx.message])
         #await asyncio.sleep(5)
         #await utils.mod.slow_deletion([msg_id, ctx.message])
 
@@ -74,7 +79,7 @@ class Account(commands.Cog):
             print("user: ", user)
             converter = discord.ext.commands.MemberConverter()
             user = await converter.convert(ctx, user)
-            print("user ubject: ", user)
+            print("user object: ", user)
             if user.id not in db:
                 await self._reg(ctx, user)
 
@@ -102,32 +107,33 @@ class Account(commands.Cog):
             silent = False
 
         if len(users) > 4:  # only show results if fewer than 4 to prevent spam
-            data = discord.Embed(colour=user.colour)
-            data.add_field(name = "Too many results", value="Refine your search")    
-        else:
-            for user in users:
-                userdata = await self.config.member(user).all()
-                pic = userdata["Characterpic"]
-                data = discord.Embed(colour=user.colour)   #description="{}".format(server) 
-                hiddenfields = {"Characterpic", "Name"}  ## fields to hide on bio cards
-                newlinefields = {"About", "Interests", "Email", "Site"}
-                if not args:
-                    fields = [data.add_field(name=k, value=v, inline=k not in newlinefields) for k,v in userdata.items() if v and k not in hiddenfields]
-                else:   # filter for fields
-                    fieldfilter = set([arg.lower() for arg in args])
-                    fields = [data.add_field(name=k, value=v, inline=k not in newlinefields) for k,v in userdata.items() if k.lower() in fieldfilter and v and k not in hiddenfields]
 
-                name = userdata["Name"]
-                if user.avatar_url and not pic:
-                    # name = str(user)
-                    # name = " ~ ".join((name, user.nick)) if user.nick else name
-                    data.set_author(name=name, url=user.avatar_url)
-                    data.set_thumbnail(url=user.avatar_url)
-                elif pic:
-                    data.set_author(name=name, url=user.avatar_url)
-                    data.set_thumbnail(url=pic)
-                else:
-                    data.set_author(name=name)
+            await self._sendMsg(ctx, ctx.author, "Too many results", "Refine your search", silent)
+            return
+
+        for user in users:
+            userdata = await self.config.member(user).all()
+            pic = userdata["Characterpic"]
+            data = discord.Embed(colour=user.colour)   #description="{}".format(server) 
+            hiddenfields = {"Characterpic", "Name"}  ## fields to hide on bio cards
+            newlinefields = {"About", "Interests", "Email", "Site"}
+            if not args:
+                fields = [data.add_field(name=k, value=v, inline=k not in newlinefields) for k,v in userdata.items() if v and k not in hiddenfields]
+            else:   # filter for fields
+                fieldfilter = set([arg.lower() for arg in args])
+                fields = [data.add_field(name=k, value=v, inline=k not in newlinefields) for k,v in userdata.items() if k.lower() in fieldfilter and v and k not in hiddenfields]
+
+            name = userdata["Name"]
+            if user.avatar_url and not pic:
+                # name = str(user)
+                # name = " ~ ".join((name, user.nick)) if user.nick else name
+                data.set_author(name=name, url=user.avatar_url)
+                data.set_thumbnail(url=user.avatar_url)
+            elif pic:
+                data.set_author(name=name, url=user.avatar_url)
+                data.set_thumbnail(url=pic)
+            else:
+                data.set_author(name=name)
             
             # if len(fields) != 0:
             if not silent:
