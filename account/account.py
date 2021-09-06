@@ -92,6 +92,7 @@ class Account(commands.Cog):
                 return
             users = [user]
         else:
+            print("string user: ", user)
             user = user.lower()
             users = []
             for id in db:
