@@ -63,7 +63,7 @@ class Account(commands.Cog):
     
     @commands.command(name="account")
     @commands.guild_only()
-    async def _acc(self, ctx, user, *args): # : discord.Member=None
+    async def _acc(self, ctx, user = None, *args): # : discord.Member=None
         """Your/Others Account"""
                     
         server = ctx.guild
@@ -85,7 +85,7 @@ class Account(commands.Cog):
         else:
             user = user.lower()
             users = []
-            for id in db():
+            for id in db:
                 if user in self.config.member(id).Name().lower():
                     users.append(id)
                     
