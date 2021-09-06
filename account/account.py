@@ -70,8 +70,9 @@ class Account(commands.Cog):
         db = await self.config.guild(server).db()
         if not user:
             users = [ctx.author]
-        elif isinstance(user, discord.member.Member):
-            users = [user]
+        elif user[0] == "@":
+            converter = discord.ext.commands.MemberConverter()
+            user = await converter.convert(ctx, user)
             if user.id not in db:
                 await self._reg(ctx, user)
 
@@ -88,7 +89,6 @@ class Account(commands.Cog):
             for id in db:
                 member = server.get_member(id)
                 name = await self.config.member(member).get_raw("Name")
-                print(member, self.config.member(member).Name(), name)
                 if user in name.lower():
                     users.append(member)
                     
@@ -97,6 +97,10 @@ class Account(commands.Cog):
             silent = True
         else:
             silent = False
+
+        if len(users) > 4:  # only show results if fewer than 4 to prevent spam
+            await self._sendMsg(ctx, ctx.author, "Too many results", "Refine your search")
+            return
 
         for user in users:
             userdata = await self.config.member(user).all()
