@@ -65,7 +65,7 @@ class Account(commands.Cog):
     @commands.guild_only()
     async def _acc(self, ctx, user : discord.Member=None, *args):
         """Your/Others Account"""
-        debug_type = "type: " + str(type(user))
+        debug_type = isinstance(user, discord.member.Member)
         await ctx.author.send(debug_type)
                     
         server = ctx.guild
