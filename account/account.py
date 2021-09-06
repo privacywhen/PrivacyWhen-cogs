@@ -68,7 +68,7 @@ class Account(commands.Cog):
                     
         server = ctx.guild
         db = await self.config.guild(server).db()
-        await self._sendMsg(ctx, ctx.author, "DEBUG", type(user))
+        await self._sendMsg(ctx, ctx.author, "DEBUG", "type: " + str(type(user)))
         user = user if user else ctx.author
 
         if args and args[-1] == "-s":
