@@ -63,7 +63,7 @@ class Account(commands.Cog):
     
     @commands.command(name="account")
     @commands.guild_only()
-    async def _acc(self, ctx, user : discord.Member=None, *args):
+    async def _acc(self, ctx, user, *args): # : discord.Member=None
         """Your/Others Account"""
                     
         server = ctx.guild
