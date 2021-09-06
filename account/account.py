@@ -82,7 +82,8 @@ class Account(commands.Cog):
                 await self.config.member(user).clear()
                 await self._reg(ctx, user)
                 await self._sendMsg(ctx, user, "Success", "Your profile has been reset!")
-                return            
+                return
+            users = [user]
         else:
             user = user.lower()
             users = []
