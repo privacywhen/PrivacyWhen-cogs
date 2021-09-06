@@ -71,7 +71,7 @@ class Account(commands.Cog):
         user = user if user else ctx.author
 
         if args and args[-1] == "-s":
-            args.pop()
+            args = args[:-1]
             silent = True
         else:
             silent = False
