@@ -160,6 +160,8 @@ class Account(commands.Cog):
         if len(name) > 3 and name[-3:] == " -s":
             silent = True
             name = name[:-3]
+        else:
+            silent = False
         server = ctx.guild
         user = ctx.author
         prefix = ctx.prefix
@@ -176,7 +178,11 @@ class Account(commands.Cog):
     @commands.guild_only()
     async def about(self, ctx, *, about):
         """Tell us about yourself"""
-        
+        if len(about) > 3 and about[-3:] == " -s":
+            silent = True
+            about = about[:-3]
+        else:
+            silent = False
         server = ctx.guild
         user = ctx.author
         prefix = ctx.prefix
@@ -189,13 +195,17 @@ class Account(commands.Cog):
             about = ""
 
         await self.config.member(user).About.set(about)
-        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your About Me to {}".format(about))
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your About Me to {}".format(about), silent)
 
     @update.command(pass_context=True)
     @commands.guild_only()
     async def website(self, ctx, *, site):
         """Do you have a website?"""
-        
+        if len(site) > 3 and site[-3:] == " -s":
+            silent = True
+            site = site[:-3]
+        else:
+            silent = False
         server = ctx.guild
         user = ctx.message.author
         prefix = ctx.prefix
@@ -208,13 +218,17 @@ class Account(commands.Cog):
             site = ""
 
         await self.config.member(user).Site.set(site)
-        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your Website to {}".format(site))
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your Website to {}".format(site), silent)
 
     @update.command(pass_context=True)
     @commands.guild_only()
     async def age(self, ctx, *, age):
         """How old are you?"""
-        
+        if len(age) > 3 and age[-3:] == " -s":
+            silent = True
+            age = age[:-3]
+        else:
+            silent = False    
         server = ctx.guild
         user = ctx.author
         prefix = ctx.prefix
@@ -227,13 +241,17 @@ class Account(commands.Cog):
             age = ""
 
         await self.config.member(user).Age.set(age)
-        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your age to {}".format(age))
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your age to {}".format(age), silent)
 
     @update.command(pass_context=True)
     @commands.guild_only()
     async def interests(self, ctx, *, interests):
         """What are your interests?"""
-        
+        if len(interests) > 3 and interests[-3:] == " -s":
+            silent = True
+            interests = interests[:-3]
+        else:
+            silent = False            
         server = ctx.guild
         user = ctx.author
         prefix = ctx.prefix
@@ -246,13 +264,17 @@ class Account(commands.Cog):
             interests = ""
 
         await self.config.member(user).Interests.set(interests)
-        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your interests to {}".format(interests))
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your interests to {}".format(interests), silent)
     
     @update.command(pass_context=True)
     @commands.guild_only()
     async def pronoun(self, ctx, *, pronoun):
         """What are your preferred pronouns?"""
-
+        if len(pronoun) > 3 and pronoun[-3:] == " -s":
+            silent = True
+            pronoun = pronoun[:-3]
+        else:
+            silent = False      
         server = ctx.guild
         user = ctx.author
         prefix = ctx.prefix
@@ -265,13 +287,17 @@ class Account(commands.Cog):
             pronoun = ""
 
         await self.config.member(user).Pronoun.set(pronoun)
-        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your pronoun to {}".format(pronoun))
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your pronoun to {}".format(pronoun), silent)
  
     @update.command(pass_context=True)
     @commands.guild_only()
     async def email(self, ctx, *, email):
         """What's your email address?"""
-
+        if len(email) > 3 and email[-3:] == " -s":
+            silent = True
+            email = email[:-3]
+        else:
+            silent = False      
         
         server = ctx.guild
         user = ctx.author
@@ -285,13 +311,18 @@ class Account(commands.Cog):
             email = ""
 
         await self.config.member(user).Email.set(email)
-        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your email to {}".format(email))
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your email to {}".format(email), silent)
 
     @update.command(pass_context=True)
     @commands.guild_only()
     async def program(self, ctx, *, program):
         """Which academic program are you in?"""
-        
+        if len(program) > 3 and program[-3:] == " -s":
+            silent = True
+            program = program[:-3]
+        else:
+            silent = False
+
         server = ctx.guild
         user = ctx.author
         prefix = ctx.prefix
@@ -304,13 +335,18 @@ class Account(commands.Cog):
             program = ""
 
         await self.config.member(user).Program.set(program)
-        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your program to {}".format(program))
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your program to {}".format(program), silent)
 
     @update.command(pass_context=True)
     @commands.guild_only()
     async def level(self, ctx, *, level):
         """Which level/year are you currently enrolled in?"""
-        
+        if len(level) > 3 and level[-3:] == " -s":
+            silent = True
+            level = level[:-3]
+        else:
+            silent = False
+
         server = ctx.guild
         user = ctx.author
         prefix = ctx.prefix
@@ -323,13 +359,18 @@ class Account(commands.Cog):
             level = ""
 
         await self.config.member(user).Level.set(level)
-        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your level to {}".format(level))
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your level to {}".format(level), silent)
 
     @update.command(pass_context=True)
     @commands.guild_only()
     async def picture(self, ctx, *, picture):
         """What picture would you like to display on your account?"""
-        
+        if len(picture) > 3 and picture[-3:] == " -s":
+            silent = True
+            picture = picture[:-3]
+        else:
+            silent = False   
+
         server = ctx.guild
         user = ctx.author
         prefix = ctx.prefix
@@ -343,4 +384,4 @@ class Account(commands.Cog):
 
         await self.config.member(user).Picture.set(picture)
         data = discord.Embed(colour=user.colour)
-        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your profile picture to {}".format(picture))
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your profile picture to {}".format(picture), silent)
