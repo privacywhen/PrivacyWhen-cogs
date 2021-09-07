@@ -138,13 +138,13 @@ class Account(commands.Cog):
                 await ctx.send(embed=data)
             else:
                 await ctx.author.send(embed=data)
-                await asyncio.sleep(1)
-                await utils.mod.slow_deletion([ctx.message])
             # else:
                 # data = discord.Embed(colour=user.colour)
                 # data.add_field(name="Error:warning:",value="{} doesn't have an account at the moment, sorry.".format(user.mention))
                 # await ctx.send(embed=data)
-
+        await asyncio.sleep(1)
+        await utils.mod.slow_deletion([ctx.message])
+        
     @commands.group(name="update")
     @commands.guild_only()
     async def update(self, ctx):
