@@ -157,7 +157,9 @@ class Account(commands.Cog):
     @commands.guild_only()
     async def name(self, ctx, *, name):
         """Your name"""
-        
+        if len(name) > 3 and name[-3:] == " -s":
+            silent = True
+            name = name[:-3]
         server = ctx.guild
         user = ctx.author
         prefix = ctx.prefix
@@ -167,7 +169,7 @@ class Account(commands.Cog):
             await self._reg(ctx, user)
 
         await self.config.member(user).Name.set(name)
-        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your name to {}".format(name))
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your name to {}".format(name), silent)
 
 
     @update.command(pass_context=True)
