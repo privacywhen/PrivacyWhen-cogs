@@ -21,7 +21,7 @@ class Account(commands.Cog):
             "Interests": None,
             "Email": None,
             "Site": None,
-            "Characterpic": None
+            "Picture": None
         }
         default_guild = {
             "db": []
@@ -113,9 +113,9 @@ class Account(commands.Cog):
         else:
             for user in users:
                 userdata = await self.config.member(user).all()
-                pic = userdata["Characterpic"]
+                pic = userdata["Picture"]
                 data = discord.Embed(colour=user.colour)   #description="{}".format(server) 
-                hiddenfields = {"Characterpic", "Name"}  ## fields to hide on bio cards
+                hiddenfields = {"Picture", "Name"}  ## fields to hide on bio cards
                 newlinefields = {"About", "Interests", "Email", "Site"}
                 if not args:
                     fields = [data.add_field(name=k, value=v, inline=k not in newlinefields) for k,v in userdata.items() if v and k not in hiddenfields]
@@ -325,8 +325,8 @@ class Account(commands.Cog):
 
     @update.command(pass_context=True)
     @commands.guild_only()
-    async def characterpic(self, ctx, *, characterpic):
-        """What does your character look like?"""
+    async def picture(self, ctx, *, picture):
+        """What picture would you like to display on your account?"""
         
         server = ctx.guild
         user = ctx.author
@@ -336,9 +336,9 @@ class Account(commands.Cog):
         if user.id not in db:
             await self._reg(ctx, user)
 
-        if characterpic.lower() == "reset":
-            characterpic = ""
+        if picture.lower() == "reset":
+            picture = ""
 
-        await self.config.member(user).Characterpic.set(characterpic)
+        await self.config.member(user).Picture.set(picture)
         data = discord.Embed(colour=user.colour)
-        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your profile picture to {}".format(characterpic))
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your profile picture to {}".format(picture))
