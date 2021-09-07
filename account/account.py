@@ -108,40 +108,42 @@ class Account(commands.Cog):
 
             await self._sendMsg(ctx, ctx.author, "Too many results", "Refine your search", silent)
             return
+        elif not users:
+            await self._sendMsg(ctx, ctx.author, "No results", "Double check your search term", silent)
+        else:
+            for user in users:
+                userdata = await self.config.member(user).all()
+                pic = userdata["Characterpic"]
+                data = discord.Embed(colour=user.colour)   #description="{}".format(server) 
+                hiddenfields = {"Characterpic", "Name"}  ## fields to hide on bio cards
+                newlinefields = {"About", "Interests", "Email", "Site"}
+                if not args:
+                    fields = [data.add_field(name=k, value=v, inline=k not in newlinefields) for k,v in userdata.items() if v and k not in hiddenfields]
+                else:   # filter for fields
+                    fieldfilter = set([arg.lower() for arg in args])
+                    fields = [data.add_field(name=k, value=v, inline=k not in newlinefields) for k,v in userdata.items() if k.lower() in fieldfilter and v and k not in hiddenfields]
 
-        for user in users:
-            userdata = await self.config.member(user).all()
-            pic = userdata["Characterpic"]
-            data = discord.Embed(colour=user.colour)   #description="{}".format(server) 
-            hiddenfields = {"Characterpic", "Name"}  ## fields to hide on bio cards
-            newlinefields = {"About", "Interests", "Email", "Site"}
-            if not args:
-                fields = [data.add_field(name=k, value=v, inline=k not in newlinefields) for k,v in userdata.items() if v and k not in hiddenfields]
-            else:   # filter for fields
-                fieldfilter = set([arg.lower() for arg in args])
-                fields = [data.add_field(name=k, value=v, inline=k not in newlinefields) for k,v in userdata.items() if k.lower() in fieldfilter and v and k not in hiddenfields]
-
-            name = userdata["Name"]
-            if user.avatar_url and not pic:
-                # name = str(user)
-                # name = " ~ ".join((name, user.nick)) if user.nick else name
-                data.set_author(name=name, url=user.avatar_url)
-                data.set_thumbnail(url=user.avatar_url)
-            elif pic:
-                data.set_author(name=name, url=user.avatar_url)
-                data.set_thumbnail(url=pic)
-            else:
-                data.set_author(name=name)
+                name = userdata["Name"]
+                if user.avatar_url and not pic:
+                    # name = str(user)
+                    # name = " ~ ".join((name, user.nick)) if user.nick else name
+                    data.set_author(name=name, url=user.avatar_url)
+                    data.set_thumbnail(url=user.avatar_url)
+                elif pic:
+                    data.set_author(name=name, url=user.avatar_url)
+                    data.set_thumbnail(url=pic)
+                else:
+                    data.set_author(name=name)
             
-            # if len(fields) != 0:
-            if not silent:
-                await ctx.send(embed=data)
-            else:
-                await ctx.author.send(embed=data)
-            # else:
-                # data = discord.Embed(colour=user.colour)
-                # data.add_field(name="Error:warning:",value="{} doesn't have an account at the moment, sorry.".format(user.mention))
-                # await ctx.send(embed=data)
+                # if len(fields) != 0:
+                if not silent:
+                    await ctx.send(embed=data)
+                else:
+                    await ctx.author.send(embed=data)
+                # else:
+                    # data = discord.Embed(colour=user.colour)
+                    # data.add_field(name="Error:warning:",value="{} doesn't have an account at the moment, sorry.".format(user.mention))
+                    # await ctx.send(embed=data)
         # wait asyncio.sleep(1)
         if silent: await utils.mod.slow_deletion([ctx.message])
 
