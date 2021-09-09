@@ -64,7 +64,8 @@ class Bookmark(commands.Cog):
                 # Unpack jump_url from PlaceMarker
                 _, link = mark
                 print(link, type(link))
-                if link == f"https://discordapp.com/channels/{payload.guild_id}/{payload.channel_id}/{payload.message_id}":
+                cmp = f"https://discordapp.com/channels/{payload.guild_id}/{payload.channel_id}/{payload.message_id}"
+                if link == cmp:
                     print("found")
                     del bookmarks[i]
                     break
