@@ -59,11 +59,13 @@ class Bookmark(commands.Cog):
             bookmarks.append(PlaceMarker(content or "[no content]",
                                          message.jump_url))
         else:
+            print("actual:", f"https://discordapp.com/channels/{payload.guild_id}/{payload.channel_id}/{payload.message_id}")
             for i, mark in enumerate(bookmarks):
                 # Unpack jump_url from PlaceMarker
                 _, link = mark
                 print(link)
                 if link == f"https://discordapp.com/channels/{payload.guild_id}/{payload.channel_id}/{payload.message_id}":
+                    print("found")
                     del bookmarks[i]
                     break
         await self.conf.user(user).bookmarks.set(bookmarks)
