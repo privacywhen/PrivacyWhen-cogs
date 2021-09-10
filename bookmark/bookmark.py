@@ -7,7 +7,7 @@ from redbot.core import checks, Config, commands, bot
 
 log = logging.getLogger("red.cbd-cogs.bookmark")
 
-__all__ = ["UNIQUE_ID", "Bookmark"]
+__all__ = ["UNIQUE_ID", "Bio"]
 
 UNIQUE_ID = 0x426f6f6b6d61726b
 
@@ -62,7 +62,7 @@ class Bookmark(commands.Cog):
             for i, mark in enumerate(bookmarks):
                 # Unpack jump_url from PlaceMarker
                 _, link = mark
-                if link.endswith(f"{payload.guild_id}/{payload.channel_id}/{payload.message_id}"):
+                if link == f"https://discord.com/channels/{payload.guild_id}/{payload.channel_id}/{payload.message_id}":
                     del bookmarks[i]
                     break
         await self.conf.user(user).bookmarks.set(bookmarks)
