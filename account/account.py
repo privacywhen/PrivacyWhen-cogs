@@ -88,9 +88,9 @@ class Account(commands.Cog):
             return            
 
         userdata = await self.config.member(user).all()
-        pic = userdata["Characterpic"]
+        pic = userdata["Picture"]
         data = discord.Embed(description="{}".format(server), colour=user.colour)
-        hiddenfields = {"Characterpic", "Name"}  ## fields to hide on bio cards
+        hiddenfields = {"Picture", "Name"}  ## fields to hide on bio cards
         newlinefields = {"About", "Interests", "Email", "Site"}
         if not args:
             fields = [data.add_field(name=k, value=v, inline=k not in newlinefields) for k,v in userdata.items() if v and k not in hiddenfields]
@@ -300,7 +300,7 @@ class Account(commands.Cog):
 
     @update.command(pass_context=True)
     @commands.guild_only()
-    async def characterpic(self, ctx, *, characterpic):
+    async def Picture(self, ctx, *, Picture):
         """What does your character look like?"""
         
         server = ctx.guild
@@ -311,9 +311,9 @@ class Account(commands.Cog):
         if user.id not in db:
             await self._reg(ctx, user)
 
-        if characterpic.lower() == "reset":
-            characterpic = ""
+        if Picture.lower() == "reset":
+            Picture = ""
 
-        await self.config.member(user).Characterpic.set(characterpic)
+        await self.config.member(user).Picture.set(Picture)
         data = discord.Embed(colour=user.colour)
-        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your profile picture to {}".format(characterpic))
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your profile picture to {}".format(Picture))
