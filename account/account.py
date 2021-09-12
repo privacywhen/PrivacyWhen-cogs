@@ -16,7 +16,7 @@ class Account(commands.Cog):
             "Program": None,
             "Level": None,
             "Age": None,
-            "Pronouns": None,
+            "pronouns": None,
             "About": None,
             "Interests": None,
             "Email": None,
@@ -223,8 +223,8 @@ class Account(commands.Cog):
     
     @update.command(pass_context=True)
     @commands.guild_only()
-    async def pronoun(self, ctx, *, pronoun):
-        """What are your preferred pronouns?"""
+    async def pronouns(self, ctx, *, pronouns):
+        """What are your preferred pronounss?"""
 
         server = ctx.guild
         user = ctx.author
@@ -234,11 +234,11 @@ class Account(commands.Cog):
         if user.id not in db:
             await self._reg(ctx, user)
 
-        if pronoun.lower() == "reset":
-            pronoun = ""
+        if pronouns.lower() == "reset":
+            pronouns = ""
 
-        await self.config.member(user).Pronoun.set(pronoun)
-        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your pronoun to {}".format(pronoun))
+        await self.config.member(user).pronouns.set(pronouns)
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your pronouns to {}".format(pronouns))
  
     @update.command(pass_context=True)
     @commands.guild_only()
