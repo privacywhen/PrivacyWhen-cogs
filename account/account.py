@@ -16,7 +16,7 @@ class Account(commands.Cog):
             "Program": None,
             "Level": None,
             "Age": None,
-            "pronouns": None,
+            "Pronouns": None,
             "About": None,
             "Interests": None,
             "Email": None,
@@ -223,8 +223,8 @@ class Account(commands.Cog):
     
     @update.command(pass_context=True)
     @commands.guild_only()
-    async def pronouns(self, ctx, *, pronouns):
-        """What are your preferred pronounss?"""
+    async def Pronouns(self, ctx, *, pronouns):
+        """What are your pronouns?"""
 
         server = ctx.guild
         user = ctx.author
@@ -237,7 +237,7 @@ class Account(commands.Cog):
         if pronouns.lower() == "reset":
             pronouns = ""
 
-        await self.config.member(user).pronouns.set(pronouns)
+        await self.config.member(user).Pronouns.set(pronouns)
         await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your pronouns to {}".format(pronouns))
  
     @update.command(pass_context=True)
@@ -300,7 +300,7 @@ class Account(commands.Cog):
 
     @update.command(pass_context=True)
     @commands.guild_only()
-    async def Picture(self, ctx, *, Picture):
+    async def picture(self, ctx, *, picture):
         """What does your character look like?"""
         
         server = ctx.guild
@@ -311,9 +311,9 @@ class Account(commands.Cog):
         if user.id not in db:
             await self._reg(ctx, user)
 
-        if Picture.lower() == "reset":
-            Picture = ""
+        if picture.lower() == "reset":
+            picture = ""
 
-        await self.config.member(user).Picture.set(Picture)
+        await self.config.member(user).Picture.set(picture)
         data = discord.Embed(colour=user.colour)
-        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your profile picture to {}".format(Picture))
+        await self._sendMsg(ctx, user, "Congrats!:sparkles:", "You have updated your profile picture to {}".format(picture))
