@@ -16,12 +16,12 @@ class Account(commands.Cog):
             "Program": None,
             "Level": None,
             "Age": None,
-            "Pronoun": None,
+            "Pronouns": None,
             "About": None,
             "Interests": None,
             "Email": None,
             "Site": None,
-            "Characterpic": None
+            "Picture": None
         }
         default_guild = {
             "db": []
