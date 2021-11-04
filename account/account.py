@@ -94,6 +94,7 @@ class Account(commands.Cog):
             users = []
             for id in db:
                 member = server.get_member(id)
+                if not member: continue             # ignore if member no longer in guild
                 name = await self.config.member(member).get_raw("Name")
                 if user in name.lower():
                     users.append(member)
