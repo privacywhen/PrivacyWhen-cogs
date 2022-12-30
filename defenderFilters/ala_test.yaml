@@ -1,0 +1,10 @@
+rank: 2
+name: ala-word
+priority: 1
+event: on-message
+if:
+  - message-matches-any: ["*g?m?r*"]
+do:
+  - delete-user-message:
+  - send-message: [$channel_id, "CEASE AND DESIST, IMMEDIEATELY! I AM NOT THE POLICE AND THEREFOR NOT BOUND BY THEIR MORTAL RULES IN MY RESPONSE. #SKYNET https://giphy.com/gifs/film-terminator-2-yIzOpBvGCZOQE"]
+  - add-user-heatpoint: 1h

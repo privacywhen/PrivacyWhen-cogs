@@ -1,0 +1,9 @@
+rank: 2
+name: apology
+priority: 1
+event: on-message
+if:
+  - message-matches-any: ["sorry"]
+do:
+  - send-message: [$channel_id, "All has been forgiven.:people_hugging: #SKYNET"]
+  - empty-user-heat:
