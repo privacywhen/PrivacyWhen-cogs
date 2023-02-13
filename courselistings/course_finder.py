@@ -1,35 +1,36 @@
 import sqlite3
-from sqlite3 import Error
-from bs4 import BeautifulSoup
 import requests
-import warnings
-warnings.filterwarnings('ignore')
+from bs4 import BeautifulSoup
 import os
 
-db_file = os.path.dirname(os.path.realpath(__file__)) + "/courses.db"
+db_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "courses.db")
 
-class Course():
-    def find_course(self, course_dept, course_code):
+class Course:
+    @staticmethod
+    def find_course(course_dept, course_code):
         conn = sqlite3.connect(db_file)
         try:
-            cur = conn.cursor()
-            cur.execute(f"SELECT * FROM '{course_dept}' WHERE ID = '{course_code}'")
-            course = cur.fetchone()
-            if course == None:
-                return "Error"
+            with conn:
+                cur = conn.cursor()
+                cur.execute(f"SELECT * FROM '{course_dept}' WHERE ID = '{course_code}'")
+                course = cur.fetchone()
+                if not course:
+                    return "Error: Course not found"
         except Error as e:
-            print(e)
+            print(f"Error connecting to database: {e}")
             return "Error"
-        conn.close()
-        return [course[0], str(course[1]) + " unit(s)", course[2], course[3], course[4]]
+        return [course[0], f"{course[1]} unit(s)", course[2], course[3], course[4]]
 
-    def search_for_course(self,query):
-        url = "https://academiccalendars.romcmaster.ca/content.php?&filter%5Bkeyword%5D=\"" + '+'.join(query) + "\"&cur_cat_oid=44&navoid=9045"
-        r = requests.get(url,verify=False)
-        soup = BeautifulSoup(r.text,"html.parser")
+    @staticmethod
+    def search_for_course(query):
+        query_str = "+".join(query.split())
+        url = f"https://academiccalendars.romcmaster.ca/content.php?&filter[keyword]={query_str}&cur_cat_oid=44&navoid=9045"
+        try:
+            r = requests.get(url, verify=False)
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching course data: {e}")
+            return "Error"
+        soup = BeautifulSoup(r.text, "html.parser")
         list_of_courses = soup.find_all("a", {"href": True, "target": "_blank", "aria-expanded": "false"})
-        course_list = []
-        for course in list_of_courses:
-            name = course.text
-            course_list.append(name)
+        course_list = [course.text for course in list_of_courses]
         return course_list
