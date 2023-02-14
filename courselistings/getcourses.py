@@ -5,8 +5,8 @@ from redbot.core import commands
 course_finder = Course()
 
 class GetCourses(commands.Cog):
-def init(self, bot):
-self.bot = bot
+     def __init__(self, bot):
+          self.bot = bot
 
  @commands.command()
  async def course(self, ctx, *args):
