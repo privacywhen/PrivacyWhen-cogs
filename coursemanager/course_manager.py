@@ -137,19 +137,16 @@ class CourseManager(commands.Cog):
         return courses
 
     def course_exists(self, course_code):
-        """Checks if the course exists in the database."""
-        with sqlite3.connect(db_file) as conn:
-            try:
-                cur = conn.cursor()
-                cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
-                tables = [table[0] for table in cur.fetchall()]
-                for table in tables:
-                    cur.execute("SELECT * FROM ? WHERE ID = ?", (table, course_code))
-                    if cur.fetchone():
-                        return True
-            except Error as e:
-                print(e)
-        return False
+    """Checks if the course exists in the database."""
+    with sqlite3.connect(db_file) as conn:
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM courses WHERE code = ?", (course_code,))
+            return cur.fetchone() is not None
+        except Error as e:
+            print(e)
+    return False
+
 
     def setup(bot):
         bot.add_cog(CourseManager(bot))
