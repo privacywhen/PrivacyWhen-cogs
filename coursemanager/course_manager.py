@@ -76,7 +76,7 @@ class CourseManager(commands.Cog):
         if self.logging_channel:
             await self.logging_channel.send(f"{ctx.author} has left {course_code}.")
 
-    @checks.admin()
+    @commands.has_permissions(administrator=True)
     @course.command()
     async def delete(self, ctx, channel: discord.TextChannel):
         """Deletes a course channel."""
@@ -88,7 +88,7 @@ class CourseManager(commands.Cog):
         if self.logging_channel:
             await self.logging_channel.send(f"{channel} has been deleted.")
 
-    @checks.admin()
+    @commands.has_permissions(administrator=True)
     @commands.command()
     async def setcourse(self, ctx, option: str, channel: discord.TextChannel):
         """Sets logging channel for the cog."""
