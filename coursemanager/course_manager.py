@@ -1,6 +1,5 @@
 import discord
-from discord.ext import commands
-from redbot.core import checks
+from redbot.core import checks, commands
 import sqlite3
 from sqlite3 import Error
 import os
@@ -76,7 +75,7 @@ class CourseManager(commands.Cog):
         if self.logging_channel:
             await self.logging_channel.send(f"{ctx.author} has left {course_code}.")
 
-    @commands.has_permissions(administrator=True)
+    @checks.admin()
     @course.command()
     async def delete(self, ctx, channel: discord.TextChannel):
         """Deletes a course channel."""
@@ -88,7 +87,7 @@ class CourseManager(commands.Cog):
         if self.logging_channel:
             await self.logging_channel.send(f"{channel} has been deleted.")
 
-    @commands.has_permissions(administrator=True)
+    @checks.admin()
     @commands.command()
     async def setcourse(self, ctx, option: str, channel: discord.TextChannel):
         """Sets logging channel for the cog."""
