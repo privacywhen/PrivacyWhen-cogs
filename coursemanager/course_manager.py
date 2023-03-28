@@ -7,7 +7,7 @@ import os
 
 db_file = f"{os.path.dirname(os.path.realpath(__file__))}/courses.db"
 
-class coursemanager(commands.Cog):
+class CourseManager(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.category_name = "COURSES"
@@ -153,4 +153,4 @@ class coursemanager(commands.Cog):
         return False
 
     def setup(bot):
-        bot.add_cog(coursemanager(bot))
+        bot.add_cog(CourseManager(bot))

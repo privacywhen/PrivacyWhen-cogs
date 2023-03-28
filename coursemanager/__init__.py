@@ -1,4 +1,4 @@
-from .course_manager import coursemanager
+from .course_manager import CourseManager
 
 def setup(bot):
-    bot.add_cog(coursemanager(bot))
+    bot.add_cog(CourseManager(bot))
