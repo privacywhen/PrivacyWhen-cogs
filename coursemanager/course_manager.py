@@ -53,10 +53,9 @@ class CourseManager(commands.Cog):
             existing_channel = await self.create_course_channel(ctx.guild, course_code, category, ctx.author)
 
         await existing_channel.set_permissions(ctx.author, read_messages=True, send_messages=True) # set send_messages to True
-       await ctx.send(f"You have successfully joined {course_code}.")
+        await ctx.send(f"You have successfully joined {course_code}.")
         if self.logging_channel:
             await self.logging_channel.send(f"{ctx.author.mention} has joined {course_code}.") # use mention to ping user
-
 
     @course.command()
     @commands.cooldown(1, 10, commands.BucketType.user)
