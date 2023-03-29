@@ -65,8 +65,12 @@ class CourseManager(commands.Cog):
         existing_channel = discord.utils.get(ctx.guild.channels, name=channel_name)
 
         if existing_channel is None:
-            await ctx.send(f"Error: You are not a member of {course_code}.")
-            return
+            # Check if the channel exists with the modified name
+            channel_name = course_code.upper().replace(" ", "-")
+            existing_channel = discord.utils.get(ctx.guild.channels, name=channel_name)
+            if existing_channel is None:
+                await ctx.send(f"Error: You are not a member of {course_code}.")
+                return
 
         await existing_channel.set_permissions(ctx.author, read_messages=None)
         await ctx.send(f"You have successfully left {course_code}.")
