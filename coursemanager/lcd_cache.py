@@ -22,16 +22,21 @@ class CacheHandler:
             now = datetime.datetime.utcnow()
             expiry = datetime.datetime.fromisoformat(courses[course_code]["expiry"])
             if now < expiry:
+                print(f"Course {course_code} found in cache.")
+                print(courses[course_code]["details"])
                 return True
             else:
                 del courses[course_code]
 
+        print(f"Course {course_code} not found in cache. Searching online...")
         exists_online, course_details = await self.check_course_online(course_code)
         if exists_online:
             now = datetime.datetime.utcnow()
             expiry = (now + datetime.timedelta(days=120)).isoformat()
             courses[course_code] = {"expiry": expiry, "details": course_details}
             await self.config.courses.set(courses)
+            print(f"Course {course_code} added to cache.")
+            print(course_details)
             return True
 
         return False
@@ -54,5 +59,7 @@ class CacheHandler:
                         "title": title,
                         "offered": offered
                     }
+                    print(f"Course {course_code} found online.")
+                    print(course_details)
                     return True, course_details
                 return False, None
