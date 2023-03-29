@@ -29,9 +29,14 @@ class CourseManager(commands.Cog):
 
     @course.command()
     @commands.cooldown(1, 10, commands.BucketType.user)
-    async def join(self, ctx, course_code: str):
+    async def join(self, ctx, *args):
         """Allows a user to join a course."""
-        course_code = " ".join([course_code.split(" ")[0].upper(), course_code.split(" ")[1]])
+        if len(args) < 2:
+            await ctx.send("Error: Please enter a valid course code with both department and course number (e.g. PSYCH 1X03).")
+            return
+
+        course_code = " ".join([args[0].upper(), args[1]])
+
         if not await self.course_exists(course_code):
             await ctx.send(f"Error: The course code {course_code} is not valid. Please enter a valid course code.")
             return
