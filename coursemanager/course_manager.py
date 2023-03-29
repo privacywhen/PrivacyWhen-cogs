@@ -1,5 +1,6 @@
 import discord
 from redbot.core import checks, commands
+from typing import Optional
 from .lcd_cache import CacheHandler
 from .faculty_dictionary import FACULTIES
 
@@ -30,7 +31,6 @@ class CourseManager(commands.Cog):
     @course.command()
     @commands.cooldown(1, 10, commands.BucketType.user)
     async def join(self, ctx, *args):
-        """Allows a user to join a course."""
         if len(args) < 2:
             await ctx.send("Error: Please enter a valid course code with both department and course number (e.g. PSYCH 1X03).")
             return
@@ -45,46 +45,30 @@ class CourseManager(commands.Cog):
             await ctx.send(f"Error: You have reached the maximum limit of {self.max_courses} courses. Please leave a course before joining another.")
             return
 
-        category = self.get_category(ctx.guild)
-        channel = self.get_course_channel(ctx.guild, course_code)
-        if not channel:
-            channel = await self.create_course_channel(ctx.guild, category, course_code)
-            overwrite = discord.PermissionOverwrite.from_pair(discord.Permissions.none(), discord.Permissions.none())
-            try:
-                await channel.set_permissions(ctx.guild.default_role, overwrite=overwrite)
-            except discord.Forbidden:
-                await ctx.send("Error: I don't have permission to manage channel permissions.")
-                return
+        channel_name = course_code.lower().replace(" ", "-")
+        existing_channel = discord.utils.get(ctx.guild.channels, name=channel_name)
 
-        overwrite = discord.PermissionOverwrite.from_pair(self.channel_permissions, discord.Permissions.none())
-        try:
-            await channel.set_permissions(ctx.author, overwrite=overwrite)
-        except discord.Forbidden:
-            await ctx.send("Error: I don't have permission to manage channel permissions.")
-            return
+        if existing_channel is None:
+            existing_channel = await create_course_channel(ctx.guild, course_code, course_category, ctx.author)
 
-        await ctx.send(f"You have successfully joined {course_code}.", delete_after=120)
+        await existing_channel.set_permissions(ctx.author, read_messages=True)
+        await ctx.send(f"You have successfully joined {course_code}.")
         if self.logging_channel:
             await self.logging_channel.send(f"{ctx.author} has joined {course_code}.")
 
     @course.command()
     @commands.cooldown(1, 10, commands.BucketType.user)
     async def leave(self, ctx, course_code: str):
-        """Allows a user to leave a course."""
         course_code = " ".join([course_code.split(" ")[0].upper(), course_code.split(" ")[1]])
-        channel = self.get_course_channel(ctx.guild, course_code)
-        if not channel:
+        channel_name = course_code.lower().replace(" ", "-")
+        existing_channel = discord.utils.get(ctx.guild.channels, name=channel_name)
+
+        if existing_channel is None:
             await ctx.send(f"Error: You are not a member of {course_code}.")
             return
 
-        overwrite = discord.PermissionOverwrite.from_pair(discord.Permissions.none(), discord.Permissions.none())
-        try:
-            await channel.set_permissions(ctx.author, overwrite=overwrite)
-        except discord.Forbidden:
-            await ctx.send("Error: I don't have permission to manage channel permissions.")
-            return
-
-        await ctx.send(f"You have successfully left {course_code}.", delete_after=120)
+        await existing_channel.set_permissions(ctx.author, read_messages=None)
+        await ctx.send(f"You have successfully left {course_code}.")
         if self.logging_channel:
             await self.logging_channel.send(f"{ctx.author} has left {course_code}.")
 
@@ -126,7 +110,7 @@ class CourseManager(commands.Cog):
                 return category
         return None
 
-    def get_course_channel(self, guild, course_code):
+    async def get_course_channel(self, guild, course_code):
         """Returns a course channel if it exists."""
         category = self.get_category(guild)
         if not category:
@@ -137,8 +121,7 @@ class CourseManager(commands.Cog):
                 return channel
         return None
 
-    
-    async def create_course_channel(self, guild, category, course_code):
+    async def create_course_channel(guild, course_code, category, user):
         """Creates a new course channel."""
         # Find the appropriate category for the course
         department_code = course_code.split(" ")[0]
@@ -157,13 +140,19 @@ class CourseManager(commands.Cog):
         if course_category is None:
             course_category = await guild.create_category(course_category_name)
 
+        default_role_overwrites = discord.PermissionOverwrite(read_messages=False)
+        bot_overwrites = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        user_overwrites = discord.PermissionOverwrite(read_messages=True, send_messages=True, view_channel=True)
+
         overwrites = {
-            guild.default_role: discord.PermissionOverwrite.from_pair(discord.Permissions.none(), discord.Permissions.none()),
-            guild.me: discord.PermissionOverwrite.from_pair(discord.Permissions.all(), discord.Permissions.none())
+            guild.default_role: default_role_overwrites,
+            guild.me: bot_overwrites,
+            user: user_overwrites,
         }
-        # Use the course_category for creating the new course channel
+
         channel_name = course_code.replace(" ", "-").upper()
-        return await guild.create_text_channel(channel_name, overwrites=overwrites, category=course_category)
+        new_channel = await guild.create_text_channel(channel_name, overwrites=overwrites, category=course_category)
+        return new_channel
 
     def get_user_courses(self, user):
         """Returns a list of courses a user has joined."""
@@ -173,10 +162,17 @@ class CourseManager(commands.Cog):
             if not category:
                 continue
             for channel in category.channels:
-                if isinstance(channel, discord.TextChannel) and channel.permissions_for(user).view_channel:  # Changed from read_messages to view_channel
+                if isinstance(channel, discord.TextChannel) and channel.permissions_for(user).view_channel:
                     courses.append(channel.name.upper())
         return courses
 
     async def course_exists(self, course_code):
         """Checks if the course exists in the cache or online."""
         return await self.cache_handler.course_code_exists(course_code)
+
+    async def format_course_code(self, course_code: str) -> Optional[str]:
+        course_parts = course_code.split(" ")
+        if len(course_parts) < 2:
+            return None
+
+        return f"{course_parts[0].upper()}-{course_parts[1]}"
