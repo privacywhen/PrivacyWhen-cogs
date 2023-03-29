@@ -31,7 +31,7 @@ class CourseManager(commands.Cog):
     @commands.cooldown(1, 10, commands.BucketType.user)
     async def join(self, ctx, course_code: str):
         """Allows a user to join a course."""
-        course_code = course_code.upper()
+        course_code = " ".join([course_code.split(" ")[0].upper(), course_code.split(" ")[1]])
         if not await self.course_exists(course_code):
             await ctx.send(f"Error: The course code {course_code} is not valid. Please enter a valid course code.")
             return
@@ -66,7 +66,7 @@ class CourseManager(commands.Cog):
     @commands.cooldown(1, 10, commands.BucketType.user)
     async def leave(self, ctx, course_code: str):
         """Allows a user to leave a course."""
-        course_code = course_code.upper()
+        course_code = " ".join([course_code.split(" ")[0].upper(), course_code.split(" ")[1]])
         channel = self.get_course_channel(ctx.guild, course_code)
         if not channel:
             await ctx.send(f"Error: You are not a member of {course_code}.")
@@ -157,10 +157,10 @@ class CourseManager(commands.Cog):
             guild.me: discord.PermissionOverwrite.from_pair(discord.Permissions.all(), discord.Permissions.none())
         }
         # Use the course_category for creating the new course channel
-        channel_name = course_code.split(" ")[0].upper() + "-" + course_code.split(" ")[1]
+        channel_name = course_code.replace(" ", "-").upper()
         return await guild.create_text_channel(channel_name, overwrites=overwrites, category=course_category)
 
-    def get_user_courses(self, user):
+        def get_user_courses(self, user):
         """Returns a list of courses a user has joined."""
         courses = []
         for guild in self.bot.guilds:
@@ -168,7 +168,7 @@ class CourseManager(commands.Cog):
             if not category:
                 continue
             for channel in category.channels:
-                if isinstance(channel, discord.TextChannel) and channel.permissions_for(user).read_messages:
+                if isinstance(channel, discord.TextChannel) and channel.permissions_for(user).view_channel:  # Changed from read_messages to view_channel
                     courses.append(channel.name.upper())
         return courses
 

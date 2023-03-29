@@ -50,7 +50,7 @@ class CacheHandler:
                 soup = BeautifulSoup(content, "xml")
                 course = soup.add_suggest.find("rs")
 
-                if course:
+                if course and course_code == f"{course.text.split(' ')[0]} {course.text.split(' ')[1]}":
                     dept, code = course.text.split(" ")
                     offered, title = course["info"].split("<br/>")
                     course_details = {
