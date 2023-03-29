@@ -47,7 +47,7 @@ class CourseManager(commands.Cog):
 
         category = self.get_category(ctx.guild)
         channel_name = course_code.lower().replace(" ", "-")
-       existing_channel = discord.utils.get(ctx.guild.channels, name=channel_name)
+        existing_channel = discord.utils.get(ctx.guild.channels, name=channel_name)
 
         if existing_channel is None:
             existing_channel = await self.create_course_channel(ctx.guild, course_code, category, ctx.author)
