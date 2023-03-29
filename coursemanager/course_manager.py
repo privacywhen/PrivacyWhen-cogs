@@ -44,7 +44,8 @@ class CourseManager(commands.Cog):
         if len(self.get_user_courses(ctx.author)) >= self.max_courses:
             await ctx.send(f"Error: You have reached the maximum limit of {self.max_courses} courses. Please leave a course before joining another.")
             return
-
+        
+        category = self.get_category(ctx.guild)
         channel_name = course_code.lower().replace(" ", "-")
         existing_channel = discord.utils.get(ctx.guild.channels, name=channel_name)
 
