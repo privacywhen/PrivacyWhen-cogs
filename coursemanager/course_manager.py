@@ -138,7 +138,7 @@ class CourseManager(commands.Cog):
         # Check if the category exists, if not create it
         course_category = discord.utils.get(guild.categories, name=course_category_name)
         if course_category is None:
-            course_category = await guild.create_category(course_category_name)
+            course_category = guild.create_category(course_category_name)
 
         default_role_overwrites = discord.PermissionOverwrite(read_messages=False)
         bot_overwrites = discord.PermissionOverwrite(read_messages=True, send_messages=True)
