@@ -100,6 +100,13 @@ class CourseManager(commands.Cog):
 
         await ctx.send("Invalid option. Use '=setcourse logging' followed by the channel.")
 
+    @checks.admin()
+    @course.command()
+    async def clearcache(self, ctx):
+        """Clears the course cache."""
+        await self.cache_handler.config.courses.set({})
+        await ctx.send("Course cache cleared.")
+
     def get_category(self, guild):
         """Returns the COURSES category."""
         for category in guild.categories:
