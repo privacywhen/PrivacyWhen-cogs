@@ -117,7 +117,7 @@ class CourseManager(commands.Cog):
     def get_category(self, guild):
         """Returns the COURSES category."""
         for category in guild.categories:
-            if category.name == self.category_name:
+            if category.name.lower() == self.category_name.lower():
                 return category
         return None
 
@@ -157,7 +157,7 @@ class CourseManager(commands.Cog):
             guild.me: discord.PermissionOverwrite.from_pair(discord.Permissions.all(), discord.Permissions.none())
         }
         # Use the course_category for creating the new course channel
-        channel_name = course_code.upper().replace(" ", "-")
+        channel_name = course_code.split(" ")[0].upper() + "-" + course_code.split(" ")[1]
         return await guild.create_text_channel(channel_name, overwrites=overwrites, category=course_category)
 
     def get_user_courses(self, user):
