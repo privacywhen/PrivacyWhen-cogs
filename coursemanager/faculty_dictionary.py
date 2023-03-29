@@ -1,0 +1,31 @@
+FACULTIES = {
+    "humanities": [
+        "ARABIC", "ART", "ARTHIST", "CLASSICS", "ENGLISH", "FARSI", "FRENCH", "GERMAN", "GREEK", "HEBREW",
+        "HISTORY", "HUMAN", "ITALIAN", "JAPANESE", "KOREAN", "LATIN", "LINGUIST", "MUSIC", "PHILOS", "POLISH",
+        "RUSSIAN", "SANSKRIT", "ARTSSCI", "MELD", "MUSICCOG", "ABLD", "INTENG", "MEDIAART", "SCAR"
+    ],
+    "science": [
+        "ASTRON", "BIOCHEM", "BIOLOGY", "BIOPHYS", "CHEM", "CHEMBIO", "DATASCI", "EARTHSC", "ENVIRSC", "MATH",
+        "MEDPHYS", "MOLBIOL", "NEUROSCI", "PHYSICS", "PNB", "PSYCH", "STATS", "SCICOMM"
+    ],
+    "social_sciences": [
+        "ANTHROP", "CAYUGA", "COLLAB", "ECON", "GENDRST", "GLOBALZN", "INDIGST", "LATAM", "OJIBWE", "PEACJUST",
+        "POLSCI", "SOCPSY", "SOCIOL", "SOCSCI", "SOCWORK", "SPANISH", "SUSTAIN", "CMTYENGA"
+    ],
+    "business": [
+        "COMMERCE", "ENGSOCTY", "ENGNMGT", "IBH", "MGT"
+    ],
+    "engineering": [
+        "AUTOTECH", "BIOMEDDC", "BIOSAFE", "BIOTECH", "CHEMBME", "CHEMENG", "CIVBME", "CIVENG", "CIVTECH",
+        "COMPENG", "COMPSCI", "ELECBME", "ELECENG", "ENGINEER", "ENGPHYS", "ENGTECH", "ENRTECH", "EPHYSBME",
+        "GENTECH", "MANTECH", "MATLS", "MATLSBME", "MECHBME", "MECHENG", "MECHTRON", "PROCTECH", "SCIENCE",
+        "SFWRBME", "SFWRENG", "SFWRTECH", "TRONBME", "INNOVATE", "SFGNTECH", "SMRTTECH"
+    ],
+    "health_sciences": [
+        "HLTHAGE", "HTHSCI", "HUMBEHV", "IARTS", "IBEHS", "KINESIOL", "LIFESCI", "MEDRADSC", "MIDWIF",
+        "NURSING", "PHARMAC", "RADTHER"
+    ],
+    "other": [
+        "EXPLORE", "HUMSC", "INSPIRE", "ISCI", "SEP", "WHMIS", "WORKLABR"
+    ]
+}

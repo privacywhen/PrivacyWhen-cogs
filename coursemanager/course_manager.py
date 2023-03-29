@@ -1,6 +1,7 @@
 import discord
 from redbot.core import checks, commands
 from .lcd_cache import CacheHandler
+from .faculty_dictionary import FACULTIES
 
 class CourseManager(commands.Cog):
     """A cog for managing course-related channels."""
@@ -133,11 +134,29 @@ class CourseManager(commands.Cog):
 
     async def create_course_channel(self, guild, category, course_code):
         """Creates a new course channel."""
+        # Find the appropriate category for the course
+        department_code = course_code.split(" ")[0]
+        course_category_name = None
+        for faculty, departments in FACULTIES.items():
+            if department_code in departments:
+                course_category_name = faculty.upper()
+                break
+
+        # If the course_category_name is still None, set it to a default category
+        if course_category_name is None:
+            course_category_name = "OTHER"
+
+        # Check if the category exists, if not create it
+        course_category = discord.utils.get(guild.categories, name=course_category_name)
+        if course_category is None:
+            course_category = await guild.create_category(course_category_name)
+
         overwrites = {
             guild.default_role: discord.PermissionOverwrite.from_pair(discord.Permissions.none(), discord.Permissions.none()),
             guild.me: discord.PermissionOverwrite.from_pair(discord.Permissions.all(), discord.Permissions.none())
         }
-        return await guild.create_text_channel(course_code.lower(), overwrites=overwrites, category=category)
+        # Use the course_category for creating the new course channel
+        return await guild.create_text_channel(course_code.lower().replace(" ", "-"), overwrites=overwrites, category=course_category)
 
     def get_user_courses(self, user):
         """Returns a list of courses a user has joined."""
