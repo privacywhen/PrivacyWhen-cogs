@@ -43,6 +43,12 @@ class CourseManager(commands.Cog):
         channel = self.get_course_channel(ctx.guild, course_code)
         if not channel:
             channel = await self.create_course_channel(ctx.guild, category, course_code)
+            overwrite = discord.PermissionOverwrite.from_pair(discord.Permissions.none(), discord.Permissions.none())
+            try:
+                await channel.set_permissions(ctx.guild.default_role, overwrite=overwrite)
+            except discord.Forbidden:
+                await ctx.send("Error: I don't have permission to manage channel permissions.")
+                return
 
         overwrite = discord.PermissionOverwrite.from_pair(self.channel_permissions, discord.Permissions.none())
         try:
