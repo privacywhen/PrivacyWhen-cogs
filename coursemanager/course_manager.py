@@ -1,18 +1,17 @@
 import discord
 from redbot.core import checks, commands
-import sqlite3
-from sqlite3 import Error
-import os
-
-db_file = f"{os.path.dirname(os.path.realpath(__file__))}/courses.db"
+from .lcd_cache import CacheHandler
 
 class CourseManager(commands.Cog):
+    """A cog for managing course-related channels."""
     def __init__(self, bot):
+        """Initialize the CourseManager with the bot instance."""
         self.bot = bot
         self.category_name = "COURSES"
         self.channel_permissions = discord.Permissions(view_channel=True, send_messages=True, read_message_history=True)
-        self.max_courses = 10
+        self.max_courses = 15
         self.logging_channel = None
+        self.cache_handler = CacheHandler(bot)
 
     @commands.group(invoke_without_command=True)
     async def course(self, ctx):
@@ -28,14 +27,15 @@ class CourseManager(commands.Cog):
         await ctx.send(embed=embed)
 
     @course.command()
+    @commands.cooldown(1, 10, commands.BucketType.user)
     async def join(self, ctx, course_code: str):
         """Allows a user to join a course."""
         course_code = course_code.upper()
-        if not self.course_exists(course_code):
+        if not await self.course_exists(course_code):
             await ctx.send(f"Error: The course code {course_code} is not valid. Please enter a valid course code.")
             return
 
-        if len(self.get_user_courses(ctx.author)) >= self.max_courses:
+        if len(await self.get_user_courses(ctx.author)) >= self.max_courses:
             await ctx.send(f"Error: You have reached the maximum limit of {self.max_courses} courses. Please leave a course before joining another.")
             return
 
@@ -56,6 +56,7 @@ class CourseManager(commands.Cog):
             await self.logging_channel.send(f"{ctx.author} has joined {course_code}.")
 
     @course.command()
+    @commands.cooldown(1, 10, commands.BucketType.user)
     async def leave(self, ctx, course_code: str):
         """Allows a user to leave a course."""
         course_code = course_code.upper()
@@ -77,6 +78,7 @@ class CourseManager(commands.Cog):
 
     @checks.admin()
     @course.command()
+    @commands.cooldown(1, 60, commands.BucketType.user)
     async def delete(self, ctx, channel: discord.TextChannel):
         """Deletes a course channel."""
         if not channel.category or channel.category.name != self.category_name:
@@ -136,17 +138,6 @@ class CourseManager(commands.Cog):
                     courses.append(channel.name.upper())
         return courses
 
-    def course_exists(self, course_code):
-    """Checks if the course exists in the database."""
-    with sqlite3.connect(db_file) as conn:
-        try:
-            cur = conn.cursor()
-            cur.execute("SELECT * FROM courses WHERE code = ?", (course_code,))
-            return cur.fetchone() is not None
-        except Error as e:
-            print(e)
-    return False
-
-
-    def setup(bot):
-        bot.add_cog(CourseManager(bot))
+    async def course_exists(self, course_code):
+        """Checks if the course exists in the cache or online."""
+        return await self.cache_handler.course_code_exists(course_code)
