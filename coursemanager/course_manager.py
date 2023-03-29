@@ -110,7 +110,7 @@ class CourseManager(commands.Cog):
                 return category
         return None
 
-    async def get_course_channel(self, guild, course_code):
+    def get_course_channel(self, guild, course_code):
         """Returns a course channel if it exists."""
         category = self.get_category(guild)
         if not category:
@@ -151,7 +151,7 @@ class CourseManager(commands.Cog):
         }
 
         channel_name = course_code.replace(" ", "-").upper()
-        new_channel = await guild.create_text_channel(channel_name, overwrites=overwrites, category=course_category)
+        new_channel = guild.create_text_channel(channel_name, overwrites=overwrites, category=course_category)
         return new_channel
 
     def get_user_courses(self, user):
