@@ -62,4 +62,6 @@ class CacheHandler:
                     print(f"Course {course_code} found online.")
                     print(course_details)
                     return True, course_details
-                return False, None
+                else:
+                    print(f"Course {course_code} not found online.")
+                    return False, None
