@@ -35,7 +35,7 @@ class CourseManager(commands.Cog):
             await ctx.send(f"Error: The course code {course_code} is not valid. Please enter a valid course code.")
             return
 
-        if len(await self.get_user_courses(ctx.author)) >= self.max_courses:
+        if len(self.get_user_courses(ctx.author)) >= self.max_courses:
             await ctx.send(f"Error: You have reached the maximum limit of {self.max_courses} courses. Please leave a course before joining another.")
             return
 
