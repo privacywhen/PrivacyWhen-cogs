@@ -121,7 +121,7 @@ class CourseManager(commands.Cog):
                 return channel
         return None
 
-    def create_course_channel(guild, course_code, category, user):
+    async def create_course_channel(self, guild, course_code, category, user):
         """Creates a new course channel."""
         # Find the appropriate category for the course
         department_code = course_code.split(" ")[0]
@@ -138,7 +138,7 @@ class CourseManager(commands.Cog):
         # Check if the category exists, if not create it
         course_category = discord.utils.get(guild.categories, name=course_category_name)
         if course_category is None:
-            course_category = guild.create_category(course_category_name)
+            course_category = await guild.create_category(course_category_name)
 
         default_role_overwrites = discord.PermissionOverwrite(read_messages=False)
         bot_overwrites = discord.PermissionOverwrite(read_messages=True, send_messages=True)
@@ -151,7 +151,7 @@ class CourseManager(commands.Cog):
         }
 
         channel_name = course_code.replace(" ", "-").upper()
-        new_channel = guild.create_text_channel(channel_name, overwrites=overwrites, category=course_category)
+        new_channel = await guild.create_text_channel(channel_name, overwrites=overwrites, category=course_category)
         return new_channel
 
     def get_user_courses(self, user):
