@@ -159,7 +159,6 @@ class CourseManager(commands.Cog):
         new_channel = await guild.create_text_channel(channel_name, overwrites=overwrites, category=course_category)
         return new_channel
 
-
     def get_user_courses(self, user):
         """Returns a list of courses a user has joined."""
         courses = []
@@ -167,9 +166,12 @@ class CourseManager(commands.Cog):
             category = self.get_category(guild)
             if not category:
                 continue
+            if user not in guild.members:
+                continue
             for channel in category.channels:
                 if isinstance(channel, discord.TextChannel) and channel.permissions_for(user).view_channel:
-                    courses.append(channel.name.upper())
+                    if category.name in FACULTIES:
+                        courses.append(channel.name.upper())
         return courses
 
     async def course_exists(self, course_code):
@@ -182,3 +184,12 @@ class CourseManager(commands.Cog):
             return None
 
         return f"{course_parts[0].upper()}-{course_parts[1]}"
+
+    @course.command()
+    async def mine(self, ctx):
+        """Displays the courses the user belongs to."""
+        courses = self.get_user_courses(ctx.author)
+        if courses:
+            await ctx.send(f"{ctx.author.mention}, you are a member of the following courses:\n{', '.join(courses)}")
+        else:
+            await ctx.send(f"{ctx.author.mention}, you are not a member of any course.")
