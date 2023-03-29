@@ -49,7 +49,7 @@ class CourseManager(commands.Cog):
         existing_channel = discord.utils.get(ctx.guild.channels, name=channel_name)
 
         if existing_channel is None:
-            existing_channel = await create_course_channel(ctx.guild, course_code, course_category, ctx.author)
+            existing_channel = await self.create_course_channel(ctx.guild, course_code, course_category, ctx.author)
 
         await existing_channel.set_permissions(ctx.author, read_messages=True)
         await ctx.send(f"You have successfully joined {course_code}.")
@@ -153,6 +153,7 @@ class CourseManager(commands.Cog):
         channel_name = course_code.replace(" ", "-").upper()
         new_channel = await guild.create_text_channel(channel_name, overwrites=overwrites, category=course_category)
         return new_channel
+
 
     def get_user_courses(self, user):
         """Returns a list of courses a user has joined."""
