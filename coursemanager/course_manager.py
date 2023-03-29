@@ -121,7 +121,7 @@ class CourseManager(commands.Cog):
                 return channel
         return None
 
-    async def create_course_channel(guild, course_code, category, user):
+    def create_course_channel(guild, course_code, category, user):
         """Creates a new course channel."""
         # Find the appropriate category for the course
         department_code = course_code.split(" ")[0]
