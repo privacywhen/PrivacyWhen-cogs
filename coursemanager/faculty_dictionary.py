@@ -1,31 +1,31 @@
 FACULTIES = {
-    "humanities": [
+    "HUMANITIES": [
         "ARABIC", "ART", "ARTHIST", "CLASSICS", "ENGLISH", "FARSI", "FRENCH", "GERMAN", "GREEK", "HEBREW",
         "HISTORY", "HUMAN", "ITALIAN", "JAPANESE", "KOREAN", "LATIN", "LINGUIST", "MUSIC", "PHILOS", "POLISH",
         "RUSSIAN", "SANSKRIT", "ARTSSCI", "MELD", "MUSICCOG", "ABLD", "INTENG", "MEDIAART", "SCAR"
     ],
-    "science": [
+    "SCIENCE": [
         "ASTRON", "BIOCHEM", "BIOLOGY", "BIOPHYS", "CHEM", "CHEMBIO", "DATASCI", "EARTHSC", "ENVIRSC", "MATH",
         "MEDPHYS", "MOLBIOL", "NEUROSCI", "PHYSICS", "PNB", "PSYCH", "STATS", "SCICOMM"
     ],
-    "social_sciences": [
+    "SOCIAL_SCIENCES": [
         "ANTHROP", "CAYUGA", "COLLAB", "ECON", "GENDRST", "GLOBALZN", "INDIGST", "LATAM", "OJIBWE", "PEACJUST",
         "POLSCI", "SOCPSY", "SOCIOL", "SOCSCI", "SOCWORK", "SPANISH", "SUSTAIN", "CMTYENGA"
     ],
-    "business": [
+    "BUSINESS": [
         "COMMERCE", "ENGSOCTY", "ENGNMGT", "IBH", "MGT"
     ],
-    "engineering": [
+    "ENGINEERING": [
         "AUTOTECH", "BIOMEDDC", "BIOSAFE", "BIOTECH", "CHEMBME", "CHEMENG", "CIVBME", "CIVENG", "CIVTECH",
         "COMPENG", "COMPSCI", "ELECBME", "ELECENG", "ENGINEER", "ENGPHYS", "ENGTECH", "ENRTECH", "EPHYSBME",
         "GENTECH", "MANTECH", "MATLS", "MATLSBME", "MECHBME", "MECHENG", "MECHTRON", "PROCTECH", "SCIENCE",
         "SFWRBME", "SFWRENG", "SFWRTECH", "TRONBME", "INNOVATE", "SFGNTECH", "SMRTTECH"
     ],
-    "health_sciences": [
+    "HEALTH_SCIENCES": [
         "HLTHAGE", "HTHSCI", "HUMBEHV", "IARTS", "IBEHS", "KINESIOL", "LIFESCI", "MEDRADSC", "MIDWIF",
         "NURSING", "PHARMAC", "RADTHER"
     ],
-    "other": [
+    "OTHER": [
         "EXPLORE", "HUMSC", "INSPIRE", "ISCI", "SEP", "WHMIS", "WORKLABR"
     ]
 }

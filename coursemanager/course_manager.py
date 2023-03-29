@@ -31,7 +31,7 @@ class CourseManager(commands.Cog):
     @course.command()
     @commands.cooldown(1, 10, commands.BucketType.user)
     async def join(self, ctx, *args):
-        if len(args) < 2:
+        if len(args) != 2:
             await ctx.send("Error: Please enter a valid course code with both department and course number (e.g. PSYCH 1X03).")
             return
 
@@ -41,21 +41,22 @@ class CourseManager(commands.Cog):
             await ctx.send(f"Error: The course code {course_code} is not valid. Please enter a valid course code.")
             return
 
-        if len(self.get_user_courses(ctx.author)) >= self.max_courses:
+        if len(self.get_user_courses(ctx.guild, ctx.author)) >= self.max_courses:
             await ctx.send(f"Error: You have reached the maximum limit of {self.max_courses} courses. Please leave a course before joining another.")
             return
-    
+
         category = self.get_category(ctx.guild)
         channel_name = course_code.lower().replace(" ", "-")
-        existing_channel = discord.utils.get(ctx.guild.channels, name=channel_name)
+       existing_channel = discord.utils.get(ctx.guild.channels, name=channel_name)
 
         if existing_channel is None:
             existing_channel = await self.create_course_channel(ctx.guild, course_code, category, ctx.author)
 
-        await existing_channel.set_permissions(ctx.author, read_messages=True)
-        await ctx.send(f"You have successfully joined {course_code}.")
+        await existing_channel.set_permissions(ctx.author, read_messages=True, send_messages=True) # set send_messages to True
+       await ctx.send(f"You have successfully joined {course_code}.")
         if self.logging_channel:
-            await self.logging_channel.send(f"{ctx.author} has joined {course_code}.")
+            await self.logging_channel.send(f"{ctx.author.mention} has joined {course_code}.") # use mention to ping user
+
 
     @course.command()
     @commands.cooldown(1, 10, commands.BucketType.user)
@@ -159,19 +160,16 @@ class CourseManager(commands.Cog):
         new_channel = await guild.create_text_channel(channel_name, overwrites=overwrites, category=course_category)
         return new_channel
 
-    def get_user_courses(self, user):
+    def get_user_courses(self, guild, user):
         """Returns a list of courses a user has joined."""
         courses = []
-        for guild in self.bot.guilds:
-            category = self.get_category(guild)
-            if not category:
-                continue
-            if user not in guild.members:
-                continue
-            for channel in category.channels:
-                if isinstance(channel, discord.TextChannel) and channel.permissions_for(user).view_channel:
-                    if category.name in FACULTIES:
-                        courses.append(channel.name.upper())
+        category = self.get_category(guild)
+        if not category:
+            return courses
+        for channel in category.channels:
+            if isinstance(channel, discord.TextChannel) and channel.permissions_for(user).view_channel:
+                if category.name in FACULTIES:
+                    courses.append(channel.name.upper())
         return courses
 
     async def course_exists(self, course_code):
@@ -188,7 +186,7 @@ class CourseManager(commands.Cog):
     @course.command()
     async def mine(self, ctx):
         """Displays the courses the user belongs to."""
-        courses = self.get_user_courses(ctx.author)
+        courses = self.get_user_courses(ctx.guild, ctx.author)
         if courses:
             await ctx.send(f"{ctx.author.mention}, you are a member of the following courses:\n{', '.join(courses)}")
         else:
