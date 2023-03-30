@@ -40,7 +40,7 @@ class CourseManager(commands.Cog):
             await ctx.send(f"Error: The course code {course_code} is not valid. Please enter a valid course code.")
             return
 
-        if len(self.get_user_courses(ctx.guild, ctx.author)) >= self.max_courses:
+        if len(await self.get_user_courses(ctx.guild, ctx.author)) >= self.max_courses:
             await ctx.send(f"Error: You have reached the maximum limit of {self.max_courses} courses. Please leave a course before joining another.")
             return
 
@@ -182,7 +182,7 @@ class CourseManager(commands.Cog):
         return await self.cache_handler.course_code_exists(course_code)
 
     async def format_course_code(self, course_code: str) -> Optional[str]:
-        print("Debug: format_course_code()")
+        print(f"Debug: format_course_code() - course_code: {course_code}")
         course_code = course_code.upper().replace("-", " ").replace("_", " ")  # Convert to uppercase and replace hyphens and underscores with spaces
         print(f"Debug: course_code after replacing hyphens and underscores: {course_code}")
         course_parts = re.split(r'\s+', course_code.strip())  # Split by whitespace characters
