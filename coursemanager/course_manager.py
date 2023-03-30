@@ -1,4 +1,5 @@
 import discord
+import re
 from redbot.core import checks, commands
 from typing import Optional
 from .lcd_cache import CacheHandler
@@ -6,10 +7,11 @@ from .faculty_dictionary import FACULTIES
 
 class CourseManager(commands.Cog):
     """A cog for managing course-related channels."""
+
     def __init__(self, bot):
         """Initialize the CourseManager with the bot instance."""
         self.bot = bot
-        self.category_name = "COURSES"
+        self.main_category_name = "COURSES"
         self.channel_permissions = discord.Permissions(view_channel=True, send_messages=True, read_message_history=True)
         self.max_courses = 15
         self.logging_channel = None
@@ -18,7 +20,7 @@ class CourseManager(commands.Cog):
     @commands.group(invoke_without_command=True)
     async def course(self, ctx):
         """Main command group."""
-        await ctx.invoke(self.bot.get_command('course help'))
+        await ctx.send_help(self.course)
 
     @course.command()
     async def help(self, ctx):
@@ -30,14 +32,11 @@ class CourseManager(commands.Cog):
 
     @course.command()
     @commands.cooldown(1, 10, commands.BucketType.user)
-    async def join(self, ctx, *args):
-        if len(args) != 2:
-            await ctx.send("Error: Please enter a valid course code with both department and course number (e.g. PSYCH 1X03).")
-            return
+    async def join(self, ctx, course_code: str):
+        # Format the course code
+        formatted_course_code = await self.format_course_code(course_code)
 
-        course_code = " ".join([args[0].upper(), args[1]])
-
-        if not await self.course_exists(course_code):
+        if not formatted_course_code or not await self.course_exists(formatted_course_code):
             await ctx.send(f"Error: The course code {course_code} is not valid. Please enter a valid course code.")
             return
 
@@ -46,36 +45,40 @@ class CourseManager(commands.Cog):
             return
 
         category = self.get_category(ctx.guild)
-        channel_name = course_code.lower().replace(" ", "-")
+        channel_name = formatted_course_code
         existing_channel = discord.utils.get(ctx.guild.channels, name=channel_name)
 
         if existing_channel is None:
-            existing_channel = await self.create_course_channel(ctx.guild, course_code, category, ctx.author)
+            existing_channel = await self.create_course_channel(ctx.guild, formatted_course_code, category, ctx.author)
 
-        await existing_channel.set_permissions(ctx.author, read_messages=True, send_messages=True) # set send_messages to True
-        await ctx.send(f"You have successfully joined {course_code}.")
+        user_permissions = existing_channel.overwrites_for(ctx.author)
+        user_permissions.update(view_channel=True, send_messages=True)  # use view_channel and send_messages permissions
+        await existing_channel.set_permissions(ctx.author, overwrite=user_permissions)
+
+        await ctx.send(f"You have successfully joined {formatted_course_code}.")
         if self.logging_channel:
-            await self.logging_channel.send(f"{ctx.author.mention} has joined {course_code}.") # use mention to ping user
+            await self.logging_channel.send(f"{ctx.author.mention} has joined {formatted_course_code}.")  # use mention to ping user
 
     @course.command()
     @commands.cooldown(1, 10, commands.BucketType.user)
     async def leave(self, ctx, course_code: str):
-        course_code = " ".join([course_code.split(" ")[0].upper(), course_code.split(" ")[1]])
-        channel_name = course_code.lower().replace(" ", "-")
+        formatted_course_code = await self.format_course_code(course_code)
+
+        if not formatted_course_code:
+            await ctx.send("Error: Invalid course code provided.")
+            return
+
+        channel_name = formatted_course_code
         existing_channel = discord.utils.get(ctx.guild.channels, name=channel_name)
 
         if existing_channel is None:
-            # Check if the channel exists with the modified name
-            channel_name = course_code.upper().replace(" ", "-")
-            existing_channel = discord.utils.get(ctx.guild.channels, name=channel_name)
-            if existing_channel is None:
-                await ctx.send(f"Error: You are not a member of {course_code}.")
-                return
+            await ctx.send(f"Error: You are not a member of {formatted_course_code}.")
+            return
 
         await existing_channel.set_permissions(ctx.author, read_messages=None)
-        await ctx.send(f"You have successfully left {course_code}.")
+        await ctx.send(f"You have successfully left {formatted_course_code}.")
         if self.logging_channel:
-            await self.logging_channel.send(f"{ctx.author} has left {course_code}.")
+            await self.logging_channel.send(f"{ctx.author.mention} has left {formatted_course_code}.")
 
     @checks.admin()
     @course.command()
@@ -111,7 +114,7 @@ class CourseManager(commands.Cog):
     def get_category(self, guild):
         """Returns the COURSES category."""
         for category in guild.categories:
-            if category.name.lower() == self.category_name.lower():
+            if category.name.lower() == self.main_category_name.lower():
                 return category
         return None
 
@@ -126,7 +129,7 @@ class CourseManager(commands.Cog):
                 return channel
         return None
 
-    async def create_course_channel(self, guild, course_code, category, user):
+    async def create_course_channel(self, guild, course_code, user):
         """Creates a new course channel."""
         # Find the appropriate category for the course
         department_code = course_code.split(" ")[0]
@@ -158,7 +161,8 @@ class CourseManager(commands.Cog):
         channel_name = course_code.replace(" ", "-").upper()
         new_channel = await guild.create_text_channel(channel_name, overwrites=overwrites, category=course_category)
         return new_channel
-
+    
+    @staticmethod
     def get_user_courses(self, guild, user):
         """Returns a list of courses a user has joined."""
         courses = []
@@ -167,7 +171,7 @@ class CourseManager(commands.Cog):
             return courses
         for channel in category.channels:
             if isinstance(channel, discord.TextChannel) and channel.permissions_for(user).view_channel:
-                if category.name in FACULTIES:
+                if category.name in FACULTIES.keys():
                     courses.append(channel.name.upper())
         return courses
 
@@ -176,11 +180,35 @@ class CourseManager(commands.Cog):
         return await self.cache_handler.course_code_exists(course_code)
 
     async def format_course_code(self, course_code: str) -> Optional[str]:
+        """Formats a given course code and returns the formatted course code, or None if the course code is invalid."""
+        course_code = course_code.upper().replace("-", " ").replace("_", " ")  # Convert to uppercase and replace hyphens and underscores with spaces
         course_parts = course_code.split(" ")
+    
         if len(course_parts) < 2:
             return None
+        elif len(course_parts) > 2:
+            course_number = " ".join(course_parts[1:])
+        else:
+            course_number = course_parts[1]
 
-        return f"{course_parts[0].upper()}-{course_parts[1]}"
+        department = course_parts[0]
+
+        # Validate the department and course number for valid characters
+        department_pattern = re.compile(r'^[A-Z]+$')
+        course_number_pattern = re.compile(r'^(\d[A-Z0-9]{2}\d).*')
+
+        if not department_pattern.match(department) or not course_number_pattern.match(course_number):
+            return None
+
+        # Remove any unwanted characters after the course_number
+        course_number = course_number_pattern.match(course_number).group(1)
+
+        formatted_code = f"{department} {course_number}"
+
+        if await self.course_exists(formatted_code):
+            return formatted_code
+        else:
+            return None
 
     @course.command()
     async def mine(self, ctx):
