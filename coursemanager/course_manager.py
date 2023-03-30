@@ -162,9 +162,8 @@ class CourseManager(commands.Cog):
         channel_name = course_code.replace(" ", "-").upper()
         new_channel = await guild.create_text_channel(channel_name, overwrites=overwrites, category=course_category)
         return new_channel
-    
-    @staticmethod
-    def get_user_courses(ctx, guild):
+
+    def get_user_courses(self, ctx, guild):
         """Returns a list of courses a user has joined."""
         courses = []
         category = self.get_category(guild)
