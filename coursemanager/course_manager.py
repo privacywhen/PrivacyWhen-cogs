@@ -11,7 +11,6 @@ class CourseManager(commands.Cog):
     def __init__(self, bot):
         """Initialize the CourseManager with the bot instance."""
         self.bot = bot
-        self.main_category_name = "COURSES"
         self.channel_permissions = discord.Permissions(view_channel=True, send_messages=True, read_message_history=True)
         self.max_courses = 15
         self.logging_channel = None
@@ -34,30 +33,30 @@ class CourseManager(commands.Cog):
     @commands.cooldown(1, 10, commands.BucketType.user)
     async def join(self, ctx, *, course_code: str):
         print(f"Debug: join() - course_code: {course_code}")
-        formatted_course_code = await self.format_course_code(course_code)  # Format the course code
-
-        if not formatted_course_code or not await self.course_exists(formatted_course_code):
+        result = await self.format_course_code(course_code)  # Format the course code
+        if not result or not await self.course_exists(result[1]):
             await ctx.send(f"Error: The course code {course_code} is not valid. Please enter a valid course code.")
             return
+
+        dept, code = result
 
         if len(self.get_user_courses(ctx, ctx.guild)) >= self.max_courses:
             await ctx.send(f"Error: You have reached the maximum limit of {self.max_courses} courses. Please leave a course before joining another.")
             return
-
-        category = self.get_category(ctx.guild)
-        channel_name = formatted_course_code
+        
+        channel_name = f"{dept}-{code}"
         existing_channel = discord.utils.get(ctx.guild.channels, name=channel_name)
 
         if existing_channel is None:
-            existing_channel = await self.create_course_channel(ctx.guild, formatted_course_code, category, ctx.author)
+            existing_channel = await self.create_course_channel(ctx.guild, dept, code, ctx.author)
 
         user_permissions = existing_channel.overwrites_for(ctx.author)
         user_permissions.update(view_channel=True, send_messages=True)  # use view_channel and send_messages permissions
         await existing_channel.set_permissions(ctx.author, overwrite=user_permissions)
 
-        await ctx.send(f"You have successfully joined {formatted_course_code}.")
+        await ctx.send(f"You have successfully joined {dept} {code}.")
         if self.logging_channel:
-            await self.logging_channel.send(f"{ctx.author.mention} has joined {formatted_course_code}.")  # use mention to ping user
+            await self.logging_channel.send(f"{ctx.author.mention} has joined {dept} {code}.")  # use mention to ping user
 
     @course.command()
     @commands.cooldown(1, 10, commands.BucketType.user)
@@ -112,31 +111,37 @@ class CourseManager(commands.Cog):
         await self.cache_handler.config.courses.set({})
         await ctx.send("Course cache cleared.")
 
-    def get_category(self, guild):
-        """Returns the COURSES category."""
+    def get_category(self, guild, dept):
+        """Returns a dept category if exists."""
         for category in guild.categories:
-            if category.name.lower() == self.main_category_name.lower():
+            if category.name.upper() == dept:
                 return category
         return None
+    
+    def get_all_categories(self, guild):
+        """Returns ALL dept categories."""
+        categories = []
+        for category in guild.categories:
+            if category.name.upper() in FACULTIES.keys():
+                categories.append(category)
+        return categories
 
-    def get_course_channel(self, guild, course_code):
-        """Returns a course channel if it exists."""
-        category = self.get_category(guild)
-        if not category:
-            return None
+    # def get_course_channel(self, guild, course_code):
+    #     """Returns a course channel if it exists."""
+    #     category = self.get_category(guild)
+    #     if not category:
+    #         return None
 
-        for channel in category.channels:
-            if channel.name == course_code.lower():
-                return channel
-        return None
+    #     for channel in category.channels:
+    #         if channel.name == course_code.lower():
+    #             return channel
+    #     return None
 
-    async def create_course_channel(self, guild, course_code, user):
+    async def create_course_channel(self, guild, dept, code, user):
         """Creates a new course channel."""
         # Find the appropriate category for the course
-        department_code = course_code.split(" ")[0]
-        course_category_name = None
         for faculty, departments in FACULTIES.items():
-            if department_code in departments:
+            if dept in departments:
                 course_category_name = faculty.upper()
                 break
 
@@ -145,7 +150,7 @@ class CourseManager(commands.Cog):
             course_category_name = "OTHER"
 
         # Check if the category exists, if not create it
-        course_category = discord.utils.get(guild.categories, name=course_category_name)
+        course_category = self.get_category(guild, dept)
         if course_category is None:
             course_category = await guild.create_category(course_category_name)
 
@@ -159,19 +164,17 @@ class CourseManager(commands.Cog):
             user: user_overwrites,
         }
 
-        channel_name = course_code.replace(" ", "-").upper()
+        channel_name = f"{dept}-{code}".upper()
         new_channel = await guild.create_text_channel(channel_name, overwrites=overwrites, category=course_category)
         return new_channel
 
     def get_user_courses(self, ctx, guild):
         """Returns a list of courses a user has joined."""
         courses = []
-        category = self.get_category(guild)
-        if not category:
-            return courses
-        for channel in category.channels:
-            if isinstance(channel, discord.TextChannel) and channel.permissions_for(ctx.author).view_channel:
-                if category.name in FACULTIES.keys():
+        categories = self.get_all_categories(guild)
+        for category in categories:
+            for channel in category.channels:
+                if isinstance(channel, discord.TextChannel) and channel.permissions_for(ctx.author).view_channel:
                     courses.append(channel.name.upper())
         return courses
 
@@ -211,7 +214,7 @@ class CourseManager(commands.Cog):
         print(f"Debug: formatted_code: {formatted_code}")
 
         if await self.course_exists(formatted_code):
-            return formatted_code
+            return (department, course_number)
         else:
             return None
 
