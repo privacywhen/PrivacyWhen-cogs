@@ -33,7 +33,7 @@ class CourseManager(commands.Cog):
     @course.command()
     @commands.cooldown(1, 10, commands.BucketType.user)
     async def join(self, ctx, course_code: str):
-        print("Debug: join() - course_code: {course_code}")
+        print(f"Debug: join() - course_code: {course_code}")
         formatted_course_code = await self.format_course_code(course_code)  # Format the course code
 
         if not formatted_course_code or not await self.course_exists(formatted_course_code):
