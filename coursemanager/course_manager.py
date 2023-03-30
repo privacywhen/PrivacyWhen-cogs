@@ -71,24 +71,26 @@ class CourseManager(commands.Cog):
     @commands.cooldown(1, 10, commands.BucketType.user)
     async def leave(self, ctx, course_code: str):
         print("Debug: leave()")
-        formatted_course_code = await self.format_course_code(course_code)
+        result = await self.format_course_code(course_code)
 
-        if not formatted_course_code:
+        if not result:
             await ctx.send("Error: Invalid course code provided.")
             return
 
-        channel_name = formatted_course_code
+        dept, code = result
+
+        channel_name = f"{dept}-{code}"
         existing_channel = discord.utils.get(
             ctx.guild.channels, name=channel_name)
 
         if existing_channel is None:
-            await ctx.send(f"Error: You are not a member of {formatted_course_code}.")
+            await ctx.send(f"Error: You are not a member of {channel_name}.")
             return
 
         await existing_channel.set_permissions(ctx.author, read_messages=None)
-        await ctx.send(f"You have successfully left {formatted_course_code}.")
+        await ctx.send(f"You have successfully left {channel_name}.")
         if self.logging_channel:
-            await self.logging_channel.send(f"{ctx.author.mention} has left {formatted_course_code}.")
+            await self.logging_channel.send(f"{ctx.author.mention} has left {channel_name}.")
 
     @checks.admin()
     @course.command()
@@ -121,10 +123,10 @@ class CourseManager(commands.Cog):
         await self.cache_handler.config.courses.set({})
         await ctx.send("Course cache cleared.")
 
-    def get_category(self, guild, dept):
+    def get_category(self, guild, faculty):
         """Returns a dept category if exists."""
         for category in guild.categories:
-            if category.name.upper() == dept:
+            if category.name.upper() == faculty:
                 return category
         return None
 
@@ -160,7 +162,7 @@ class CourseManager(commands.Cog):
             course_category_name = "OTHER"
 
         # Check if the category exists, if not create it
-        course_category = self.get_category(guild, dept)
+        course_category = self.get_category(guild, course_category_name)
         if course_category is None:
             course_category = await guild.create_category(course_category_name)
 
