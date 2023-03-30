@@ -164,14 +164,14 @@ class CourseManager(commands.Cog):
         return new_channel
     
     @staticmethod
-    def get_user_courses(self, guild, user):
+    def get_user_courses(ctx, guild):
         """Returns a list of courses a user has joined."""
         courses = []
         category = self.get_category(guild)
         if not category:
             return courses
         for channel in category.channels:
-            if isinstance(channel, discord.TextChannel) and channel.permissions_for(user).view_channel:
+            if isinstance(channel, discord.TextChannel) and channel.permissions_for(ctx.author).view_channel:
                 if category.name in FACULTIES.keys():
                     courses.append(channel.name.upper())
         return courses
