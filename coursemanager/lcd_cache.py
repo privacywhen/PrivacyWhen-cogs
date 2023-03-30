@@ -18,6 +18,7 @@ class CacheHandler:
 
     async def course_code_exists(self, course_code: str):
         """Check if the course code exists in the cache or online."""
+        print("Debug: course_code_exists()")
         courses = await self.config.courses()
         course_code = course_code.upper()
 
@@ -60,7 +61,7 @@ class CacheHandler:
         print(f"Course {course_code} not found in cache. Searching online...")
         exists_online, course_details = await self.check_course_online(course_code)
         if exists_online:
-            expiry = (now + datetime.timedelta(days=stale_days)).isoformat()
+            expiry = (now + timedelta(days=stale_days)).isoformat()
             courses[course_code] = {"expiry": expiry, "details": course_details}
             await self.config.courses.set(courses)
             print(f"Course {course_code} added to cache.")
@@ -71,6 +72,7 @@ class CacheHandler:
 
     async def check_course_online(self, course_code: str):
         """Verify if the course exists online and return its details."""
+        print("Debug: check_course_online()")
         async with aiohttp.ClientSession() as session:
             url = f"{URL_BASE}{course_code.replace(' ', '%20')}"
             async with session.get(url) as response:
