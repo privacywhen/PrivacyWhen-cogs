@@ -69,7 +69,7 @@ class CourseManager(commands.Cog):
 
     @course.command()
     @commands.cooldown(1, 10, commands.BucketType.user)
-    async def leave(self, ctx, course_code: str):
+    async def leave(self, ctx, *, course_code: str):
         print("Debug: leave()")
         result = await self.format_course_code(course_code)
 
