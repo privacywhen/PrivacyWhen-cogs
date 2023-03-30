@@ -40,7 +40,7 @@ class CourseManager(commands.Cog):
         print(f"Debug: join() - course_code: {course_code}")
         # Format the course code
         result = await self.format_course_code(course_code)
-        if not result or not await self.course_exists(result[1]):
+        if not result:
             await ctx.send(f"Error: The course code {course_code} is not valid. Please enter a valid course code.")
             return
 
