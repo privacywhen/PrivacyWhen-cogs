@@ -14,7 +14,7 @@ class CourseManager(commands.Cog):
         self.bot = bot
         self.channel_permissions = discord.Permissions(
             view_channel=True, send_messages=True, read_message_history=True)
-        self.max_courses = 15
+        self.max_courses = 5
         self.logging_channel = None
         self.cache_handler = CacheHandler(bot)
 
