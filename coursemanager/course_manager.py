@@ -52,7 +52,7 @@ class CourseManager(commands.Cog):
 
         channel_name = f"{dept}-{code}"
         existing_channel = discord.utils.get(
-            ctx.guild.channels, name=channel_name)
+            ctx.guild.channels, name=channel_name.lower())
 
         if existing_channel is None:
             existing_channel = await self.create_course_channel(ctx.guild, dept, code, ctx.author)
@@ -81,7 +81,7 @@ class CourseManager(commands.Cog):
 
         channel_name = f"{dept}-{code}"
         existing_channel = discord.utils.get(
-            ctx.guild.channels, name=channel_name)
+            ctx.guild.channels, name=channel_name.lower())
 
         if existing_channel is None:
             await ctx.send(f"Error: You are not a member of {channel_name}.")
@@ -190,7 +190,7 @@ class CourseManager(commands.Cog):
         for category in categories:
             for channel in category.channels:
                 if isinstance(channel, discord.TextChannel) and channel.permissions_for(ctx.author).view_channel:
-                    courses.append(channel.name.upper())
+                    courses.append(channel.name.lower())
         return courses
 
     async def course_exists(self, course_code):
