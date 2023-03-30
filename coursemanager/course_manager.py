@@ -5,13 +5,15 @@ from typing import Optional
 from .lcd_cache import CacheHandler
 from .faculty_dictionary import FACULTIES
 
+
 class CourseManager(commands.Cog):
     """A cog for managing course-related channels."""
 
     def __init__(self, bot):
         """Initialize the CourseManager with the bot instance."""
         self.bot = bot
-        self.channel_permissions = discord.Permissions(view_channel=True, send_messages=True, read_message_history=True)
+        self.channel_permissions = discord.Permissions(
+            view_channel=True, send_messages=True, read_message_history=True)
         self.max_courses = 15
         self.logging_channel = None
         self.cache_handler = CacheHandler(bot)
@@ -24,16 +26,20 @@ class CourseManager(commands.Cog):
     @course.command()
     async def help(self, ctx):
         """Displays help menu."""
-        embed = discord.Embed(title="Course Help Menu", color=discord.Color.blue())
-        embed.add_field(name="Syntax", value="=course [subcommand] [arguments]", inline=False)
-        embed.add_field(name="Subcommands", value="join [course_code]\nleave [course_code]\ndelete [channel]\nhelp", inline=False)
+        embed = discord.Embed(title="Course Help Menu",
+                              color=discord.Color.blue())
+        embed.add_field(
+            name="Syntax", value="=course [subcommand] [arguments]", inline=False)
+        embed.add_field(
+            name="Subcommands", value="join [course_code]\nleave [course_code]\ndelete [channel]\nhelp", inline=False)
         await ctx.send(embed=embed)
 
     @course.command()
     @commands.cooldown(1, 10, commands.BucketType.user)
     async def join(self, ctx, *, course_code: str):
         print(f"Debug: join() - course_code: {course_code}")
-        result = await self.format_course_code(course_code)  # Format the course code
+        # Format the course code
+        result = await self.format_course_code(course_code)
         if not result or not await self.course_exists(result[1]):
             await ctx.send(f"Error: The course code {course_code} is not valid. Please enter a valid course code.")
             return
@@ -43,20 +49,23 @@ class CourseManager(commands.Cog):
         if len(self.get_user_courses(ctx, ctx.guild)) >= self.max_courses:
             await ctx.send(f"Error: You have reached the maximum limit of {self.max_courses} courses. Please leave a course before joining another.")
             return
-        
+
         channel_name = f"{dept}-{code}"
-        existing_channel = discord.utils.get(ctx.guild.channels, name=channel_name)
+        existing_channel = discord.utils.get(
+            ctx.guild.channels, name=channel_name)
 
         if existing_channel is None:
             existing_channel = await self.create_course_channel(ctx.guild, dept, code, ctx.author)
 
         user_permissions = existing_channel.overwrites_for(ctx.author)
-        user_permissions.update(view_channel=True, send_messages=True)  # use view_channel and send_messages permissions
+        # use view_channel and send_messages permissions
+        user_permissions.update(view_channel=True, send_messages=True)
         await existing_channel.set_permissions(ctx.author, overwrite=user_permissions)
 
         await ctx.send(f"You have successfully joined {dept} {code}.")
         if self.logging_channel:
-            await self.logging_channel.send(f"{ctx.author.mention} has joined {dept} {code}.")  # use mention to ping user
+            # use mention to ping user
+            await self.logging_channel.send(f"{ctx.author.mention} has joined {dept} {code}.")
 
     @course.command()
     @commands.cooldown(1, 10, commands.BucketType.user)
@@ -69,7 +78,8 @@ class CourseManager(commands.Cog):
             return
 
         channel_name = formatted_course_code
-        existing_channel = discord.utils.get(ctx.guild.channels, name=channel_name)
+        existing_channel = discord.utils.get(
+            ctx.guild.channels, name=channel_name)
 
         if existing_channel is None:
             await ctx.send(f"Error: You are not a member of {formatted_course_code}.")
@@ -117,7 +127,7 @@ class CourseManager(commands.Cog):
             if category.name.upper() == dept:
                 return category
         return None
-    
+
     def get_all_categories(self, guild):
         """Returns ALL dept categories."""
         categories = []
@@ -154,9 +164,12 @@ class CourseManager(commands.Cog):
         if course_category is None:
             course_category = await guild.create_category(course_category_name)
 
-        default_role_overwrites = discord.PermissionOverwrite(read_messages=False)
-        bot_overwrites = discord.PermissionOverwrite(read_messages=True, send_messages=True)
-        user_overwrites = discord.PermissionOverwrite(read_messages=True, send_messages=True, view_channel=True)
+        default_role_overwrites = discord.PermissionOverwrite(
+            read_messages=False)
+        bot_overwrites = discord.PermissionOverwrite(
+            read_messages=True, send_messages=True)
+        user_overwrites = discord.PermissionOverwrite(
+            read_messages=True, send_messages=True, view_channel=True)
 
         overwrites = {
             guild.default_role: default_role_overwrites,
@@ -185,9 +198,12 @@ class CourseManager(commands.Cog):
 
     async def format_course_code(self, course_code: str) -> Optional[str]:
         print(f"Debug: format_course_code() - course_code: {course_code}")
-        course_code = course_code.upper().replace("-", " ").replace("_", " ")  # Convert to uppercase and replace hyphens and underscores with spaces
-        print(f"Debug: course_code after replacing hyphens and underscores: {course_code}")
-        course_parts = re.split(r'\s+', course_code.strip())  # Split by whitespace characters
+        # Convert to uppercase and replace hyphens and underscores with spaces
+        course_code = course_code.upper().replace("-", " ").replace("_", " ")
+        print(
+            f"Debug: course_code after replacing hyphens and underscores: {course_code}")
+        # Split by whitespace characters
+        course_parts = re.split(r'\s+', course_code.strip())
 
         if len(course_parts) < 2:
             return None
@@ -197,7 +213,8 @@ class CourseManager(commands.Cog):
             course_number = course_parts[1]
 
         department = course_parts[0]
-        print(f"Debug: department: {department}, course_number: {course_number}")
+        print(
+            f"Debug: department: {department}, course_number: {course_number}")
 
         # Validate the department and course number for valid characters
         department_pattern = re.compile(r'^[A-Z]+$')
@@ -208,7 +225,8 @@ class CourseManager(commands.Cog):
 
         # Remove any unwanted characters after the course_number
         course_number = course_number_pattern.match(course_number).group(1)
-        print(f"Debug: course_number after removing unwanted characters: {course_number}")
+        print(
+            f"Debug: course_number after removing unwanted characters: {course_number}")
 
         formatted_code = f"{department} {course_number}"
         print(f"Debug: formatted_code: {formatted_code}")
