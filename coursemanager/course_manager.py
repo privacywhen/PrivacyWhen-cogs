@@ -181,13 +181,13 @@ class CourseManager(commands.Cog):
         print("Debug: course_exists()")
         return await self.cache_handler.course_code_exists(course_code)
 
-    async def format_course_code(self, ctx, course_code: str) -> Optional[str]:
+    async def format_course_code(self, course_code: str) -> Optional[str]:
         """Formats a given course code and returns the formatted course code, or None if the course code is invalid."""
-        await ctx.send("Debug: format_course_code()")
+        print("Debug: format_course_code()")
         course_code = course_code.upper().replace("-", " ").replace("_", " ")  # Convert to uppercase and replace hyphens and underscores with spaces
-        await ctx.send(f"Debug: course_code after replacing hyphens and underscores: {course_code}")
+        print(f"Debug: course_code after replacing hyphens and underscores: {course_code}")
         course_parts = course_code.split(" ")
-        
+    
         if len(course_parts) < 2:
             return None
         elif len(course_parts) > 2:
@@ -196,7 +196,7 @@ class CourseManager(commands.Cog):
             course_number = course_parts[1]
 
         department = course_parts[0]
-        await ctx.send(f"Debug: department: {department}, course_number: {course_number}")
+        print(f"Debug: department: {department}, course_number: {course_number}")
 
         # Validate the department and course number for valid characters
         department_pattern = re.compile(r'^[A-Z]+$')
@@ -207,10 +207,10 @@ class CourseManager(commands.Cog):
 
         # Remove any unwanted characters after the course_number
         course_number = course_number_pattern.match(course_number).group(1)
-        await ctx.send(f"Debug: course_number after removing unwanted characters: {course_number}")
+        print(f"Debug: course_number after removing unwanted characters: {course_number}")
 
         formatted_code = f"{department} {course_number}"
-        await ctx.send(f"Debug: formatted_code: {formatted_code}")
+        print(f"Debug: formatted_code: {formatted_code}")
 
         if await self.course_exists(formatted_code):
             return formatted_code
