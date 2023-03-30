@@ -181,13 +181,12 @@ class CourseManager(commands.Cog):
         print("Debug: course_exists()")
         return await self.cache_handler.course_code_exists(course_code)
 
-    async def format_course_code(self, ctx, course_code: str) -> Optional[str]:
-        """Formats a given course code and returns the formatted course code, or None if the course code is invalid."""
+    async def format_course_code(self, course_code: str) -> Optional[str]:
         print("Debug: format_course_code()")
         course_code = course_code.upper().replace("-", " ").replace("_", " ")  # Convert to uppercase and replace hyphens and underscores with spaces
         print(f"Debug: course_code after replacing hyphens and underscores: {course_code}")
-        course_parts = course_code.split(" ")
-        
+        course_parts = re.split(r'\s+', course_code.strip())  # Split by whitespace characters
+
         if len(course_parts) < 2:
             return None
         elif len(course_parts) > 2:
@@ -200,7 +199,7 @@ class CourseManager(commands.Cog):
 
         # Validate the department and course number for valid characters
         department_pattern = re.compile(r'^[A-Z]+$')
-        course_number_pattern = re.compile(r'^(\d[A-Z0-9]{2}\d).*')
+        course_number_pattern = re.compile(r'^(\d[0-9A-Za-z]{1,3}).*')
 
         if not department_pattern.match(department) or not course_number_pattern.match(course_number):
             return None
