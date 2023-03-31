@@ -84,7 +84,7 @@ class CourseManager(commands.Cog):
             ctx.guild.channels, name=channel_name.lower())
 
         if existing_channel is None:
-            await ctx.send(f"Error: You are not a member of {channel_name}.")
+            await ctx.send(f"Error: You are not a member of {dept}-{code}.")
             return
 
         await existing_channel.set_permissions(ctx.author, read_messages=None)
@@ -95,7 +95,7 @@ class CourseManager(commands.Cog):
     @checks.admin()
     @course.command()
     @commands.cooldown(1, 60, commands.BucketType.user)
-    async def delete(self, ctx, channel: discord.TextChannel):
+    async def delete(self, ctx, *, channel: discord.TextChannel):
         """Deletes a course channel."""
         if not channel.category or channel.category.name != self.category_name:
             await ctx.send(f"Error: {channel} is not a course channel.")
@@ -152,14 +152,14 @@ class CourseManager(commands.Cog):
     async def create_course_channel(self, guild, dept, code, user):
         """Creates a new course channel."""
         # Find the appropriate category for the course
+        course_category_name = None
         for faculty, departments in FACULTIES.items():
             if dept in departments:
                 course_category_name = faculty.upper()
                 break
 
-        # If the course_category_name is still None, set it to a default category
         if course_category_name is None:
-            course_category_name = "OTHER"
+            return None, "The department was not found in the predefined FACULTIES dictionary."
 
         # Check if the category exists, if not create it
         course_category = self.get_category(guild, course_category_name)
@@ -181,7 +181,7 @@ class CourseManager(commands.Cog):
 
         channel_name = f"{dept}-{code}".upper()
         new_channel = await guild.create_text_channel(channel_name, overwrites=overwrites, category=course_category)
-        return new_channel
+        return new_channel, None
 
     def get_user_courses(self, ctx, guild):
         """Returns a list of courses a user has joined."""
@@ -241,7 +241,7 @@ class CourseManager(commands.Cog):
     @course.command()
     async def mine(self, ctx):
         """Displays the courses the user belongs to."""
-        courses = self.get_user_courses(ctx.guild, ctx.author)
+        courses = self.get_user_courses(ctx, ctx.guild, ctx.author)
         if courses:
             await ctx.send(f"{ctx.author.mention}, you are a member of the following courses:\n{', '.join(courses)}")
         else:
