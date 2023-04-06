@@ -2,7 +2,8 @@ import discord
 import re
 from redbot.core import checks, commands
 from typing import Optional
-from .lcd_cache import CacheHandler
+from .get_course_data import CourseCacheHandler as CacheHandler
+
 from .faculty_dictionary import FACULTIES
 
 
@@ -195,7 +196,7 @@ class CourseManager(commands.Cog):
 
     async def course_exists(self, course_code):
         """Checks if the course exists in the cache or online."""
-        print("Debug: course_exists()")
+        print ("Debug: course_exists()")
         return await self.cache_handler.course_code_exists(course_code)
 
     async def format_course_code(self, course_code: str) -> Optional[str]:
