@@ -218,17 +218,41 @@ class CourseManager(commands.Cog):
 
     @checks.is_owner()
     @course.command()
-    async def online(self, ctx, course_code: str):
-        """Gets course data from the UofT API."""
-        course_data = await fetch_course_online(course_code)
+    async def online(self, ctx, *, course_code: str):
+        """Gets course data from the McMaster API."""
+        print(f"Debug: join() - course_code: {course_code}")
+        # Format the course code
+        result = await self.format_course_code(course_code)
+        if not result:
+            await ctx.send(f"Error: The course code {course_code} is not valid. Please enter a valid course code.")
+            return
+
+        dept, code = result
+        formatted_course_code = f"{dept} {code}"
+        
+        course_data = await self.cache_handler.fetch_course_online(formatted_course_code)
         await ctx.send(course_data)
 
     @checks.is_owner()
     @course.command()
-    async def setterm(self, ctx):
-        """Sets the term codes."""
-        await set_term_codes()
-        await ctx.send("Term codes set.")
+    async def setfall(self, ctx, fall: int):
+        """Sets the Fall term code."""
+        await self.cache_handler.term_codes(ctx, "fall", fall)
+        await ctx.send("Fall term code set.")
+
+    @checks.is_owner()
+    @course.command()
+    async def setwinter(self, ctx, winter: int):
+        """Sets the Winter term code."""
+        await self.cache_handler.term_codes(ctx, "winter", winter)
+        await ctx.send("Winter term code set.")
+
+    @checks.is_owner()
+    @course.command()
+    async def setspring(self, ctx, spring: int):
+        """Sets the Spring/Summer term code."""
+        await self.cache_handler.term_codes(ctx, "spring", spring)
+        await ctx.send("Spring/Summer term code set.")
 
     @checks.is_owner()
     @course.command()

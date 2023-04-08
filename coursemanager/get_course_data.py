@@ -25,16 +25,11 @@ class CourseCacheHandler(commands.Cog):
         """Close the aiohttp session."""
         await self.session.close()
 
-    async def set_term_codes(self, ctx, fall: str, winter: str, spring: str):
-        """Set the term codes for Fall, Winter, and Spring/Summer semesters."""
-        term_codes_mapping = {
-            self.TERM_NAMES[0]: fall,
-            self.TERM_NAMES[1]: winter,
-            self.TERM_NAMES[2]: spring,
-        }
+    async def term_codes(self, ctx, term_name: str, term_code: int):
+        """Set the term code for the specified term."""
         async with self.config.term_codes() as term_codes:
-            term_codes.update(term_codes_mapping)
-        await ctx.send(f"Term codes have been set to:\nFall: {fall}\nWinter: {winter}\nSpring/Summer: {spring}")
+            term_codes[term_name] = term_code
+        await ctx.send(f"Term code for {term_name.capitalize()} has been set to: {term_code}")
 
     def generate_time_code(self) -> Tuple[int, int]:
         """Generate a time code for use in the query."""
@@ -71,7 +66,7 @@ class CourseCacheHandler(commands.Cog):
     async def fetch_course_online(self, course_str: str, term: str) -> Tuple[BeautifulSoup, str]:
         """Fetch course data from the online source."""
         t, e = self.generate_time_code()
-        url = URL_BASE.format(term=term, course_str=course_str, t=t, e=e)
+        url = self.URL_BASE.format(term=term, course_str=course_str, t=t, e=e)
 
         async with self.session.get(url) as response:
             if response.status != 200:
@@ -96,10 +91,11 @@ class CourseCacheHandler(commands.Cog):
         for term_name in terms_order:
             term = term_codes.get(term_name)
             if term is None:
-                await ctx.send("Term code not found. Please set the term codes using the `set_term_codes` command.")
+                await ctx.send("Term code not found. Please set the term codes using the `setterm` subcommand.")
                 return
 
-            soup, error_message = await self.fetch_course_data(course_str, term)
+            soup, error_message = await self.fetch_course_online(course_str, term)
+
             if error_message:
                 await ctx.send(f"Error: {error_message}")
                 return []
@@ -123,7 +119,7 @@ class CourseCacheHandler(commands.Cog):
             return []
 
     def process_soup_content(self, soup: BeautifulSoup) -> List[dict]:
-        """Process the BeautifulSoup content and return the course data."""
+        """Process the BeautifulSoup content and return a list of course data."""
         course_data = []
         for course in soup.find_all("course"):
             course_info = {
