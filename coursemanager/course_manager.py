@@ -112,9 +112,10 @@ class CourseManager(commands.Cog):
 ## HELPER FUNCTIONS ##
 
     async def course_exists(self, course_code):
-        """Checks if the course exists in the cache or online."""
+        """Checks if a course exists."""
         print ("Debug: course_exists()")
-        return await self.cache_handler.course_code_exists(course_code)
+        return await self.cache_handler.fetch_course_cache(course_code)
+    
     def get_category(self, guild, faculty):
         """Returns a dept category if exists."""
         for category in guild.categories:
