@@ -48,7 +48,7 @@ class CourseCacheHandler(commands.Cog):
             return self.TERM_NAMES[0]
 
     async def check_course_cache(self, course_str: str) -> tuple:
-        """Check the cache for a course and return the data if not expired."""
+        """Check if the course data is in the cache and if it is not stale."""
         courses = await self.config.courses()
         course_key = course_str
 
@@ -78,7 +78,7 @@ class CourseCacheHandler(commands.Cog):
             return soup, error_message
 
     async def fetch_course_cache(self, course_str: str, term_name: str = None, ctx=None) -> list:
-        """Retrieve course data from cache or fetch from the online source."""
+        """Fetch course data from the cache or online source."""
         cached_data, is_stale = await self.check_course_cache(course_str)
         if cached_data is not None:
             if not is_stale:
