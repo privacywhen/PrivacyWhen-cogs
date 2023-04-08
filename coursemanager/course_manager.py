@@ -38,6 +38,7 @@ class CourseManager(commands.Cog):
     @course.command()
     @commands.cooldown(1, 10, commands.BucketType.user)
     async def join(self, ctx, *, course_code: str):
+        """Join a course channel."""
         print(f"Debug: join() - course_code: {course_code}")
         # Format the course code
         result = await self.format_course_code(course_code)
@@ -71,6 +72,7 @@ class CourseManager(commands.Cog):
     @course.command()
     @commands.cooldown(1, 10, commands.BucketType.user)
     async def leave(self, ctx, *, course_code: str):
+        """Leave a course channel."""
         print("Debug: leave()")
         result = await self.format_course_code(course_code)
 
@@ -106,24 +108,13 @@ class CourseManager(commands.Cog):
         if self.logging_channel:
             await self.logging_channel.send(f"{channel} has been deleted.")
 
-    @checks.admin()
-    @commands.command()
-    async def setcourse(self, ctx, option: str, channel: discord.TextChannel):
-        """Sets logging channel for the cog."""
-        if option.lower() == "logging":
-            self.logging_channel = channel
-            await ctx.send(f"Logging channel set to {channel}.")
-            return
 
-        await ctx.send("Invalid option. Use '=setcourse logging' followed by the channel.")
+## HELPER FUNCTIONS ##
 
-    @checks.admin()
-    @course.command()
-    async def clearcache(self, ctx):
-        """Clears the course cache."""
-        await self.cache_handler.config.courses.set({})
-        await ctx.send("Course cache cleared.")
-
+    async def course_exists(self, course_code):
+        """Checks if the course exists in the cache or online."""
+        print ("Debug: course_exists()")
+        return await self.cache_handler.course_code_exists(course_code)
     def get_category(self, guild, faculty):
         """Returns a dept category if exists."""
         for category in guild.categories:
@@ -139,17 +130,6 @@ class CourseManager(commands.Cog):
                 categories.append(category)
         return categories
 
-    # def get_course_channel(self, guild, course_code):
-    #     """Returns a course channel if it exists."""
-    #     category = self.get_category(guild)
-    #     if not category:
-    #         return None
-
-    #     for channel in category.channels:
-    #         if channel.name == course_code.lower():
-    #             return channel
-    #     return None
-
     async def create_course_channel(self, guild, dept, code, user):
         """Creates a new course channel."""
         # Find the appropriate category for the course
@@ -160,7 +140,7 @@ class CourseManager(commands.Cog):
                 break
 
         if course_category_name is None:
-            return None, "The department was not found in the predefined FACULTIES dictionary."
+            return None, "The department was not found in the predefined FACULTIES dictionary. Please inform an admin if you believe this is an error."
 
         # Check if the category exists, if not create it
         course_category = self.get_category(guild, course_category_name)
@@ -193,11 +173,6 @@ class CourseManager(commands.Cog):
                 if isinstance(channel, discord.TextChannel) and channel.permissions_for(ctx.author).view_channel:
                     courses.append(channel.name.lower())
         return courses
-
-    async def course_exists(self, course_code):
-        """Checks if the course exists in the cache or online."""
-        print ("Debug: course_exists()")
-        return await self.cache_handler.course_code_exists(course_code)
 
     async def format_course_code(self, course_code: str) -> Optional[str]:
         print(f"Debug: format_course_code() - course_code: {course_code}")
@@ -239,6 +214,23 @@ class CourseManager(commands.Cog):
         else:
             return None
 
+## DEV COMMANDS ## (These commands are only available to the bot owner)
+
+    @checks.is_owner()
+    @course.command()
+    async def online(self, ctx, course_code: str):
+        """Gets course data from the UofT API."""
+        course_data = await fetch_course_online(course_code)
+        await ctx.send(course_data)
+
+    @checks.is_owner()
+    @course.command()
+    async def setterm(self, ctx):
+        """Sets the term codes."""
+        await set_term_codes()
+        await ctx.send("Term codes set.")
+
+    @checks.is_owner()
     @course.command()
     async def mine(self, ctx):
         """Displays the courses the user belongs to."""
@@ -247,3 +239,35 @@ class CourseManager(commands.Cog):
             await ctx.send(f"{ctx.author.mention}, you are a member of the following courses:\n{', '.join(courses)}")
         else:
             await ctx.send(f"{ctx.author.mention}, you are not a member of any course.")
+
+    @checks.is_owner()
+    @course.command()
+    async def clearcache(self, ctx):
+        """Clears the course cache."""
+        await self.cache_handler.config.courses.set({})
+        await ctx.send("Course cache cleared.")
+
+    @checks.is_owner()
+    @course.command()
+    async def setlog(self, ctx, option: str, channel: discord.TextChannel):
+        """Sets logging channel for the cog."""
+        if option.lower() == "logging":
+            self.logging_channel = channel
+            await ctx.send(f"Logging channel set to {channel}.")
+            return
+
+        await ctx.send("Invalid option. Use '=course setlog logging' followed by the channel.")
+
+
+## Removed Code ##
+
+    # def get_course_channel(self, guild, course_code):
+    #     """Returns a course channel if it exists."""
+    #     category = self.get_category(guild)
+    #     if not category:
+    #         return None
+
+    #     for channel in category.channels:
+    #         if channel.name == course_code.lower():
+    #             return channel
+    #     return None
