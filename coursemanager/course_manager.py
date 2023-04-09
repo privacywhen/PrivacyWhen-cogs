@@ -1,8 +1,8 @@
 import discord
 import re
 from redbot.core import checks, commands
-from typing import Optional
-from .get_course_data import CourseCacheHandler as CacheHandler
+from typing import Tuple, Optional
+from .get_course_data import CourseCacheHandler
 
 from .faculty_dictionary import FACULTIES
 
@@ -17,104 +17,104 @@ class CourseManager(commands.Cog):
             view_channel=True, send_messages=True, read_message_history=True)
         self.max_courses = 5
         self.logging_channel = None
-        self.cache_handler = CacheHandler(bot)
+        self.cache_handler = CourseCacheHandler(bot)
 
     @commands.group(invoke_without_command=True)
     async def course(self, ctx):
         """Main command group."""
         await ctx.send_help(self.course)
 
-    @course.command()
-    async def help(self, ctx):
-        """Displays help menu."""
-        embed = discord.Embed(title="Course Help Menu",
-                              color=discord.Color.blue())
-        embed.add_field(
-            name="Syntax", value="=course [subcommand] [arguments]", inline=False)
-        embed.add_field(
-            name="Subcommands", value="join [course_code]\nleave [course_code]\ndelete [channel]\nhelp", inline=False)
-        await ctx.send(embed=embed)
+#    @course.command()
+#    async def help(self, ctx):
+#        """Displays help menu."""
+#        embed = discord.Embed(title="Course Help Menu",
+#                              color=discord.Color.blue())
+#        embed.add_field(
+#            name="Syntax", value="=course [subcommand] [arguments]", inline=False)
+#        embed.add_field(
+#            name="Subcommands", value="join [course_code]\nleave [course_code]\ndelete [channel]\nhelp", inline=False)
+#        await ctx.send(embed=embed)
 
-    @course.command()
-    @commands.cooldown(1, 10, commands.BucketType.user)
-    async def join(self, ctx, *, course_code: str):
-        """Join a course channel."""
-        print(f"Debug: join() - course_code: {course_code}")
+#    @course.command()
+#    @commands.cooldown(1, 10, commands.BucketType.user)
+#    async def join(self, ctx, *, course_code: str):
+#        """Join a course channel."""
+#        print(f"Debug: join() - course_code: {course_code}")
         # Format the course code
-        result = await self.format_course_code(course_code)
-        if not result:
-            await ctx.send(f"Error: The course code {course_code} is not valid. Please enter a valid course code.")
-            return
+#        result = await self.format_course_code(course_code)
+#        if not result:
+#            await ctx.send(f"Error: The course code {course_code} is not valid. Please enter a valid course code.")
+#            return
 
-        dept, code = result
+#        dept, code = result
 
-        if len(self.get_user_courses(ctx, ctx.guild)) >= self.max_courses:
-            await ctx.send(f"Error: You have reached the maximum limit of {self.max_courses} courses. Please leave a course before joining another.")
-            return
+#        if len(self.get_user_courses(ctx, ctx.guild)) >= self.max_courses:
+#            await ctx.send(f"Error: You have reached the maximum limit of {self.max_courses} courses. Please leave a course before joining another.")
+#            return
 
-        channel_name = f"{dept}-{code}"
-        existing_channel = discord.utils.get(
-            ctx.guild.channels, name=channel_name.lower())
+#        channel_name = f"{dept}-{code}"
+#        existing_channel = discord.utils.get(
+#            ctx.guild.channels, name=channel_name.lower())
 
-        if existing_channel is None:
-            existing_channel = await self.create_course_channel(ctx.guild, dept, code, ctx.author)
+#        if existing_channel is None:
+#            existing_channel = await self.create_course_channel(ctx.guild, dept, code, ctx.author)
 
-        user_permissions = existing_channel.overwrites_for(ctx.author)
+#        user_permissions = existing_channel.overwrites_for(ctx.author)
         # use view_channel and send_messages permissions
-        user_permissions.update(view_channel=True, send_messages=True)
-        await existing_channel.set_permissions(ctx.author, overwrite=user_permissions)
+#        user_permissions.update(view_channel=True, send_messages=True)
+#        await existing_channel.set_permissions(ctx.author, overwrite=user_permissions)
 
-        await ctx.send(f"You have successfully joined {dept} {code}.")
-        if self.logging_channel:
+#        await ctx.send(f"You have successfully joined {dept} {code}.")
+#        if self.logging_channel:
             # use mention to ping user
-            await self.logging_channel.send(f"{ctx.author.mention} has joined {dept} {code}.")
+#            await self.logging_channel.send(f"{ctx.author.mention} has joined {dept} {code}.")
 
-    @course.command()
-    @commands.cooldown(1, 10, commands.BucketType.user)
-    async def leave(self, ctx, *, course_code: str):
-        """Leave a course channel."""
-        print("Debug: leave()")
-        result = await self.format_course_code(course_code)
+#    @course.command()
+#    @commands.cooldown(1, 10, commands.BucketType.user)
+#    async def leave(self, ctx, *, course_code: str):
+#        """Leave a course channel."""
+#        print("Debug: leave()")
+#        result = await self.format_course_code(course_code)
 
-        if not result:
-            await ctx.send("Error: Invalid course code provided.")
-            return
+#        if not result:
+#            await ctx.send("Error: Invalid course code provided.")
+#            return
 
-        dept, code = result
+#        dept, code = result
 
-        channel_name = f"{dept}-{code}"
-        existing_channel = discord.utils.get(
-            ctx.guild.channels, name=channel_name.lower())
+#        channel_name = f"{dept}-{code}"
+#        existing_channel = discord.utils.get(
+#            ctx.guild.channels, name=channel_name.lower())
 
-        if existing_channel is None:
-            await ctx.send(f"Error: You are not a member of {dept}-{code}.")
-            return
+#        if existing_channel is None:
+#            await ctx.send(f"Error: You are not a member of {dept}-{code}.")
+#            return
 
-        await existing_channel.set_permissions(ctx.author, read_messages=None)
-        await ctx.send(f"You have successfully left {channel_name}.")
-        if self.logging_channel:
-            await self.logging_channel.send(f"{ctx.author.mention} has left {channel_name}.")
+#        await existing_channel.set_permissions(ctx.author, read_messages=None)
+#        await ctx.send(f"You have successfully left {channel_name}.")
+#        if self.logging_channel:
+#            await self.logging_channel.send(f"{ctx.author.mention} has left {channel_name}.")
 
-    @checks.admin()
-    @course.command()
-    @commands.cooldown(1, 60, commands.BucketType.user)
-    async def delete(self, ctx, *, channel: discord.TextChannel):
-        """Deletes a course channel."""
-        if not channel.category or channel.category.name != self.category_name:
-            await ctx.send(f"Error: {channel} is not a course channel.")
-            return
-        await channel.delete()
-        await ctx.send(f"{channel.name} has been successfully deleted.")
-        if self.logging_channel:
-            await self.logging_channel.send(f"{channel} has been deleted.")
+#    @checks.admin()
+#    @course.command()
+#    @commands.cooldown(1, 60, commands.BucketType.user)
+#    async def delete(self, ctx, *, channel: discord.TextChannel):
+#        """Deletes a course channel."""
+#        if not channel.category or channel.category.name != self.category_name:
+#            await ctx.send(f"Error: {channel} is not a course channel.")
+#            return
+#        await channel.delete()
+#        await ctx.send(f"{channel.name} has been successfully deleted.")
+#        if self.logging_channel:
+#            await self.logging_channel.send(f"{channel} has been deleted.")
 
 
 ## HELPER FUNCTIONS ##
 
-    async def course_exists(self, course_code):
-        """Checks if a course exists."""
-        print ("Debug: course_exists()")
-        return await self.cache_handler.fetch_course_cache(course_code)
+#    async def course_exists(self, course_code):
+#        """Checks if the course exists in the cache or online."""
+#        print ("Debug: course_exists()")
+#        return await self.cache_handler.course_code_exists(course_code)
     
     def get_category(self, guild, faculty):
         """Returns a dept category if exists."""
@@ -175,7 +175,7 @@ class CourseManager(commands.Cog):
                     courses.append(channel.name.lower())
         return courses
 
-    async def format_course_code(self, course_code: str) -> Optional[str]:
+    def format_course_code(self, course_code: str) -> Optional[Tuple[str, str]]:
         print(f"Debug: format_course_code() - course_code: {course_code}")
         # Convert to uppercase and replace hyphens and underscores with spaces
         course_code = course_code.upper().replace("-", " ").replace("_", " ")
@@ -199,71 +199,67 @@ class CourseManager(commands.Cog):
         department_pattern = re.compile(r'^[A-Z]+$')
         course_number_pattern = re.compile(r'^(\d[0-9A-Za-z]{1,3}).*')
 
-        if not department_pattern.match(department) or not course_number_pattern.match(course_number):
+        department_match = department_pattern.match(department)
+        course_number_match = course_number_pattern.match(course_number)
+
+        if not department_match or not course_number_match:
             return None
 
         # Remove any unwanted characters after the course_number
-        course_number = course_number_pattern.match(course_number).group(1)
+        course_number = course_number_match.group(1)
         print(
             f"Debug: course_number after removing unwanted characters: {course_number}")
 
         formatted_code = f"{department} {course_number}"
         print(f"Debug: formatted_code: {formatted_code}")
 
-        if await self.course_exists(formatted_code):
-            return (department, course_number)
-        else:
-            return None
+        return (department, course_number)
 
 ## DEV COMMANDS ## (These commands are only available to the bot owner)
 
     @checks.is_owner()
     @course.command()
-    async def online(self, ctx, *, course_code: str):
+    async def online(self, ctx, *, raw_course_code: str):
         """Gets course data from the McMaster API."""
-        print(f"Debug: join() - course_code: {course_code}")
+        print(f"Debug: join() - course_code: {raw_course_code}")
         # Format the course code
-        result = await self.format_course_code(course_code)
+        result = self.format_course_code(raw_course_code)
         if not result:
-            await ctx.send(f"Error: The course code {course_code} is not valid. Please enter a valid course code.")
+            await ctx.send(f"Error: The course code {raw_course_code} is not valid. Please enter a valid course code.")
             return
 
         dept, code = result
         formatted_course_code = f"{dept} {code}"
         
         course_data = await self.cache_handler.fetch_course_online(formatted_course_code)
+        print(f"Debug: course_data: {course_data}") # Debug
         await ctx.send(course_data)
 
     @checks.is_owner()
     @course.command()
-    async def setfall(self, ctx, fall: int):
-        """Sets the Fall term code."""
-        await self.cache_handler.term_codes(ctx, "fall", fall)
-        await ctx.send("Fall term code set.")
+    async def setterm(self, ctx, term_name: str, term_id: int):
+        """
+        Set the term code for the specified term.
 
-    @checks.is_owner()
-    @course.command()
-    async def setwinter(self, ctx, winter: int):
-        """Sets the Winter term code."""
-        await self.cache_handler.term_codes(ctx, "winter", winter)
-        await ctx.send("Winter term code set.")
-
-    @checks.is_owner()
-    @course.command()
-    async def setspring(self, ctx, spring: int):
-        """Sets the Spring/Summer term code."""
-        await self.cache_handler.term_codes(ctx, "spring", spring)
-        await ctx.send("Spring/Summer term code set.")
-
-    @checks.is_owner()
-    @course.command()
-    async def mine(self, ctx):
-        """Displays the courses the user belongs to."""
-        courses = self.get_user_courses(ctx, ctx.guild, ctx.author)
-        if courses:
-            await ctx.send(f"{ctx.author.mention}, you are a member of the following courses:\n{', '.join(courses)}")
+        :param ctx: The command context.
+        :param term_name: The term name (winter, spring, or fall).
+        :param term_id: The term code.
+        """
+        term_name = term_name.lower()
+        if term_name in ["winter", "spring", "fall"]:
+            await self.cache_handler.term_codes(ctx, term_name, term_id)
         else:
-            await ctx.send(f"{ctx.author.mention}, you are not a member of any course.")
+            await ctx.send("Invalid term name. Use 'fall', 'winter', or 'spring' followed by the correct term id.")
+
+#    @checks.is_owner()
+#    @course.command()
+#    async def mine(self, ctx):
+#        """Displays the courses the user belongs to."""
+#        courses = self.get_user_courses(ctx, ctx.guild, ctx.author)
+#        if courses:
+#            await ctx.send(f"{ctx.author.mention}, you are a member of the following courses:\n{', '.join(courses)}")
+#        else:
+#            await ctx.send(f"{ctx.author.mention}, you are not a member of any course.")
 
     @checks.is_owner()
     @course.command()

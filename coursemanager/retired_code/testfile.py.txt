@@ -1,0 +1,80 @@
+import discord
+import re
+from redbot.core import checks, commands
+from typing import Optional
+from .get_course_data import CourseCacheHandler
+
+from .faculty_dictionary import FACULTIES
+
+
+class CourseManager(commands.Cog):
+    """A cog for managing course-related channels."""
+
+    def __init__(self, bot):
+        """Initialize the CourseManager with the bot instance."""
+        self.bot = bot
+        self.channel_permissions = discord.Permissions(
+            view_channel=True, send_messages=True, read_message_history=True)
+        self.max_courses = 5
+        self.logging_channel = None
+        self.cache_handler = CourseCacheHandler(bot)
+
+    @commands.group(invoke_without_command=True)
+    async def course(self, ctx):
+        """Main command group."""
+        await ctx.send_help(self.course)
+# Pseudo code
+
+# // User sets term_id for winter, spring, fall terms. Each term_id is unique for each term Name.
+
+
+    @checks.is_owner()
+    @course.command()
+    async def setterm(self, ctx, term_name: str, term_id: str):
+        """
+        Set the term code for the specified term.
+
+        :param ctx: The command context.
+        :param term: The term name (fall, winter, or spring).
+        :param term_code: The term code.
+        """
+        if term_name.lower() in ["fall", "winter", "spring"]:
+            await self.cache_handler.term_codes(ctx, term_name, term_id)
+            await ctx.send(f"{term_name.capitalize()} term code set to {term_id}.")
+        else:
+            await ctx.send("Invalid term. Use 'fall', 'winter', or 'spring'.")
+
+
+
+
+
+
+
+
+// User inputs: raw_course_code
+
+Define function: format_course_code(raw_course_code)
+    a. Split raw_course_code into department and course_id
+    b. Return formatted_course as (department, course_id)
+
+Call function: format_course_code(raw_course_code)
+    a. Receive formatted_course
+
+Define function: fetch_course_online(formatted_course)
+    a. Concatenate department and course_id to create search query
+    b. Fetch raw_course_soup from online source using search query
+    c. Return raw_course_soup
+
+Call function: fetch_course_online(formatted_course)
+    a. Receive raw_course_soup
+
+Define function: process_soup_content(raw_course_soup)
+    a. Extract course_data from raw_course_soup
+    b. Return course_data
+
+Call function: process_soup_content(raw_course_soup)
+    a. Receive course_data
+
+Create Discord embedded message with course_data
+
+Send Discord embedded message to user
