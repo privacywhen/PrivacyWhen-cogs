@@ -132,7 +132,8 @@ class CourseCacheHandler(commands.Cog):
 
             t, e = self.generate_time_code()
             url = self.URL_BASE.format(term=term_id, course_str=course_str, t=t, e=e)
-
+            print(f"Debug: {url}") # Debug
+            
             try:
                 async with self.session.get(url) as response:
                     if response.status != 200:
