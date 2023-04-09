@@ -12,7 +12,7 @@ class CourseCacheHandler(commands.Cog):
     CACHE_STALE_DAYS = 120
     CACHE_EXPIRY_DAYS = 240
     TERM_NAMES = ["winter", "spring", "fall"]
-    URL_BASE = "https://mytimetable.mcmaster.ca/getclassdata.jsp?term={term}&{course_str}&t={t}&e={e}"
+    URL_BASE = "https://mytimetable.mcmaster.ca/getclassdata.jsp?term={term}&course_0_0={course_str}&t={t}&e={e}"
 
     def __init__(self, bot):
         """Initialize the CourseCacheHandler class."""

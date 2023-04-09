@@ -229,7 +229,7 @@ class CourseManager(commands.Cog):
             return
 
         dept, code = result
-        formatted_course_code = f"{dept} {code}"
+        formatted_course_code = f"{dept}-{code}"
         
         course_data = await self.cache_handler.fetch_course_online(formatted_course_code)
         print(f"Debug: course_data: {course_data}") # Debug
