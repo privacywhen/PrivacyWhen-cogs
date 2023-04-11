@@ -227,7 +227,7 @@ class CourseManager(commands.Cog):
     @course.command()
     async def online(self, ctx, *, raw_course_code: str):
         """Gets course data from the McMaster API."""
-        print(f"Debug: join() - course_code: {raw_course_code}")
+        print(f"Debug: online start() - course_code: {raw_course_code}")
         # Format the course code
         result = self.format_course_code(raw_course_code)
         if not result:
@@ -239,7 +239,37 @@ class CourseManager(commands.Cog):
         
         course_data = await self.cache_handler.fetch_course_online(formatted_course_code)
         print(f"Debug: course_data: {course_data}") # Debug
-        await self.send_long_message(ctx, course_data)
+        
+        if course_data is None: # Course not found
+            await ctx.send(f"Error: The course {formatted_course_code} was not found. Please enter a valid course code.")
+            return
+        
+        # Format the course data
+        soup, error_message = course_data
+
+        if soup is not None:
+            processed_course_data = self.cache_handler.process_soup_content(soup)  # Process the soup content
+        else:
+            await ctx.send(f"Error: {error_message}")
+            return
+
+        # Create the Discord embed and add fields with course data
+        embed = discord.Embed(title=f"Course data for {formatted_course_code}", color=0x00FF00)
+
+        for course_info in processed_course_data:
+            course_name = f"{course_info['course']} {course_info['section']}"
+            course_details = (
+                f"Teacher: {course_info['teacher']}\n"
+                f"Location: {course_info['location']}\n"
+                f"Campus: {course_info['campus']}\n"
+                f"Prerequisites: {course_info['prerequisites']}\n"
+                f"Antirequisites: {course_info['antirequisites']}\n"
+                f"Requirements: {course_info['requirements']}\n"
+            )
+            embed.add_field(name=course_name, value=course_details, inline=False)
+
+        await ctx.send(embed=embed)
+
 
     @checks.is_owner()
     @course.command()
