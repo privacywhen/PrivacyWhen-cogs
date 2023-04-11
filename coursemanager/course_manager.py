@@ -167,12 +167,13 @@ class CourseManager(commands.Cog):
 
     def get_user_courses(self, ctx, guild):
         """Returns a list of courses a user has joined."""
-        courses = []
         categories = self.get_all_categories(guild)
-        for category in categories:
-            for channel in category.channels:
-                if isinstance(channel, discord.TextChannel) and channel.permissions_for(ctx.author).view_channel:
-                    courses.append(channel.name.lower())
+        courses = [
+            channel.name.lower()
+            for category in categories
+            for channel in category.channels
+            if isinstance(channel, discord.TextChannel) and channel.permissions_for(ctx.author).view_channel
+        ]
         return courses
 
     def format_course_code(self, course_code: str) -> Optional[Tuple[str, str]]:
@@ -221,6 +222,38 @@ class CourseManager(commands.Cog):
             await ctx.send(message_chunk)
             content = content[max_length:]
 
+    def create_course_embed(self, course_data, formatted_course_code):
+        embed = discord.Embed(title=f'{formatted_course_code}', color=0x00FF00)
+
+        field_info = [
+            ('teacher', 'Teacher'),
+            ('term_found', 'Term'),
+            ('description', 'Description'),
+            ('notes', 'Notes'),
+            ('prerequisites', 'Prerequisites'),
+            ('antirequisites', 'Antirequisites'),
+        ]
+
+        for course_info in course_data:
+            course_name = f"{course_info['course']} {course_info['section']}"
+
+            course_details = [
+                f'**{label}**: {course_info[field]}\n' if course_info[field] else '' for field, label in field_info
+            ]
+
+            if course_info['title']:
+                embed.set_author(name=formatted_course_code)
+                embed.title = course_info['title']
+
+            if course_info['location']:
+                footer_text = f"{course_info['location']} ({course_info['campus']})" if course_info['campus'] else f"{course_info['location']}"
+                embed.set_footer(text=footer_text)
+
+            embed.add_field(name=course_name, value=''.join(course_details), inline=False)
+
+        return embed
+
+
 ## DEV COMMANDS ## (These commands are only available to the bot owner)
 
     @checks.is_owner()
@@ -254,30 +287,42 @@ class CourseManager(commands.Cog):
             return
 
         # Create the Discord embed and add fields with course data
-        embed = discord.Embed(title=f"{formatted_course_code}", color=0x00FF00)
+        embed = self.create_course_embed(processed_course_data, formatted_course_code)
+        await ctx.send(embed=embed)
 
-        for course_info in processed_course_data:
-            course_name = f"{course_info['course']} {course_info['section']}"
 
-            course_details = [
-                f"**Teacher**: {course_info['teacher']}\n" if course_info['teacher'] else "",
-                f"**Term**: {course_info['term_found']}\n" if course_info['term_found'] else "",
-                f"**Description**: {course_info['description']}\n" if course_info['description'] else "",
-                f"**Notes**: {course_info['notes']}\n" if course_info['notes'] else "",
-                f"**Prerequisites**: {course_info['prerequisites']}\n" if course_info['prerequisites'] else "",
-                f"**Antirequisites**: {course_info['antirequisites']}" if course_info['antirequisites'] else ""
-            ]
+    @checks.is_owner()
+    @course.command()
+    async def cache(self, ctx, *, raw_course_code: str):
+        """Gets course data from the cache."""
+        print(f"Debug: cache start() - course_code: {raw_course_code}")
+        # Format the course code
+        result = self.format_course_code(raw_course_code)
+        if not result:
+            await ctx.send(f"Error: The course code {raw_course_code} is not valid. Please enter a valid course code.")
+            return
 
-            if course_info['title']:
-                embed.set_author(name=formatted_course_code)
-                embed.title = course_info['title']
+        dept, code = result
+        formatted_course_code = f"{dept}-{code}"
 
-            if course_info['location']:
-                footer_text = f"{course_info['location']} ({course_info['campus']})" if course_info['campus'] else f"{course_info['location']}"
-                embed.set_footer(text=footer_text)
+        course_data = await self.cache_handler.fetch_course_cache(formatted_course_code)
+        print(f"Debug: course_data: {course_data}") # Debug
 
-            embed.add_field(name=course_name, value="".join(course_details), inline=False)
+        if course_data is None: # Course not found
+            await ctx.send(f"Error: The course {formatted_course_code} was not found. Please enter a valid course code.")
+            return
+        
+        # Format the course data
+        soup, error_message = course_data
 
+        if soup is not None:
+            processed_course_data = self.cache_handler.process_soup_content(soup)
+        else:
+            await ctx.send(f"Error: {error_message}")
+            return
+        
+        # Create the Discord embed and add fields with course data
+        embed = self.create_course_embed(processed_course_data, formatted_course_code)
         await ctx.send(embed=embed)
 
     @checks.is_owner()
