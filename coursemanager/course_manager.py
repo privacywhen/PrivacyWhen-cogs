@@ -215,7 +215,7 @@ class CourseManager(commands.Cog):
 
         return (department, course_number)
 
-    async def send_long_message(self, ctx, content, max_length=4000):
+    async def send_long_message(self, ctx, content, max_length=2000):
         while content:
             message_chunk = content[:max_length]
             await ctx.send(message_chunk)
