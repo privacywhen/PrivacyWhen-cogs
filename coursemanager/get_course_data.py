@@ -2,7 +2,7 @@ import re
 import math
 import time
 import aiohttp
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, Dict
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from redbot.core import Config, commands
@@ -151,39 +151,42 @@ class CourseCacheHandler(commands.Cog):
 
         return None, "Error: course data not found for any of the terms."
 
-    def process_soup_content(self, soup: BeautifulSoup) -> List[dict]:
+    def process_soup_content(self, soup: BeautifulSoup) -> List[Dict]:
         """Process the BeautifulSoup content and return a list of course data."""
         course_data = []
         for course in soup.find_all("course"):
             course_info = {
-                key: course.get(key, "")
-                for key in [
-                    "section",
-                    "teacher",
-                    "location",
-                    "campus",
-                    "courseKey",
-                    "cmkey",
-                    "prerequisites",
-                    "antirequisites",
-                    "requirements",
-                ]
+                "course": course["code"],
+                "section": "",
+                "teacher": "",
+                "location": "",
+                "campus": "",
+                "courseKey": "",
+                "cmkey": "",
+                "prerequisites": "",
+                "antirequisites": "",
+                "requirements": "",
             }
-            course_info["course"] = course["code"]
+            offering = course.find("offering")
+            if offering:
+                course_info["prerequisites"] = offering.get("desc", "").split("Prerequisite(s):")[-1].split("Antirequisite(s):")[0].strip()
+                course_info["antirequisites"] = offering.get("desc", "").split("Antirequisite(s):")[-1].strip()
+
             course_info["classes"] = []
 
-            for offering in course.find_all("offering"):
+            for block in course.find_all("block"):
                 class_info = {
-                    key: offering.get(key, "")
-                    for key in [
-                        "class",
-                        "type",
-                        "enrollment",
-                        "enrollmentLimit",
-                        "waitlist",
-                        "waitlistLimit",
-                    ]
+                    "class": block.get("disp", ""),
+                    "type": block.get("type", ""),
+                    "enrollment": block.get("nres", ""),
+                    "enrollmentLimit": block.get("os", ""),
+                    "waitlist": block.get("wc", ""),
+                    "waitlistLimit": block.get("ws", ""),
                 }
+                course_info["teacher"] = block.get("teacher", "")
+                course_info["location"] = block.get("location", "")
+                course_info["campus"] = block.get("campus", "")
+
                 course_info["classes"].append(class_info)
 
             course_data.append(course_info)
