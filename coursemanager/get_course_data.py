@@ -1,4 +1,3 @@
-
 import re
 import math
 import time
@@ -7,6 +6,7 @@ from typing import Tuple, List, Optional, Dict
 from bs4 import BeautifulSoup, Tag
 from datetime import datetime, timedelta
 from redbot.core import Config, commands
+from collections import namedtuple
 
 class CourseCacheHandler(commands.Cog):
     """Handles course cache and online course verification."""
@@ -14,6 +14,7 @@ class CourseCacheHandler(commands.Cog):
     CACHE_EXPIRY_DAYS = 240
     TERM_NAMES = ["winter", "spring", "fall"]
     URL_BASE = "https://mytimetable.mcmaster.ca/getclassdata.jsp?term={term}&course_0_0={course_str}&t={t}&e={e}"
+    CacheCheckResult = namedtuple('CacheCheckResult', ['course_data', 'is_stale'])
 
     def __init__(self, bot):
         """Initialize the CourseCacheHandler class."""
@@ -26,69 +27,63 @@ class CourseCacheHandler(commands.Cog):
         """Close the aiohttp session."""
         await self.session.close()
 
-#    async def check_course_cache(self, course_str: str) -> tuple:
-#        """Check if the course data is in the cache and if it is not stale."""
-#        courses = await self.config.courses()
-#        course_key = course_str
+    async def fetch_course_cache(self, course_str: str, ctx=None) -> list:
+        """Fetch course data from the cache, if available. Otherwise, fetch from the online source."""
+        course_data, is_stale = await self.check_course_cache(course_str)
 
-#        if course_key in courses:
-#            expiry = datetime.fromisoformat(courses[course_key]["expiry"])
-#            stale_time = expiry - timedelta(days=self.CACHE_STALE_DAYS)
-#            now = datetime.utcnow()
-#            if now < expiry:
-#                return courses[course_key]["data"], now >= stale_time
-#            del courses[course_key]
-#            await self.config.courses.set(courses)
+        if course_data is None or is_stale:
+            fetched_course_data = await self.fetch_and_process_course_data(course_str, ctx)
 
-#        return None, False
-    
-#    async def fetch_course_cache(self, course_str: str, term_name: str = None, ctx=None) -> list:
-#        """Fetch course data from the cache or online source."""
-#        cached_data, is_stale = await self.check_course_cache(course_str)
-#        if cached_data is not None:
-#            if not is_stale:
-#                return cached_data
-#            stale_data = cached_data
+            if fetched_course_data:
+                await self.update_cache(course_str, fetched_course_data)
+                course_data = fetched_course_data
 
-#        term_codes = await self.config.term_codes()
-#        terms_order = self.TERM_NAMES if term_name is None else [term_name]
+            if is_stale:
+                course_data.append({"note": "The returned data may be out of date as it is older than 4 months and could not be updated from the online source."})
 
-#        for term_name in terms_order:
-#            term = term_codes.get(term_name)
-#            if term is None:
-#                await ctx.send("Term code not found. Please set the term codes using the `setterm` subcommand.")
-#                return
+        return course_data
 
-#            soup, error_message = await self.fetch_course_online(course_str, term)
+    async def fetch_and_process_course_data(self, course_str: str, ctx) -> list:
+        """Fetch course data from the online source and process it."""
+        soup, error_message = await self.fetch_course_online(course_str)
 
-#            if error_message:
-#                await ctx.send(f"Error: {error_message}")
-#                return []
+        if soup is not None:
+            course_data = self.process_soup_content(soup)
+            return course_data
+        else:
+            if error_message and ctx:
+                await ctx.send(f"Error: {error_message}")
+            return []
 
-#            if soup is None:
-#                continue
+    async def update_cache(self, course_str: str, course_data: list) -> None:
+        """Update the course cache with the new course data."""
+        course_key = course_str
+        now = datetime.utcnow()
+        expiry = (now + timedelta(days=self.CACHE_EXPIRY_DAYS)).isoformat()
+        async with self.config.courses() as courses:
+            courses[course_key] = {"expiry": expiry, "data": course_data}
 
-#            course_data = self.process_soup_content(soup)
-#            if course_data:
-#                course_key = course_str
-#                now = datetime.utcnow()
-#                expiry = (now + timedelta(days=self.CACHE_EXPIRY_DAYS)).isoformat()
-#                async with self.config.courses() as courses:
-#                    courses[course_key] = {"expiry": expiry, "data": course_data}
-#                await self.config.courses.set(courses)
-#                return course_data
+    async def check_course_cache(self, course_str: str) -> CacheCheckResult:
+        """Check if the course data is in the cache and if it is still valid."""
+        courses = await self.config.courses()
+        course_key = course_str
 
-#        if is_stale:
-#            return stale_data + [{"note": "The returned data may be out of date as it is older than 4 months and could not be updated from the online source."}]
-#        else:
-#            return []
+        if course_key in courses:
+            expiry = datetime.fromisoformat(courses[course_key]["expiry"])
+            stale_time = expiry - timedelta(days=self.CACHE_STALE_DAYS)
+            now = datetime.utcnow()
+            if now < expiry:
+                return self.CacheCheckResult(courses[course_key]["data"], now >= stale_time)
+            del courses[course_key]
+            await self.config.courses.set(courses)
+
+        return self.CacheCheckResult(None, False)
 
     async def term_codes(self, ctx, term_name: str, term_id: int):
         """Set the term code for the specified term."""
         async with self.config.term_codes() as term_codes:
             term_codes[term_name] = term_id
         await ctx.send(f"Term code for {term_name.capitalize()} has been set to: {term_id}")
-        print(f"Debug: {term_codes}") # Debug
 
     def current_term(self) -> str:
         """Determine the current term based on the current month."""
@@ -99,21 +94,17 @@ class CourseCacheHandler(commands.Cog):
             term = self.TERM_NAMES[1]
         else:
             term = self.TERM_NAMES[2]
-        print(f"Debug: {term}") # Debug
         return term
 
     def generate_time_code(self) -> Tuple[int, int]:
         """Generate a time code for use in the query."""
         t = math.floor(time.time() / 60) % 1000
         e = t % 3 + t % 39 + t % 42
-        print(f"Debug: {t}, {e}") # Debug
         return t, e
 
     async def get_term_id(self, term_name: str) -> int:
         term_codes = await self.config.term_codes()
         term_id = term_codes.get(term_name, None)
-        if term_id is None:
-            print(f"Debug: {term_id}") # Debug
         return term_id
 
     async def fetch_course_online(self, course_str: str) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
@@ -133,8 +124,7 @@ class CourseCacheHandler(commands.Cog):
 
             t, e = self.generate_time_code()
             url = self.URL_BASE.format(term=term_id, course_str=course_str, t=t, e=e)
-            print(f"Debug: {url}") # Debug
-            
+
             try:
                 async with self.session.get(url) as response:
                     if response.status != 200:
@@ -145,8 +135,6 @@ class CourseCacheHandler(commands.Cog):
                     error_message = error_tag.text if error_tag else None
                     if error_message is None:
                         return soup, error_message
-                    else:
-                        print(f"Error fetching course data: {error_message}")
             except aiohttp.ClientError as error:
                 print(f"Error fetching course data: {error}")
 
