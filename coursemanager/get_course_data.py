@@ -156,31 +156,37 @@ class CourseCacheHandler(commands.Cog):
         course_data = []
         for course in soup.find_all("course"):
             course_info = {
-                "classes": [],
-                "course": course["code"],
-                "section": course["section"],
-                "teacher": course["teacher"],
-                "location": course["location"],
-                "campus": course["campus"],
-                "courseKey": course["courseKey"],
-                "cmkey": course["cmkey"],
-                "prerequisites": course["prerequisites"],
-                "antirequisites": course["antirequisites"],
-                "requirements": course["requirements"],
+                key: course.get(key, "")
+                for key in [
+                    "section",
+                    "teacher",
+                    "location",
+                    "campus",
+                    "courseKey",
+                    "cmkey",
+                    "prerequisites",
+                    "antirequisites",
+                    "requirements",
+                ]
             }
+            course_info["course"] = course["code"]
+            course_info["classes"] = []
 
             for offering in course.find_all("offering"):
                 class_info = {
-                    "class": offering["class"],
-                    "type": offering["type"],
-                    "enrollment": offering["enrollment"],
-                    "enrollmentLimit": offering["enrollmentLimit"],
-                    "waitlist": offering["waitlist"],
-                    "waitlistLimit": offering["waitlistLimit"],
+                    key: offering.get(key, "")
+                    for key in [
+                        "class",
+                        "type",
+                        "enrollment",
+                        "enrollmentLimit",
+                        "waitlist",
+                        "waitlistLimit",
+                    ]
                 }
                 course_info["classes"].append(class_info)
 
             course_data.append(course_info)
-            print(f"Debug: {course_data}") # Debug
+            print(f"Debug: {course_data}")  # Debug
 
         return course_data
