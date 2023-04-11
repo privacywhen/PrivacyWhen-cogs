@@ -215,6 +215,12 @@ class CourseManager(commands.Cog):
 
         return (department, course_number)
 
+    async def send_long_message(self, ctx, content, max_length=4000):
+        while content:
+            message_chunk = content[:max_length]
+            await ctx.send(message_chunk)
+            content = content[max_length:]
+
 ## DEV COMMANDS ## (These commands are only available to the bot owner)
 
     @checks.is_owner()
@@ -233,7 +239,7 @@ class CourseManager(commands.Cog):
         
         course_data = await self.cache_handler.fetch_course_online(formatted_course_code)
         print(f"Debug: course_data: {course_data}") # Debug
-        await ctx.send(course_data)
+        await self.send_long_message(ctx, course_data)
 
     @checks.is_owner()
     @course.command()
