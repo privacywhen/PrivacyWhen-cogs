@@ -1,3 +1,5 @@
+
+import re
 import math
 import time
 import aiohttp
@@ -168,7 +170,6 @@ class CourseCacheHandler(commands.Cog):
         }
 
     def process_soup_content(self, soup: BeautifulSoup) -> List[Dict]:
-        """Process the BeautifulSoup object and return a list of course data."""
         course_data = []
 
         for course in soup.find_all("course"):
@@ -178,13 +179,14 @@ class CourseCacheHandler(commands.Cog):
                 course_info["title"] = offering["title"]
                 course_info["courseKey"] = offering["key"]
                 desc = offering.get("desc", "")
-                prereq_split = desc.split("Prerequisite(s):")
-                prereq_info = prereq_split[-1].split("Antirequisite(s):")[0].strip() if len(prereq_split) > 1 else ""
-                antireq_split = desc.split("Antirequisite(s):")
-                antireq_info = antireq_split[-1].split("Not open to")[0].strip() if len(antireq_split) > 1 else ""
-                course_info["description"] = desc.replace("Prerequisite(s):" + prereq_info, "").replace("Antirequisite(s):" + antireq_info, "")
-                course_info["prerequisites"] = prereq_info
-                course_info["antirequisites"] = antireq_info
+
+                prereq_info = re.findall(r'Prerequisite\(s\):(.+?)(Antirequisite\(s\):|Not open to|$)', desc)
+                course_info["prerequisites"] = prereq_info[0][0].strip() if prereq_info else ""
+
+                antireq_info = re.findall(r'Antirequisite\(s\):(.+?)(Not open to|$)', desc)
+                course_info["antirequisites"] = antireq_info[0][0].strip() if antireq_info else ""
+
+                course_info["description"] = re.sub(r'Prerequisite\(s\):(.+?)(Antirequisite\(s\):|Not open to|$)', '', desc).strip()
 
             term_elem = course.find("term")
             term_found = term_elem.get("v") if term_elem else ""
@@ -203,5 +205,5 @@ class CourseCacheHandler(commands.Cog):
                 for key, value in course.items():
                     if isinstance(value, str):
                         course[key] = value.replace("<br/>", "\n").replace("_", " ")
-        print(f"Debug: {course_data}") # Debug
+
         return course_data
