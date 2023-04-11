@@ -177,8 +177,7 @@ class CourseCacheHandler(commands.Cog):
             if offering:
                 course_info["title"] = offering["title"]
                 course_info["courseKey"] = offering["key"]
-                desc = offering.get("desc", "").replace("<br/>", "\n").replace("_", " ")
-                course_info["description"] = desc
+                course_info["description"] = offering.get("desc", "")
                 course_info["prerequisites"] = offering.get("desc", "").split("Prerequisite(s):")[-1].split("Antirequisite(s):")[0].strip()
                 course_info["antirequisites"] = offering.get("desc", "").split("Antirequisite(s):")[-1].split("Not open to")[0].strip()
 
@@ -195,5 +194,10 @@ class CourseCacheHandler(commands.Cog):
                 course_info["notes"] = block.get("n", "")
 
             course_data.append(course_info)
+
+            for course in course_data:
+                for key, value in course.items():
+                    if isinstance(value, str):
+                      course[key] = value.replace("<br/>", "\n").replace("_", " ")
 
         return course_data
