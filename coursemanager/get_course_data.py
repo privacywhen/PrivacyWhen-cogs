@@ -1,9 +1,8 @@
-import re
 import math
 import time
 import aiohttp
-from typing import Tuple, List, Optional
-from bs4 import BeautifulSoup
+from typing import Tuple, List, Optional, Dict
+from bs4 import BeautifulSoup, Tag
 from datetime import datetime, timedelta
 from redbot.core import Config, commands
 
@@ -151,36 +150,58 @@ class CourseCacheHandler(commands.Cog):
 
         return None, "Error: course data not found for any of the terms."
 
-    def process_soup_content(self, soup: BeautifulSoup) -> List[dict]:
-        """Process the BeautifulSoup content and return a list of course data."""
-        course_data = []
-        for course in soup.find_all("course"):
-            course_info = {
-                "classes": [],
-                "course": course["code"],
-                "section": course["section"],
-                "teacher": course["teacher"],
-                "location": course["location"],
-                "campus": course["campus"],
-                "courseKey": course["courseKey"],
-                "cmkey": course["cmkey"],
-                "prerequisites": course["prerequisites"],
-                "antirequisites": course["antirequisites"],
-                "requirements": course["requirements"],
-            }
+    def create_course_info(self) -> Dict:
+        return {
+            "course": "",
+            "section": "",
+            "teacher": "",
+            "location": "",
+            "campus": "",
+            "courseKey": "",
+            "prerequisites": "",
+            "antirequisites": "",
+            "notes": "",
+            "term_found": "",
+            "description": "",
+            "title": "",
+            "type": "",
+        }
 
-            for offering in course.find_all("offering"):
-                class_info = {
-                    "class": offering["class"],
-                    "type": offering["type"],
-                    "enrollment": offering["enrollment"],
-                    "enrollmentLimit": offering["enrollmentLimit"],
-                    "waitlist": offering["waitlist"],
-                    "waitlistLimit": offering["waitlistLimit"],
-                }
-                course_info["classes"].append(class_info)
+    def process_soup_content(self, soup: BeautifulSoup) -> List[Dict]:
+        """Process the BeautifulSoup object and return a list of course data."""
+        course_data = []
+
+        for course in soup.find_all("course"):
+            course_info = self.create_course_info()
+            offering = course.find("offering")
+            if offering:
+                course_info["title"] = offering["title"]
+                course_info["courseKey"] = offering["key"]
+                desc = offering.get("desc", "")
+                prereq_split = desc.split("Prerequisite(s):")
+                prereq_info = prereq_split[-1].split("Antirequisite(s):")[0].strip() if len(prereq_split) > 1 else ""
+                antireq_split = desc.split("Antirequisite(s):")
+                antireq_info = antireq_split[-1].split("Not open to")[0].strip() if len(antireq_split) > 1 else ""
+                course_info["description"] = desc.replace("Prerequisite(s):" + prereq_info, "").replace("Antirequisite(s):" + antireq_info, "")
+                course_info["prerequisites"] = prereq_info
+                course_info["antirequisites"] = antireq_info
+
+            term_elem = course.find("term")
+            term_found = term_elem.get("v") if term_elem else ""
+            course_info["term_found"] = term_found
+
+            for block in course.find_all("block"):
+                course_info["type"] = block.get("type", "")
+                course_info["teacher"] = block.get("teacher", "")
+                course_info["location"] = block.get("location", "")
+                course_info["campus"] = block.get("campus", "")
+                course_info["notes"] = block.get("n", "")
 
             course_data.append(course_info)
-            print(f"Debug: {course_data}") # Debug
 
+            for course in course_data:
+                for key, value in course.items():
+                    if isinstance(value, str):
+                        course[key] = value.replace("<br/>", "\n").replace("_", " ")
+        print(f"Debug: {course_data}") # Debug
         return course_data
