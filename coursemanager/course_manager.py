@@ -254,31 +254,15 @@ class CourseManager(commands.Cog):
             return
 
         # Create the Discord embed and add fields with course data
-        embed = discord.Embed(title=f"Course data for {formatted_course_code}", color=0x00FF00)
+        embed = discord.Embed(title=f"{formatted_course_code}", color=0x00FF00)
 
         for course_info in processed_course_data:
             course_name = f"{course_info['course']} {course_info['section']}"
+
             course_details = ""
 
             if course_info['teacher']:
                 course_details += f"**Teacher**: {course_info['teacher']}\n"
-
-            if course_info['location']:
-                course_details += f"**Location**: {course_info['location']}"
-
-                if course_info['campus']:
-                    course_details += f" ({course_info['campus']})"
-
-                course_details += "\n"
-
-            if course_info['prerequisites']:
-                course_details += f"**Prerequisites**: {course_info['prerequisites']}\n"
-
-            if course_info['antirequisites']:
-                course_details += f"**Antirequisites**: {course_info['antirequisites']}\n"
-
-            if course_info['notes']:
-                course_details += f"**Notes**: {course_info['notes']}\n"
 
             if course_info['term_found']:
                 course_details += f"**Term**: {course_info['term_found']}\n"
@@ -286,16 +270,29 @@ class CourseManager(commands.Cog):
             if course_info['description']:
                 course_details += f"**Description**: {course_info['description']}\n"
 
+            if course_info['notes']:
+                course_details += f"**Notes**: {course_info['notes']}\n"
+
+            prereq_and_antireq = ""
+
+            if course_info['prerequisites']:
+                prereq_and_antireq += f"**Prerequisites**: {course_info['prerequisites']}"
+
+            if course_info['antirequisites']:
+                prereq_and_antireq += f"{' ' * (40 - len(course_info['prerequisites']))} | **Antirequisites**: {course_info['antirequisites']}"
+
+            if prereq_and_antireq:
+                course_details += "\n" + prereq_and_antireq
+
             if course_info['title']:
-                embed.set_footer(text=course_info['title'])
+                embed.set_author(name=formatted_course_code)
+                embed.title = course_info['title']
 
-            if course_info['class']:
-                course_details += f"**Class**: {course_info['class']}"
-
-                if course_info['type']:
-                    course_details += f" ({course_info['type']})"
-
-                course_details += "\n"
+            if course_info['location']:
+                footer_text = f"{course_info['location']}"
+                if course_info['campus']:
+                    footer_text += f" ({course_info['campus']})"
+                embed.set_footer(text=footer_text)
 
             embed.add_field(name=course_name, value=course_details, inline=False)
 

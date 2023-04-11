@@ -164,7 +164,6 @@ class CourseCacheHandler(commands.Cog):
             "term_found": "",
             "description": "",
             "title": "",
-            "class": "",
             "type": "",
         }
 
@@ -177,16 +176,20 @@ class CourseCacheHandler(commands.Cog):
             if offering:
                 course_info["title"] = offering["title"]
                 course_info["courseKey"] = offering["key"]
-                course_info["description"] = offering.get("desc", "")
-                course_info["prerequisites"] = offering.get("desc", "").split("Prerequisite(s):")[-1].split("Antirequisite(s):")[0].strip()
-                course_info["antirequisites"] = offering.get("desc", "").split("Antirequisite(s):")[-1].split("Not open to")[0].strip()
+                desc = offering.get("desc", "")
+                prereq_split = desc.split("Prerequisite(s):")
+                prereq_info = prereq_split[-1].split("Antirequisite(s):")[0].strip() if len(prereq_split) > 1 else ""
+                antireq_split = desc.split("Antirequisite(s):")
+                antireq_info = antireq_split[-1].split("Not open to")[0].strip() if len(antireq_split) > 1 else ""
+                course_info["description"] = desc.replace(prereq_info, "").replace(antireq_info, "")
+                course_info["prerequisites"] = prereq_info
+                course_info["antirequisites"] = antireq_info
 
             term_elem = course.find("term")
             term_found = term_elem.get("v") if term_elem else ""
             course_info["term_found"] = term_found
 
             for block in course.find_all("block"):
-                course_info["class"] = block.get("disp", "")
                 course_info["type"] = block.get("type", "")
                 course_info["teacher"] = block.get("teacher", "")
                 course_info["location"] = block.get("location", "")
@@ -198,6 +201,6 @@ class CourseCacheHandler(commands.Cog):
             for course in course_data:
                 for key, value in course.items():
                     if isinstance(value, str):
-                      course[key] = value.replace("<br/>", "\n").replace("_", " ")
+                        course[key] = value.replace("<br/>", "\n").replace("_", " ")
 
         return course_data
