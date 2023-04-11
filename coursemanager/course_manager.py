@@ -259,42 +259,24 @@ class CourseManager(commands.Cog):
         for course_info in processed_course_data:
             course_name = f"{course_info['course']} {course_info['section']}"
 
-            course_details = ""
-
-            if course_info['teacher']:
-                course_details += f"**Teacher**: {course_info['teacher']}\n"
-
-            if course_info['term_found']:
-                course_details += f"**Term**: {course_info['term_found']}\n"
-
-            if course_info['description']:
-                course_details += f"**Description**: {course_info['description']}\n"
-
-            if course_info['notes']:
-                course_details += f"**Notes**: {course_info['notes']}\n"
-
-            prereq_and_antireq = ""
-
-            if course_info['prerequisites']:
-                prereq_and_antireq += f"**Prerequisites**: {course_info['prerequisites']}"
-
-            if course_info['antirequisites']:
-                prereq_and_antireq += f"{' ' * (40 - len(course_info['prerequisites']))} | **Antirequisites**: {course_info['antirequisites']}"
-
-            if prereq_and_antireq:
-                course_details += "\n" + prereq_and_antireq
+            course_details = [
+                f"**Teacher**: {course_info['teacher']}\n" if course_info['teacher'] else "",
+                f"**Term**: {course_info['term_found']}\n" if course_info['term_found'] else "",
+                f"**Description**: {course_info['description']}\n" if course_info['description'] else "",
+                f"**Notes**: {course_info['notes']}\n" if course_info['notes'] else "",
+                f"**Prerequisites**: {course_info['prerequisites']}\n" if course_info['prerequisites'] else "",
+                f"**Antirequisites**: {course_info['antirequisites']}" if course_info['antirequisites'] else ""
+            ]
 
             if course_info['title']:
                 embed.set_author(name=formatted_course_code)
                 embed.title = course_info['title']
 
             if course_info['location']:
-                footer_text = f"{course_info['location']}"
-                if course_info['campus']:
-                    footer_text += f" ({course_info['campus']})"
+                footer_text = f"{course_info['location']} ({course_info['campus']})" if course_info['campus'] else f"{course_info['location']}"
                 embed.set_footer(text=footer_text)
 
-            embed.add_field(name=course_name, value=course_details, inline=False)
+            embed.add_field(name=course_name, value="".join(course_details), inline=False)
 
         await ctx.send(embed=embed)
 

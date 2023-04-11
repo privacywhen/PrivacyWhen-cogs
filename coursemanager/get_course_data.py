@@ -168,6 +168,7 @@ class CourseCacheHandler(commands.Cog):
         }
 
     def process_soup_content(self, soup: BeautifulSoup) -> List[Dict]:
+        """Process the BeautifulSoup object and return a list of course data."""
         course_data = []
 
         for course in soup.find_all("course"):
@@ -181,7 +182,7 @@ class CourseCacheHandler(commands.Cog):
                 prereq_info = prereq_split[-1].split("Antirequisite(s):")[0].strip() if len(prereq_split) > 1 else ""
                 antireq_split = desc.split("Antirequisite(s):")
                 antireq_info = antireq_split[-1].split("Not open to")[0].strip() if len(antireq_split) > 1 else ""
-                course_info["description"] = desc.replace(prereq_info, "").replace(antireq_info, "")
+                course_info["description"] = desc.replace("Prerequisite(s):" + prereq_info, "").replace("Antirequisite(s):" + antireq_info, "")
                 course_info["prerequisites"] = prereq_info
                 course_info["antirequisites"] = antireq_info
 
@@ -202,5 +203,5 @@ class CourseCacheHandler(commands.Cog):
                 for key, value in course.items():
                     if isinstance(value, str):
                         course[key] = value.replace("<br/>", "\n").replace("_", " ")
-
+        print(f"Debug: {course_data}") # Debug
         return course_data
