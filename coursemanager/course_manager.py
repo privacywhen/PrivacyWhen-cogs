@@ -258,17 +258,48 @@ class CourseManager(commands.Cog):
 
         for course_info in processed_course_data:
             course_name = f"{course_info['course']} {course_info['section']}"
-            course_details = (
-                f"Teacher: {course_info['teacher']}\n"
-                f"Location: {course_info['location']}\n"
-                f"Campus: {course_info['campus']}\n"
-                f"Prerequisites: {course_info['prerequisites']}\n"
-                f"Antirequisites: {course_info['antirequisites']}\n"
-            )
+            course_details = ""
+
+            if course_info['teacher']:
+                course_details += f"**Teacher**: {course_info['teacher']}\n"
+
+            if course_info['location']:
+                course_details += f"**Location**: {course_info['location']}"
+
+                if course_info['campus']:
+                    course_details += f" ({course_info['campus']})"
+
+                course_details += "\n"
+
+            if course_info['prerequisites']:
+                course_details += f"**Prerequisites**: {course_info['prerequisites']}\n"
+
+            if course_info['antirequisites']:
+                course_details += f"**Antirequisites**: {course_info['antirequisites']}\n"
+
+            if course_info['notes']:
+                course_details += f"**Notes**: {course_info['notes']}\n"
+
+            if course_info['term_found']:
+                course_details += f"**Term**: {course_info['term_found']}\n"
+
+            if course_info['description']:
+                course_details += f"**Description**: {course_info['description']}\n"
+
+            if course_info['title']:
+                embed.set_footer(text=course_info['title'])
+
+            if course_info['class']:
+                course_details += f"**Class**: {course_info['class']}"
+
+                if course_info['type']:
+                    course_details += f" ({course_info['type']})"
+
+                course_details += "\n"
+
             embed.add_field(name=course_name, value=course_details, inline=False)
 
         await ctx.send(embed=embed)
-
 
     @checks.is_owner()
     @course.command()
