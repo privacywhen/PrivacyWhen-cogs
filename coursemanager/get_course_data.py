@@ -117,6 +117,9 @@ class CourseCacheHandler(commands.Cog):
         current_term = self.current_term()
         term_order = self.TERM_NAMES[self.TERM_NAMES.index(current_term):] + self.TERM_NAMES[:self.TERM_NAMES.index(current_term)]
 
+        soup = None
+        error_message = None
+
         for term_name in term_order:
             term_id = await self.get_term_id(term_name)
             if term_id is None:
@@ -134,11 +137,13 @@ class CourseCacheHandler(commands.Cog):
                     error_tag = soup.find("error")
                     error_message = error_tag.text if error_tag else None
                     if error_message is None:
-                        return soup, error_message
+                        break
             except aiohttp.ClientError as error:
                 print(f"Error fetching course data: {error}")
+                error_message = "Error: An issue occurred while fetching the course data."
+                break
 
-        return None, "Error: course data not found for any of the terms."
+        return soup, error_message
 
     def create_course_info(self) -> Dict:
         return {
@@ -158,6 +163,12 @@ class CourseCacheHandler(commands.Cog):
         }
 
     def process_soup_content(self, soup: BeautifulSoup) -> List[Dict]:
+        """
+        Process the BeautifulSoup content to extract course data.
+
+        :param soup: BeautifulSoup object containing the course data.
+        :return: A list of dictionaries containing the processed course data.
+        """
         course_data = []
 
         for course in soup.find_all("course"):
