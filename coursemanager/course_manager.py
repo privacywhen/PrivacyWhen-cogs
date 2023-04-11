@@ -282,6 +282,63 @@ class CourseManager(commands.Cog):
 
     @checks.is_owner()
     @course.command()
+    async def cache(self, ctx, *, raw_course_code: str):
+        """Gets course data from the cache."""
+        print(f"Debug: cache start() - course_code: {raw_course_code}")
+        # Format the course code
+        result = self.format_course_code(raw_course_code)
+        if not result:
+            await ctx.send(f"Error: The course code {raw_course_code} is not valid. Please enter a valid course code.")
+            return
+
+        dept, code = result
+        formatted_course_code = f"{dept}-{code}"
+
+        course_data = await self.cache_handler.fetch_course_cache(formatted_course_code)
+        print(f"Debug: course_data: {course_data}") # Debug
+
+        if course_data is None: # Course not found
+            await ctx.send(f"Error: The course {formatted_course_code} was not found. Please enter a valid course code.")
+            return
+        
+        # Format the course data
+        soup, error_message = course_data
+
+        if soup is not None:
+            processed_course_data = self.cache_handler.process_soup_content(soup)
+        else:
+            await ctx.send(f"Error: {error_message}")
+            return
+        
+        # Create the Discord embed and add fields with course data
+        embed = discord.Embed(title=f"{formatted_course_code}", color=0x00FF00)
+
+        for course_info in processed_course_data:
+            course_name = f"{course_info['course']} {course_info['section']}"
+
+            course_details = [
+                f"**Teacher**: {course_info['teacher']}\n" if course_info['teacher'] else "",
+                f"**Term**: {course_info['term_found']}\n" if course_info['term_found'] else "",
+                f"**Description**: {course_info['description']}\n" if course_info['description'] else "",
+                f"**Notes**: {course_info['notes']}\n" if course_info['notes'] else "",
+                f"**Prerequisites**: {course_info['prerequisites']}\n" if course_info['prerequisites'] else "",
+                f"**Antirequisites**: {course_info['antirequisites']}" if course_info['antirequisites'] else ""
+            ]
+
+            if course_info['title']:
+                embed.set_author(name=formatted_course_code)
+                embed.title = course_info['title']
+
+            if course_info['location']:
+                footer_text = f"{course_info['location']} ({course_info['campus']})" if course_info['campus'] else f"{course_info['location']}"
+                embed.set_footer(text=footer_text)
+
+            embed.add_field(name=course_name, value="".join(course_details), inline=False)
+
+        await ctx.send(embed=embed)
+
+    @checks.is_owner()
+    @course.command()
     async def setterm(self, ctx, term_name: str, term_id: int):
         """
         Set the term code for the specified term.
