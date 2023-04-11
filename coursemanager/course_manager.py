@@ -264,7 +264,6 @@ class CourseManager(commands.Cog):
                 f"Campus: {course_info['campus']}\n"
                 f"Prerequisites: {course_info['prerequisites']}\n"
                 f"Antirequisites: {course_info['antirequisites']}\n"
-                f"Requirements: {course_info['requirements']}\n"
             )
             embed.add_field(name=course_name, value=course_details, inline=False)
 
