@@ -154,6 +154,7 @@ class CourseCacheHandler(commands.Cog):
     def create_course_info(self, term: str) -> Dict:
         return {
             "course": "",
+            "section": "",
             "teacher": "",
             "location": "",
             "campus": "",
