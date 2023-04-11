@@ -3,7 +3,7 @@ import math
 import time
 import aiohttp
 from typing import Tuple, List, Optional, Dict
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from datetime import datetime, timedelta
 from redbot.core import Config, commands
 
@@ -151,45 +151,112 @@ class CourseCacheHandler(commands.Cog):
 
         return None, "Error: course data not found for any of the terms."
 
+    def create_course_info(self, term: str) -> Dict:
+        return {
+            "course": "",
+            "teacher": "",
+            "location": "",
+            "campus": "",
+            "courseKey": "",
+            "prerequisites": "",
+            "antirequisites": "",
+            "requirements": "",
+            "notes": "",
+            "term": "",
+            "description": "",
+            "title": "",
+            "classes": [],
+        }
+
+    def create_class_info(self) -> Dict:
+        return {
+            "class": "",
+            "type": "",
+        }
+
     def process_soup_content(self, soup: BeautifulSoup) -> List[Dict]:
-        """Process the BeautifulSoup content and return a list of course data."""
         course_data = []
+        term_elem = soup.find("term")
+        term = term_elem.get("v", "") if isinstance(term_elem, Tag) else ""
+
         for course in soup.find_all("course"):
-            course_info = {
-                "course": course["code"],
-                "section": "",
-                "teacher": "",
-                "location": "",
-                "campus": "",
-                "courseKey": "",
-                "cmkey": "",
-                "prerequisites": "",
-                "antirequisites": "",
-                "requirements": "",
-            }
+            course_info = self.create_course_info(term) # type: ignore
             offering = course.find("offering")
             if offering:
+                course_info["title"] = offering["title"]
+                course_info["courseKey"] = offering["key"]
+                desc = offering.get("desc", "").replace("<br>", "\n").replace("<br/>", "\n").replace("_", " ")
+                course_info["description"] = desc
                 course_info["prerequisites"] = offering.get("desc", "").split("Prerequisite(s):")[-1].split("Antirequisite(s):")[0].strip()
-                course_info["antirequisites"] = offering.get("desc", "").split("Antirequisite(s):")[-1].strip()
+                course_info["antirequisites"] = offering.get("desc", "").split("Antirequisite(s):")[-1].split("Not open to")[0].strip()
 
-            course_info["classes"] = []
+            selection = course.find("selection")
+            if selection:
+                course_info["credits"] = selection["credits"]
 
-            for block in course.find_all("block"):
-                class_info = {
+            requirements = course.find("reqgroupline", {"desc": "Refer to course Description."})
+            if requirements:
+                course_info["requirements"] = requirements["desc"]
+
+            course_info["classes"] = [
+                {
+                    **self.create_class_info(),
                     "class": block.get("disp", ""),
                     "type": block.get("type", ""),
-                    "enrollment": block.get("nres", ""),
-                    "enrollmentLimit": block.get("os", ""),
-                    "waitlist": block.get("wc", ""),
-                    "waitlistLimit": block.get("ws", ""),
-                }
+                } for block in course.find_all("block")
+            ]
+
+            for block in course.find_all("block"):
                 course_info["teacher"] = block.get("teacher", "")
                 course_info["location"] = block.get("location", "")
                 course_info["campus"] = block.get("campus", "")
-
-                course_info["classes"].append(class_info)
+                course_info["notes"] = block.get("n", "")
 
             course_data.append(course_info)
-            print(f"Debug: {course_data}")  # Debug
 
         return course_data
+
+
+# // create an updated version of process_soup_content() that pretifies the data before returning it
+#    def (self, soup: BeautifulSoup) -> List[Dict]:
+#        """Process the BeautifulSoup content and return a list of course data."""
+#        course_data = []
+#        for course in soup.find_all("course"):
+#            course_info = {
+#                "course": course["code"],
+#                "section": "",
+#                "teacher": "",
+#                "location": "",
+#                "campus": "",
+#                "courseKey": "",
+#                "cmkey": "",
+#                "prerequisites": "",
+#                "antirequisites": "",
+#                "requirements": "",
+#            }
+#            offering = course.find("offering")
+#            if offering:
+#                course_info["prerequisites"] = offering.get("desc", "").split("Prerequisite(s):")[-1].split("Antirequisite(s):")[0].strip()
+#                course_info["antirequisites"] = offering.get("desc", "").split("Antirequisite(s):")[-1].strip()
+
+#            course_info["classes"] = []
+
+#            for block in course.find_all("block"):
+#                class_info = {
+#                    "class": block.get("disp", ""),
+#                    "type": block.get("type", ""),
+#                    "enrollment": block.get("nres", ""),
+#                    "enrollmentLimit": block.get("os", ""),
+#                    "waitlist": block.get("wc", ""),
+#                    "waitlistLimit": block.get("ws", ""),
+#                }
+#                course_info["teacher"] = block.get("teacher", "")
+#                course_info["location"] = block.get("location", "")
+#                course_info["campus"] = block.get("campus", "")
+
+#                course_info["classes"].append(class_info)
+
+#            course_data.append(course_info)
+#            print(f"Debug: {course_data}")  # Debug
+
+#        return course_data
