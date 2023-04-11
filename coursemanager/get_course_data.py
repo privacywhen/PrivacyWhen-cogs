@@ -1,4 +1,3 @@
-import re
 import math
 import time
 import aiohttp
@@ -151,7 +150,7 @@ class CourseCacheHandler(commands.Cog):
 
         return None, "Error: course data not found for any of the terms."
 
-    def create_course_info(self, term: str) -> Dict:
+    def create_course_info(self) -> Dict:
         return {
             "course": "",
             "section": "",
@@ -161,53 +160,35 @@ class CourseCacheHandler(commands.Cog):
             "courseKey": "",
             "prerequisites": "",
             "antirequisites": "",
-            "requirements": "",
             "notes": "",
-            "term": "",
+            "term_found": "",
             "description": "",
             "title": "",
-            "classes": [],
-        }
-
-    def create_class_info(self) -> Dict:
-        return {
             "class": "",
             "type": "",
         }
 
     def process_soup_content(self, soup: BeautifulSoup) -> List[Dict]:
         course_data = []
-        term_elem = soup.find("term")
-        term = term_elem.get("v", "") if isinstance(term_elem, Tag) else ""
 
         for course in soup.find_all("course"):
-            course_info = self.create_course_info(term) # type: ignore
+            course_info = self.create_course_info()
             offering = course.find("offering")
             if offering:
                 course_info["title"] = offering["title"]
                 course_info["courseKey"] = offering["key"]
-                desc = offering.get("desc", "").replace("<br>", "\n").replace("<br/>", "\n").replace("_", " ")
+                desc = offering.get("desc", "").replace("<br/>", "\n").replace("_", " ")
                 course_info["description"] = desc
                 course_info["prerequisites"] = offering.get("desc", "").split("Prerequisite(s):")[-1].split("Antirequisite(s):")[0].strip()
                 course_info["antirequisites"] = offering.get("desc", "").split("Antirequisite(s):")[-1].split("Not open to")[0].strip()
 
-            selection = course.find("selection")
-            if selection:
-                course_info["credits"] = selection["credits"]
-
-            requirements = course.find("reqgroupline", {"desc": "Refer to course Description."})
-            if requirements:
-                course_info["requirements"] = requirements["desc"]
-
-            course_info["classes"] = [
-                {
-                    **self.create_class_info(),
-                    "class": block.get("disp", ""),
-                    "type": block.get("type", ""),
-                } for block in course.find_all("block")
-            ]
+            term_elem = course.find("term")
+            term_found = term_elem.get("v") if term_elem else ""
+            course_info["term_found"] = term_found
 
             for block in course.find_all("block"):
+                course_info["class"] = block.get("disp", "")
+                course_info["type"] = block.get("type", "")
                 course_info["teacher"] = block.get("teacher", "")
                 course_info["location"] = block.get("location", "")
                 course_info["campus"] = block.get("campus", "")
@@ -216,48 +197,3 @@ class CourseCacheHandler(commands.Cog):
             course_data.append(course_info)
 
         return course_data
-
-
-# // create an updated version of process_soup_content() that pretifies the data before returning it
-#    def (self, soup: BeautifulSoup) -> List[Dict]:
-#        """Process the BeautifulSoup content and return a list of course data."""
-#        course_data = []
-#        for course in soup.find_all("course"):
-#            course_info = {
-#                "course": course["code"],
-#                "section": "",
-#                "teacher": "",
-#                "location": "",
-#                "campus": "",
-#                "courseKey": "",
-#                "cmkey": "",
-#                "prerequisites": "",
-#                "antirequisites": "",
-#                "requirements": "",
-#            }
-#            offering = course.find("offering")
-#            if offering:
-#                course_info["prerequisites"] = offering.get("desc", "").split("Prerequisite(s):")[-1].split("Antirequisite(s):")[0].strip()
-#                course_info["antirequisites"] = offering.get("desc", "").split("Antirequisite(s):")[-1].strip()
-
-#            course_info["classes"] = []
-
-#            for block in course.find_all("block"):
-#                class_info = {
-#                    "class": block.get("disp", ""),
-#                    "type": block.get("type", ""),
-#                    "enrollment": block.get("nres", ""),
-#                    "enrollmentLimit": block.get("os", ""),
-#                    "waitlist": block.get("wc", ""),
-#                    "waitlistLimit": block.get("ws", ""),
-#                }
-#                course_info["teacher"] = block.get("teacher", "")
-#                course_info["location"] = block.get("location", "")
-#                course_info["campus"] = block.get("campus", "")
-
-#                course_info["classes"].append(class_info)
-
-#            course_data.append(course_info)
-#            print(f"Debug: {course_data}")  # Debug
-
-#        return course_data
