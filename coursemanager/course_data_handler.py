@@ -117,7 +117,7 @@ class CourseDataHandler(commands.Cog):
 
     def generate_time_code(self) -> Tuple[int, int]:
         """Generate a time code for use in the query."""
-        t = floor(time.time() / 60) % 1000
+        t = floor(time() / 60) % 1000
         e = t % 3 + t % 39 + t % 42
         return t, e
 
