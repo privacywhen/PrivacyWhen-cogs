@@ -1,13 +1,14 @@
-import aiohttp
-import math
-import re
-import time
 from collections import namedtuple
 from datetime import datetime, timedelta
-
-from bs4 import BeautifulSoup
-from redbot.core import Config, commands
+from math import floor
+from re import findall, sub
+from time import time
 from typing import Dict, List, Optional, Tuple
+
+from aiohttp import ClientConnectionError, ClientResponseError, ClientSession
+from bs4 import BeautifulSoup
+from discord import Guild
+from redbot.core import Config, commands
 
 
 class CourseDataHandler(commands.Cog):
@@ -23,7 +24,7 @@ class CourseDataHandler(commands.Cog):
         self.bot = bot
         self.config = Config.get_conf(self.bot, identifier=3720194665, force_registration=True)
         self.config.register_global(courses={}, term_codes={})
-        self.session = aiohttp.ClientSession()
+        self.session = ClientSession()
 
     async def close_session(self):
         """Close the aiohttp session."""
@@ -116,7 +117,7 @@ class CourseDataHandler(commands.Cog):
 
     def generate_time_code(self) -> Tuple[int, int]:
         """Generate a time code for use in the query."""
-        t = math.floor(time.time() / 60) % 1000
+        t = floor(time.time() / 60) % 1000
         e = t % 3 + t % 39 + t % 42
         return t, e
 
@@ -156,11 +157,11 @@ class CourseDataHandler(commands.Cog):
                     error_message = error_tag.text if error_tag else None
                     if error_message is None:
                         break
-            except aiohttp.ClientResponseError as error:
+            except ClientResponseError as error:
                 print(f"Error fetching course data: {error}")
                 error_message = "Error: An issue occurred while fetching the course data."
                 break
-            except aiohttp.ClientConnectionError as error:
+            except ClientConnectionError as error:
                 print(f"Error connecting to server: {error}")
                 error_message = "Error: An issue occurred while connecting to the server."
                 break
@@ -202,13 +203,13 @@ class CourseDataHandler(commands.Cog):
                 course_info["courseKey"] = offering["key"]
                 desc = offering.get("desc", "")
 
-                prereq_info = re.findall(r'Prerequisite\(s\):(.+?)(Antirequisite\(s\):|Not open to|$)', desc)
+                prereq_info = findall(r'Prerequisite\(s\):(.+?)(Antirequisite\(s\):|Not open to|$)', desc)
                 course_info["prerequisites"] = prereq_info[0][0].strip() if prereq_info else ""
 
-                antireq_info = re.findall(r'Antirequisite\(s\):(.+?)(Not open to|$)', desc)
+                antireq_info = findall(r'Antirequisite\(s\):(.+?)(Not open to|$)', desc)
                 course_info["antirequisites"] = antireq_info[0][0].strip() if antireq_info else ""
 
-                course_info["description"] = re.sub(r'Prerequisite\(s\):(.+?)(Antirequisite\(s\):|Not open to|$)', '', desc).strip()
+                course_info["description"] = sub(r'Prerequisite\(s\):(.+?)(Antirequisite\(s\):|Not open to|$)', '', desc).strip()
 
             term_elem = course.find("term")
             term_found = term_elem.get("v") if term_elem else ""

@@ -1,7 +1,9 @@
-import discord
 import re
+from typing import Optional, Tuple
+
+import discord
 from redbot.core import checks, commands
-from typing import Tuple, Optional
+
 from .course_data_handler import CourseDataHandler
 from .faculty_dictionary import FACULTIES
 
