@@ -214,12 +214,12 @@ class CourseDataHandler(commands.Cog):
             term_found = term_elem.get("v") if term_elem else ""
             course_info["term_found"] = term_found
 
-            for block in course.find_all("block"):
-                course_info["type"] = block.get("type", "")
-                course_info["teacher"] = block.get("teacher", "")
-                course_info["location"] = block.get("location", "")
-                course_info["campus"] = block.get("campus", "")
-                course_info["notes"] = block.get("n", "")
+            block = course.find("block")
+            course_info["type"] = block.get("type", "") if block else ""
+            course_info["teacher"] = block.get("teacher", "") if block else ""
+            course_info["location"] = block.get("location", "") if block else ""
+            course_info["campus"] = block.get("campus", "") if block else ""
+            course_info["notes"] = block.get("n", "") if block else ""
 
             course_data.append(course_info)
 
