@@ -1,10 +1,11 @@
-import discord
 import re
+from typing import Optional, Tuple
+
+import discord
 from redbot.core import checks, commands
-from typing import Tuple, Optional
+
 from .course_data_handler import CourseDataHandler
 from .faculty_dictionary import FACULTIES
-
 
 class CourseManager(commands.Cog):
     """A cog for managing course-related channels."""
@@ -18,7 +19,15 @@ class CourseManager(commands.Cog):
         self.logging_channel = None
         self.cache_handler = CourseDataHandler(bot)
 
+    @staticmethod
+    def enabled_cog_check():
+        async def predicate(ctx):
+            cog_enabled = await ctx.cog.cache_handler.get_cog_enabled(ctx.guild)
+            return cog_enabled
+        return commands.check(predicate)
+
     @commands.group(invoke_without_command=True)
+    @enabled_cog_check()
     async def course(self, ctx):
         """Main command group."""
         await ctx.send_help(self.course)
