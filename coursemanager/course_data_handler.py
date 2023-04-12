@@ -33,7 +33,7 @@ class CourseDataHandler(commands.Cog):
         """Close the aiohttp session when the cog is unloaded."""
         self.bot.loop.create_task(self.close_session())
 
-    async def fetch_course_cache(self, course_str: str, ctx=None) -> list:
+    async def fetch_course_cache(self, course_str: str, ctx=None) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
         """Fetch course data from the cache, if available. Otherwise, fetch from the online source."""
         course_data, is_stale = await self.check_course_cache(course_str)
 
@@ -45,9 +45,21 @@ class CourseDataHandler(commands.Cog):
                 course_data = fetched_course_data
 
             if is_stale:
-                course_data.append({"note": "The returned data may be out of date as it is older than 4 months and could not be updated from the online source."})
+                course_data_note = {"note": "The returned data may be out of date as it is older than 4 months and could not be updated from the online source."}
+                if isinstance(course_data, list):
+                    course_data.append(course_data_note)
+                else:
+                    course_data = [course_data, course_data_note['note']]
 
-        return course_data
+        if isinstance(course_data, list):
+            # Return the first item in the list as the soup object
+            soup = course_data[0] if course_data else None
+            # Return the second item in the list as the error message string
+            error_message = course_data[1] if len(course_data) > 1 else None
+            return soup, error_message
+        else:
+            # If course_data is not a list, return it as the soup object and None as the error message
+            return course_data, None
 
     async def fetch_and_process_course_data(self, course_str: str, ctx) -> list:
         """Fetch course data from the online source and process it."""
@@ -69,7 +81,7 @@ class CourseDataHandler(commands.Cog):
         async with self.config.courses() as courses:
             courses[course_key] = {"expiry": expiry, "data": course_data}
 
-    async def check_course_cache(self, course_str: str) -> CacheCheckResult:
+    async def check_course_cache(self, course_str: str) -> Tuple[Optional[BeautifulSoup], bool]:
         """Check if the course data is in the cache and if it is still valid."""
         courses = await self.config.courses()
         course_key = course_str
@@ -79,11 +91,11 @@ class CourseDataHandler(commands.Cog):
             stale_time = expiry - timedelta(days=self.CACHE_STALE_DAYS)
             now = datetime.utcnow()
             if now < expiry:
-                return self.CacheCheckResult(courses[course_key]["data"], now >= stale_time)
+                return courses[course_key]["data"], now >= stale_time
             del courses[course_key]
             await self.config.courses.set(courses)
 
-        return self.CacheCheckResult(None, False)
+        return None, False
 
     async def term_codes(self, ctx, term_name: str, term_id: int):
         """Set the term code for the specified term."""
