@@ -1,9 +1,10 @@
-import discord
 import re
-from redbot.core import checks, commands
-from typing import Tuple, Optional
-from .get_course_data import CourseCacheHandler
+from typing import Optional, Tuple
 
+import discord
+from redbot.core import checks, commands
+
+from .course_data_handler import CourseDataHandler
 from .faculty_dictionary import FACULTIES
 
 
@@ -17,7 +18,7 @@ class CourseManager(commands.Cog):
             view_channel=True, send_messages=True, read_message_history=True)
         self.max_courses = 5
         self.logging_channel = None
-        self.cache_handler = CourseCacheHandler(bot)
+        self.cache_handler = CourseDataHandler(bot)
 
     @commands.group(invoke_without_command=True)
     async def course(self, ctx):

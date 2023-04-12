@@ -1,0 +1,33 @@
+name: anti-academic-spam
+rank: 3
+priority: 1
+event: on-message
+if:
+  - message-matches-regex: (?i)(?<!\\w)(tutor(?:s|ing|ed)?|prof(?:essional)?|expert|qualif(?:ied|ication)?|class(?:es)?|school|study|work(?:s)?|assignment(?:s)?|essay|essay\\shelp|paper(?:s)?|thesis(?:es)?|dissertation(?:s)?|writing|online exam(?:s)?|test(?:s)?|exam(?:s)?|term paper(?:s)?|research paper(?:s)?|coursework|online class(?:es)?|academic coursework|plagiarism|excellent grade(?:s)?|academic (?:performance|achievement|success|improvement)|academic coach(?:ing|es)?|Customer\\sSupport|guaranteed)(?![\\w_])
+  - if-any:
+    - message-contains-url: true
+    - message-matches-regex: (?i)(?<!\w)(whatsapp|discord|snapchat|instagram|facebook|linkedin|wechat|twitter|reddit|tiktok|youtube|telegram|pinterest)\b(?![_\w])
+    - nickname-matches-regex: (?i).*tutor.*
+  - if-not:
+    - message-matches-regex: (?i)(^|\\b)(I\\s+need\\s+a\\s+tutor|looking\\s+for\\s+a\\s+tutor)(\\b|$)
+do:
+  - send-message: [$user_id, "You have been banned for promoting Academic Dishonesty. If this ban was issued in error, an admin will revert the ban ASAP. If you wish to appeal this ban, please fill out this form: https://forms.gle/XzoXtydoJMqAYurW9"]
+  - ban-user-and-delete: 1
+  - send-mod-log: User banned for posting academic advertisement spam.
+  - notify-staff:
+      title: "Academic Advertisement Spam"
+      content: "$user has posted academic advertisement spam in $channel:\n$message"
+      add_ctx_fields: true
+      thumbnail: $user_avatar_url
+      footer_text: "Academic Advertisement Spam"
+      ping: true
+      jump_to:
+        channel_id: "$channel_id"
+        message_id: "$message_id"
+      qa_target: $user_id
+      qa_reason: Academic Advertisement Spam
+      no_repeat_for: 30 seconds
+      no_repeat_key: $academic_spam
+      allow_everyone_ping: false
+  - send-message: {id: $channel_id, title: "Automated Anti-Spam System Activated", description: "A message promoting academic dishonesty was detected and removed. The user has been banned from the server."}
+  - delete-last-message-sent-after: 60 seconds

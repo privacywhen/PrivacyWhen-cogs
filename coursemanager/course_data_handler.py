@@ -1,16 +1,17 @@
-import aiohttp
-import math
-import re
-import time
 from collections import namedtuple
 from datetime import datetime, timedelta
-
-from bs4 import BeautifulSoup
-from redbot.core import Config, commands
+from math import floor
+from re import findall, sub
+from time import time
 from typing import Dict, List, Optional, Tuple
 
+from aiohttp import ClientConnectionError, ClientResponseError, ClientSession
+from bs4 import BeautifulSoup
+from discord import Guild
+from redbot.core import Config, commands
 
-class CourseCacheHandler(commands.Cog):
+
+class CourseDataHandler(commands.Cog):
     """Handles course cache and online course verification."""
     CACHE_STALE_DAYS = 120
     CACHE_EXPIRY_DAYS = 240
@@ -19,11 +20,11 @@ class CourseCacheHandler(commands.Cog):
     CacheCheckResult = namedtuple('CacheCheckResult', ['course_data', 'is_stale'])
 
     def __init__(self, bot):
-        """Initialize the CourseCacheHandler class."""
+        """Initialize the CourseDataHandler class."""
         self.bot = bot
         self.config = Config.get_conf(self.bot, identifier=3720194665, force_registration=True)
         self.config.register_global(courses={}, term_codes={})
-        self.session = aiohttp.ClientSession()
+        self.session = ClientSession()
 
     async def close_session(self):
         """Close the aiohttp session."""
@@ -33,7 +34,7 @@ class CourseCacheHandler(commands.Cog):
         """Close the aiohttp session when the cog is unloaded."""
         self.bot.loop.create_task(self.close_session())
 
-    async def fetch_course_cache(self, course_str: str, ctx=None) -> list:
+    async def fetch_course_cache(self, course_str: str, ctx=None) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
         """Fetch course data from the cache, if available. Otherwise, fetch from the online source."""
         course_data, is_stale = await self.check_course_cache(course_str)
 
@@ -45,9 +46,21 @@ class CourseCacheHandler(commands.Cog):
                 course_data = fetched_course_data
 
             if is_stale:
-                course_data.append({"note": "The returned data may be out of date as it is older than 4 months and could not be updated from the online source."})
+                course_data_note = {"note": "The returned data may be out of date as it is older than 4 months and could not be updated from the online source."}
+                if isinstance(course_data, list):
+                    course_data.append(course_data_note)
+                else:
+                    course_data = [course_data, course_data_note['note']]
 
-        return course_data
+        if isinstance(course_data, list):
+            # Return the first item in the list as the soup object
+            soup = course_data[0] if course_data else None
+            # Return the second item in the list as the error message string
+            error_message = course_data[1] if len(course_data) > 1 else None
+            return soup, error_message
+        else:
+            # If course_data is not a list, return it as the soup object and None as the error message
+            return course_data, None
 
     async def fetch_and_process_course_data(self, course_str: str, ctx) -> list:
         """Fetch course data from the online source and process it."""
@@ -69,7 +82,7 @@ class CourseCacheHandler(commands.Cog):
         async with self.config.courses() as courses:
             courses[course_key] = {"expiry": expiry, "data": course_data}
 
-    async def check_course_cache(self, course_str: str) -> CacheCheckResult:
+    async def check_course_cache(self, course_str: str) -> Tuple[Optional[BeautifulSoup], bool]:
         """Check if the course data is in the cache and if it is still valid."""
         courses = await self.config.courses()
         course_key = course_str
@@ -79,11 +92,11 @@ class CourseCacheHandler(commands.Cog):
             stale_time = expiry - timedelta(days=self.CACHE_STALE_DAYS)
             now = datetime.utcnow()
             if now < expiry:
-                return self.CacheCheckResult(courses[course_key]["data"], now >= stale_time)
+                return courses[course_key]["data"], now >= stale_time
             del courses[course_key]
             await self.config.courses.set(courses)
 
-        return self.CacheCheckResult(None, False)
+        return None, False
 
     async def term_codes(self, ctx, term_name: str, term_id: int):
         """Set the term code for the specified term."""
@@ -104,7 +117,7 @@ class CourseCacheHandler(commands.Cog):
 
     def generate_time_code(self) -> Tuple[int, int]:
         """Generate a time code for use in the query."""
-        t = math.floor(time.time() / 60) % 1000
+        t = floor(time() / 60) % 1000
         e = t % 3 + t % 39 + t % 42
         return t, e
 
@@ -132,7 +145,7 @@ class CourseCacheHandler(commands.Cog):
                 continue
 
             t, e = self.generate_time_code()
-            url = f"https://mytimetable.mcmaster.ca/getclassdata.jsp?term={term_id}&course_0_0={course_str}&t={t}&e={e}"
+            url = self.URL_BASE.format(term=term_id, course_str=course_str, t=t, e=e)
 
             try:
                 async with self.session.get(url) as response:
@@ -144,11 +157,11 @@ class CourseCacheHandler(commands.Cog):
                     error_message = error_tag.text if error_tag else None
                     if error_message is None:
                         break
-            except aiohttp.ClientResponseError as error:
+            except ClientResponseError as error:
                 print(f"Error fetching course data: {error}")
                 error_message = "Error: An issue occurred while fetching the course data."
                 break
-            except aiohttp.ClientConnectionError as error:
+            except ClientConnectionError as error:
                 print(f"Error connecting to server: {error}")
                 error_message = "Error: An issue occurred while connecting to the server."
                 break
@@ -170,7 +183,7 @@ class CourseCacheHandler(commands.Cog):
             "term_found": "",
             "description": "",
             "title": "",
-            "type": "",
+            "type": "", 
         }
 
     def process_soup_content(self, soup: BeautifulSoup) -> List[Dict]:
@@ -190,24 +203,24 @@ class CourseCacheHandler(commands.Cog):
                 course_info["courseKey"] = offering["key"]
                 desc = offering.get("desc", "")
 
-                prereq_info = re.findall(r'Prerequisite\(s\):(.+?)(Antirequisite\(s\):|Not open to|$)', desc)
+                prereq_info = findall(r'Prerequisite\(s\):(.+?)(Antirequisite\(s\):|Not open to|$)', desc)
                 course_info["prerequisites"] = prereq_info[0][0].strip() if prereq_info else ""
 
-                antireq_info = re.findall(r'Antirequisite\(s\):(.+?)(Not open to|$)', desc)
+                antireq_info = findall(r'Antirequisite\(s\):(.+?)(Not open to|$)', desc)
                 course_info["antirequisites"] = antireq_info[0][0].strip() if antireq_info else ""
 
-                course_info["description"] = re.sub(r'Prerequisite\(s\):(.+?)(Antirequisite\(s\):|Not open to|$)', '', desc).strip()
+                course_info["description"] = sub(r'Prerequisite\(s\):(.+?)(Antirequisite\(s\):|Not open to|$)', '', desc).strip()
 
             term_elem = course.find("term")
             term_found = term_elem.get("v") if term_elem else ""
             course_info["term_found"] = term_found
 
-            for block in course.find_all("block"):
-                course_info["type"] = block.get("type", "")
-                course_info["teacher"] = block.get("teacher", "")
-                course_info["location"] = block.get("location", "")
-                course_info["campus"] = block.get("campus", "")
-                course_info["notes"] = block.get("n", "")
+            block = course.find("block")
+            course_info["type"] = block.get("type", "") if block else ""
+            course_info["teacher"] = block.get("teacher", "") if block else ""
+            course_info["location"] = block.get("location", "") if block else ""
+            course_info["campus"] = block.get("campus", "") if block else ""
+            course_info["notes"] = block.get("n", "") if block else ""
 
             course_data.append(course_info)
 
