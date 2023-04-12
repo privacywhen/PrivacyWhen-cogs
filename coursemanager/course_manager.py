@@ -26,6 +26,7 @@ class CourseManager(commands.Cog):
             return cog_enabled
         return commands.check(predicate)
     
+    @commands.Cog.listener()
     @commands.guild_only()
     @checks.is_owner()
     async def togglecoursemanager(self, ctx):
