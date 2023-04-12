@@ -25,6 +25,15 @@ class CourseManager(commands.Cog):
             cog_enabled = await ctx.cog.cache_handler.get_cog_enabled(ctx.guild)
             return cog_enabled
         return commands.check(predicate)
+    
+    @commands.guild_only()
+    @checks.is_owner()
+    async def togglecoursemanager(self, ctx):
+        """Toggle the course manager cog on or off for the current guild."""
+        current_status = await self.cache_handler.get_cog_enabled(ctx.guild)
+        new_status = not current_status
+        await self.cache_handler.set_cog_enabled(ctx.guild, new_status)
+        await ctx.send(f"Course Manager cog has been {'enabled' if new_status else 'disabled'} for this guild.")
 
     @commands.group(invoke_without_command=True)
     @enabled_cog_check()
