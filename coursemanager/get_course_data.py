@@ -1,12 +1,14 @@
-import re
-import math
-import time
 import aiohttp
-from typing import Tuple, List, Optional, Dict
-from bs4 import BeautifulSoup, Tag
-from datetime import datetime, timedelta
-from redbot.core import Config, commands
+import math
+import re
+import time
 from collections import namedtuple
+from datetime import datetime, timedelta
+
+from bs4 import BeautifulSoup
+from redbot.core import Config, commands
+from typing import Dict, List, Optional, Tuple
+
 
 class CourseCacheHandler(commands.Cog):
     """Handles course cache and online course verification."""
@@ -23,9 +25,13 @@ class CourseCacheHandler(commands.Cog):
         self.config.register_global(courses={}, term_codes={})
         self.session = aiohttp.ClientSession()
 
-    async def close(self):
+    async def close_session(self):
         """Close the aiohttp session."""
         await self.session.close()
+    
+    def cog_unload(self):
+        """Close the aiohttp session when the cog is unloaded."""
+        self.bot.loop.create_task(self.close_session())
 
     async def fetch_course_cache(self, course_str: str, ctx=None) -> list:
         """Fetch course data from the cache, if available. Otherwise, fetch from the online source."""
@@ -51,7 +57,7 @@ class CourseCacheHandler(commands.Cog):
             course_data = self.process_soup_content(soup)
             return course_data
         else:
-            if error_message and ctx:
+            if error_message is not None and ctx is not None:
                 await ctx.send(f"Error: {error_message}")
             return []
 
@@ -126,7 +132,7 @@ class CourseCacheHandler(commands.Cog):
                 continue
 
             t, e = self.generate_time_code()
-            url = self.URL_BASE.format(term=term_id, course_str=course_str, t=t, e=e)
+            url = f"https://mytimetable.mcmaster.ca/getclassdata.jsp?term={term_id}&course_0_0={course_str}&t={t}&e={e}"
 
             try:
                 async with self.session.get(url) as response:
@@ -138,14 +144,19 @@ class CourseCacheHandler(commands.Cog):
                     error_message = error_tag.text if error_tag else None
                     if error_message is None:
                         break
-            except aiohttp.ClientError as error:
+            except aiohttp.ClientResponseError as error:
                 print(f"Error fetching course data: {error}")
                 error_message = "Error: An issue occurred while fetching the course data."
+                break
+            except aiohttp.ClientConnectionError as error:
+                print(f"Error connecting to server: {error}")
+                error_message = "Error: An issue occurred while connecting to the server."
                 break
 
         return soup, error_message
 
     def create_course_info(self) -> Dict:
+        """Create a dictionary containing the course data."""
         return {
             "course": "",
             "section": "",
