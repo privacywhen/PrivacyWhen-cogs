@@ -10,7 +10,7 @@ from redbot.core import Config, commands
 from typing import Dict, List, Optional, Tuple
 
 
-class CourseCacheHandler(commands.Cog):
+class CourseDataHandler(commands.Cog):
     """Handles course cache and online course verification."""
     CACHE_STALE_DAYS = 120
     CACHE_EXPIRY_DAYS = 240
@@ -19,7 +19,7 @@ class CourseCacheHandler(commands.Cog):
     CacheCheckResult = namedtuple('CacheCheckResult', ['course_data', 'is_stale'])
 
     def __init__(self, bot):
-        """Initialize the CourseCacheHandler class."""
+        """Initialize the CourseDataHandler class."""
         self.bot = bot
         self.config = Config.get_conf(self.bot, identifier=3720194665, force_registration=True)
         self.config.register_global(courses={}, term_codes={})
@@ -132,7 +132,7 @@ class CourseCacheHandler(commands.Cog):
                 continue
 
             t, e = self.generate_time_code()
-            url = f"https://mytimetable.mcmaster.ca/getclassdata.jsp?term={term_id}&course_0_0={course_str}&t={t}&e={e}"
+            url = self.URL_BASE.format(term=term_id, course_str=course_str, t=t, e=e)
 
             try:
                 async with self.session.get(url) as response:
@@ -170,7 +170,7 @@ class CourseCacheHandler(commands.Cog):
             "term_found": "",
             "description": "",
             "title": "",
-            "type": "",
+            "type": "", 
         }
 
     def process_soup_content(self, soup: BeautifulSoup) -> List[Dict]:
