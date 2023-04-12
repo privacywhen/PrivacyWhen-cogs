@@ -1,11 +1,10 @@
-import re
-from typing import Optional, Tuple
-
 import discord
+import re
 from redbot.core import checks, commands
-
+from typing import Tuple, Optional
 from .course_data_handler import CourseDataHandler
 from .faculty_dictionary import FACULTIES
+
 
 class CourseManager(commands.Cog):
     """A cog for managing course-related channels."""
@@ -19,25 +18,7 @@ class CourseManager(commands.Cog):
         self.logging_channel = None
         self.cache_handler = CourseDataHandler(bot)
 
-    @staticmethod
-    def enabled_cog_check():
-        async def predicate(ctx):
-            cog_enabled = await ctx.cog.cache_handler.get_cog_enabled(ctx.guild)
-            return cog_enabled
-        return commands.check(predicate)
-    
-    @commands.Cog.listener()
-    @commands.guild_only()
-    @checks.is_owner()
-    async def togglecoursemanager(self, ctx):
-        """Toggle the course manager cog on or off for the current guild."""
-        current_status = await self.cache_handler.get_cog_enabled(ctx.guild)
-        new_status = not current_status
-        await self.cache_handler.set_cog_enabled(ctx.guild, new_status)
-        await ctx.send(f"Course Manager cog has been {'enabled' if new_status else 'disabled'} for this guild.")
-
     @commands.group(invoke_without_command=True)
-    @enabled_cog_check()
     async def course(self, ctx):
         """Main command group."""
         await ctx.send_help(self.course)
