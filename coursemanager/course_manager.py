@@ -6,11 +6,11 @@ from datetime import datetime, time, timedelta, timezone
 from math import floor
 from typing import Dict, List, Optional, Tuple
 
-from redbot.core import Config, commands
+from redbot.core import Config, commands, group, checks
 
 
 class CourseManager(commands.Cog):
-    """Handles course cache and online course verification."""
+    """Cog for managing course data."""
 
     CACHE_STALE_DAYS = 120
     CACHE_EXPIRY_DAYS = 240
@@ -27,25 +27,13 @@ class CourseManager(commands.Cog):
         self.config.register_global(courses={}, term_codes={})
         self.session = ClientSession()
 
-    def cog_unload(self):
+    async def cog_unload(self):
         """Close the aiohttp session when the cog is unloaded."""
         self.bot.loop.create_task(self.close_session())
 
     async def close_session(self):
         """Close the aiohttp session."""
         await self.session.close()
-
-    @commands.is_owner()
-    async def set_log(self, ctx, option: str, channel: commands.TextChannelConverter):
-        """Sets logging channel for the cog."""
-        if option.lower() == "logging":
-            await self.config.logging_channel.set(channel.id)
-            await ctx.send(f"Logging channel set to {channel}.")
-            return
-
-        await ctx.send(
-            "Invalid option. Use '=course setlog logging' followed by the channel."
-        )
 
     async def get_course_data(
         self, course_str: str, ctx=None
@@ -90,6 +78,76 @@ class CourseManager(commands.Cog):
             await ctx.send(f"Error: {error_message}")
         return []
 
+    def current_term(self) -> str:
+        """Determine the current term based on the current month."""
+        now = datetime.now(timezone.utc)
+        if 1 <= now.month <= 4:
+            return self.TERM_NAMES[0]
+        elif 5 <= now.month <= 8:
+            return self.TERM_NAMES[1]
+        else:
+            return self.TERM_NAMES[2]
+
+    def generate_time_code(self) -> Tuple[int, int]:
+        """Generate a time code for use in the query."""
+        t = floor(time() / 60) % 1000
+        e = t % 3 + t % 39 + t % 42
+        return t, e
+
+    async def get_term_id(self, term_name: str) -> int:
+        term_codes = await self.config.term_codes()
+        return term_codes.get(term_name, None)
+
+
+class CommandHandler:
+    @commands.group(invoke_without_command=True)
+    async def course(self, ctx):
+        await ctx.send_help(self.course)
+
+    @checks.is_owner()
+    @course.command()
+    async def online(self, ctx, *, raw_course_code: str):
+        """Gets course data from the McMaster API."""
+        print(f"Debug: online start() - course_code: {raw_course_code}")
+        # Format the course code
+        result = self.format_course_code(raw_course_code)
+        if not result:
+            await ctx.send(
+                f"Error: The course code {raw_course_code} is not valid. Please enter a valid course code."
+            )
+            return
+
+        dept, code = result
+        formatted_course_code = f"{dept}-{code}"
+
+        course_data = await self.cache_handler.fetch_course_online(
+            formatted_course_code
+        )
+        print(f"Debug: course_data: {course_data}")  # Debug
+
+        if course_data is None:  # Course not found
+            await ctx.send(
+                f"Error: The course {formatted_course_code} was not found. Please enter a valid course code."
+            )
+            return
+
+        # Format the course data
+        soup, error_message = course_data
+
+        if soup is not None:
+            processed_course_data = self.cache_handler.process_soup_content(
+                soup
+            )  # Process the soup content
+        else:
+            await ctx.send(f"Error: {error_message}")
+            return
+
+        # Create the Discord embed and add fields with course data
+        embed = self.create_course_embed(processed_course_data, formatted_course_code)
+        await ctx.send(embed=embed)
+
+
+class CacheHandler:
     async def update_cache(self, course_str: str, course_data: list) -> None:
         """Update the course cache with the new course data."""
         course_key = course_str
@@ -116,35 +174,8 @@ class CourseManager(commands.Cog):
 
         return None, False
 
-    @commands.is_owner()
-    async def set_term_codes(self, ctx, term_name: str, term_id: int):
-        """Set the term code for the specified term."""
-        async with self.config.term_codes() as term_codes:
-            term_codes[term_name] = term_id
-        await ctx.send(
-            f"Term code for {term_name.capitalize()} has been set to: {term_id}"
-        )
 
-    def current_term(self) -> str:
-        """Determine the current term based on the current month."""
-        now = datetime.now(timezone.utc)
-        if 1 <= now.month <= 4:
-            return self.TERM_NAMES[0]
-        elif 5 <= now.month <= 8:
-            return self.TERM_NAMES[1]
-        else:
-            return self.TERM_NAMES[2]
-
-    def generate_time_code(self) -> Tuple[int, int]:
-        """Generate a time code for use in the query."""
-        t = floor(time() / 60) % 1000
-        e = t % 3 + t % 39 + t % 42
-        return t, e
-
-    async def get_term_id(self, term_name: str) -> int:
-        term_codes = await self.config.term_codes()
-        return term_codes.get(term_name, None)
-
+class DataScraper:
     async def fetch_course_online(
         self, course_str: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
@@ -278,7 +309,63 @@ def setup(bot):
     bot.add_cog(CourseManager(bot))
 
 
-#### COMMENTED OUT ####
+class DevCommands(commands.ownercommand):
+    @checks.is_owner()
+    @commands.group(invoke_without_command=True)
+    async def dev_course(self, ctx):
+        await ctx.send_help(self.course)
+
+    @dev_course.command()
+    async def set_term_codes(self, ctx, term_name: str, term_id: int):
+        """Set the term code for the specified term."""
+        async with self.config.term_codes() as term_codes:
+            term_codes[term_name] = term_id
+        await ctx.send(
+            f"Term code for {term_name.capitalize()} has been set to: {term_id}"
+        )
+
+    @dev_course.command()
+    async def set_log(self, ctx, option: str, channel: commands.TextChannelConverter):
+        """Sets logging channel for the cog."""
+        if option.lower() == "logging":
+            await self.config.logging_channel.set(channel.id)
+            await ctx.send(f"Logging channel set to {channel}.")
+            return
+
+        await ctx.send(
+            "Invalid option. Use '=course setlog logging' followed by the channel."
+        )
+
+    @checks.is_owner()
+    @dev_course.command()
+    async def mine(self, ctx):
+        """Displays the courses the user belongs to."""
+        if courses := self.get_user_courses(ctx, ctx.guild, ctx.author):
+            await ctx.send(
+                f"{ctx.author.mention}, you are a member of the following courses:\n{', '.join(courses)}"
+            )
+        else:
+            await ctx.send(f"{ctx.author.mention}, you are not a member of any course.")
+
+    @checks.admin()
+    @dev_course.command()
+    @commands.cooldown(1, 60, commands.BucketType.user)
+    async def delete(self, ctx, *, channel: commands.TextChannel):
+        """Deletes a course channel."""
+        if not channel.category or channel.category.name != self.category_name:
+            await ctx.send(f"Error: {channel} is not a course channel.")
+            return
+        await channel.delete()
+        await ctx.send(f"{channel.name} has been successfully deleted.")
+        if self.logging_channel:
+            await self.logging_channel.send(f"{channel} has been deleted.")
+
+
+class AdultFriendFinder:
+    """Find people you share a class with"""
+
+    pass
+
 
 #    @course.command()
 #    async def help(self, ctx):
@@ -351,19 +438,6 @@ def setup(bot):
 #        if self.logging_channel:
 #            await self.logging_channel.send(f"{ctx.author.mention} has left {channel_name}.")
 
-#    @checks.admin()
-#    @course.command()
-#    @commands.cooldown(1, 60, commands.BucketType.user)
-#    async def delete(self, ctx, *, channel: discord.TextChannel):
-#        """Deletes a course channel."""
-#        if not channel.category or channel.category.name != self.category_name:
-#            await ctx.send(f"Error: {channel} is not a course channel.")
-#            return
-#        await channel.delete()
-#        await ctx.send(f"{channel.name} has been successfully deleted.")
-#        if self.logging_channel:
-#            await self.logging_channel.send(f"{channel} has been deleted.")
-
 
 ## HELPER FUNCTIONS ##
 
@@ -371,13 +445,3 @@ def setup(bot):
 #        """Checks if the course exists in the cache or online."""
 #        print ("Debug: course_exists()")
 #        return await self.cache_handler.course_code_exists(course_code)
-
-#    @checks.is_owner()
-#    @course.command()
-#    async def mine(self, ctx):
-#        """Displays the courses the user belongs to."""
-#        courses = self.get_user_courses(ctx, ctx.guild, ctx.author)
-#        if courses:
-#            await ctx.send(f"{ctx.author.mention}, you are a member of the following courses:\n{', '.join(courses)}")
-#        else:
-#            await ctx.send(f"{ctx.author.mention}, you are not a member of any course.")
