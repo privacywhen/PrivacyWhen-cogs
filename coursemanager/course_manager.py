@@ -6,7 +6,7 @@ from datetime import datetime, time, timedelta, timezone
 from math import floor
 from typing import Dict, List, Optional, Tuple
 
-from redbot.core import Config, commands, group, checks
+from redbot.core import Config, commands, checks
 
 
 class CourseManager(commands.Cog):
