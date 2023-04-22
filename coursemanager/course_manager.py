@@ -271,7 +271,7 @@ class CourseManager(commands.Cog):
         )
 
     @dev_course.command()
-    async def set_log(self, ctx, option: str, channel: discord.TextChannelConverter):
+    async def set_log(self, ctx, option: str, channel: discord.TextChannel):
         """Sets logging channel for the cog."""
         if option.lower() == "logging":
             await self.config.logging_channel.set(channel.id)
