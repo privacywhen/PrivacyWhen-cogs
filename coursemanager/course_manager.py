@@ -252,8 +252,6 @@ class CourseManager(commands.Cog):
     async def course(self, ctx):
         await ctx.send_help(self.course)
 
-    @course.command()
-
     ### Dev Command Section
 
     @checks.is_owner()
