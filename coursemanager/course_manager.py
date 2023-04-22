@@ -293,7 +293,7 @@ class CourseManager(commands.Cog):
             await ctx.send(f"{ctx.author.mention}, you are not a member of any course.")
 
     @dev_course.command()
-    async def delete(self, ctx, *, channel: commands.TextChannel):
+    async def delete(self, ctx, *, channel: discord.TextChannel):
         """Deletes a course channel."""
         if not channel.category or channel.category.name != self.category_name:
             await ctx.send(f"Error: {channel} is not a course channel.")
