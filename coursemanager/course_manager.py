@@ -1,4 +1,5 @@
 import re
+import discord
 from aiohttp import ClientSession
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
@@ -270,7 +271,7 @@ class CourseManager(commands.Cog):
         )
 
     @dev_course.command()
-    async def set_log(self, ctx, option: str, channel: commands.TextChannelConverter):
+    async def set_log(self, ctx, option: str, channel: discord.TextChannelConverter):
         """Sets logging channel for the cog."""
         if option.lower() == "logging":
             await self.config.logging_channel.set(channel.id)
