@@ -118,37 +118,53 @@ class CourseDataProxy:
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
         """
         Fetch course data from the online source.
-
         :param course_str: The formatted course string.
-        :return: A tuple with a BeautifulSoup object containing the course data,
-        or None if there was an error, and an error message string, or None if there was no error.
+        :return: A tuple containing the BeautifulSoup object and an error message, if any.
         """
-        term_name = self._current_term()
-        term_id = await self._get_term_id(term_name)
+        current_term = self.current_term()
+        term_order = (
+            self.TERM_NAMES[self.TERM_NAMES.index(current_term) :]
+            + self.TERM_NAMES[: self.TERM_NAMES.index(current_term)]
+        )
 
-        if term_id is None:
-            return (
-                None,
-                f"Error: Term code for {term_name.capitalize()} has not been set.",
-            )
+        soup = None
+        error_message = None
 
-        t, e = self._generate_time_code()
-        url = self._URL_BASE.format(term=term_id, course_str=course_str, t=t, e=e)
+        for term_name in term_order:
+            term_id = await self.get_term_id(term_name)
+            if term_id is None:
+                continue
 
-        try:
-            async with self.session.get(url) as response:
-                print(f"DEBUG: Fetching course data from URL: {url}")
-                if response.status != 200:
-                    return (
-                        None,
-                        f"Error: Unable to fetch course data (HTTP {response.status})",
-                    )
-                content = await response.text()
-                soup = BeautifulSoup(content, "xml")
-                print(f"DEBUG: Fetched course data from URL: {soup}")
-                return soup, None
-        except Exception as e:
-            return None, f"Error: Exception occurred while fetching course data: {e}"
+            t, e = self.generate_time_code()
+            url = self.URL_BASE.format(term=term_id, course_str=course_str, t=t, e=e)
+
+            try:
+                async with self.session.get(url) as response:
+                    if response.status != 200:
+                        continue
+                    content = await response.text()
+                    soup = BeautifulSoup(content, "xml")
+                    error_tag = soup.find("error")
+
+                    if error_tag is not None:
+                        error_message = error_tag.text
+                        continue  # Continue to the next term_id if there is an error
+
+                    break  # No error, break the loop
+            except aiohttp.ClientResponseError as error:
+                print(f"Error fetching course data: {error}")
+                error_message = (
+                    "Error: An issue occurred while fetching the course data."
+                )
+                break
+            except aiohttp.ClientConnectionError as error:
+                print(f"Error connecting to server: {error}")
+                error_message = (
+                    "Error: An issue occurred while connecting to the server."
+                )
+                break
+
+        return soup, error_message
 
     ## COURSE DATA PROCESSING: Processes the course data from the online source into a dictionary.
 
