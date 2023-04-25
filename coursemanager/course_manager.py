@@ -139,7 +139,7 @@ class CourseDataProxy:
                         f"Error: Unable to fetch course data (HTTP {response.status})",
                     )
                 content = await response.text()
-                soup = BeautifulSoup(content, "xml.parser")
+                soup = BeautifulSoup(content, "xml")
                 return soup, None
         except Exception as e:
             return None, f"Error: Exception occurred while fetching course data: {e}"
