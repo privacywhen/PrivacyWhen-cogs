@@ -1,4 +1,5 @@
 import re
+import aiohttp
 import discord
 from aiohttp import ClientSession
 from bs4 import BeautifulSoup, Tag
@@ -468,6 +469,23 @@ class CourseManager(commands.Cog):
         await self.config.clear_all()
         await ctx.send("All config data cleared.")
 
+    ### create a command that prints the entire config to the console.
+    @dev_course.command(name="printconfig")
+    async def print_config(self, ctx):
+        config = await self.config.all()
+        print(config)
+
+    ### create a command that prints the entire guild config to the console.
+    @dev_course.command(name="printguildconfig")
+    async def print_guild_config(self, ctx):
+        guild_config = await self.config.guild(ctx.guild).all()
+        print(guild_config)
+
+    ### create a command that prints the contents of _proxy to the console.
+    @dev_course.command(name="printproxy")
+    async def print_proxy(self, ctx):
+        print(self.course_data_proxy._proxy)
+
     ### create a command that tests bypassing the cache and getting the latest data from the API and returning it as an embed. It should use _fetch_course_online(), _process_course_data(), and create_course_embed() to do this. Ignore private method indicators for now.
 
     @dev_course.command(name="onlineembed")
@@ -537,12 +555,6 @@ class CourseManager(commands.Cog):
             department, course_number
         )
         await ctx.send(course_data)
-
-    ### create a command that prints the entire config to the console.
-    @dev_course.command(name="printconfig")
-    async def print_config(self, ctx):
-        config = await self.config.all()
-        print(config)
 
     @dev_course.command(name="testsuite")
     async def testsuite(self, ctx, *, course_code: str):
