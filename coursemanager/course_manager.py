@@ -387,7 +387,9 @@ class CourseManager(commands.Cog):
             )
             return
 
-        course_data = await self.course_data_proxy.find_course(formatted_course_code)
+        course_data = await self.course_data_proxy.get_course_data(
+            formatted_course_code
+        )
         print(f"DEBUG: Course data for {formatted_course_code}: {course_data}")
 
         if not course_data:
