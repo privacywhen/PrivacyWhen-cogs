@@ -45,7 +45,7 @@ class CourseDataProxy:
                 self._proxy.pop(course_str)
                 await self._web_updater(course_str)
 
-    def find_course(self, course_str):
+    async def find_course(self, course_str):
         """
         Find the course data in the proxy or update it if needed.
 
