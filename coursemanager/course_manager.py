@@ -25,25 +25,18 @@ class CourseDataProxy:
     def __init__(self, session: ClientSession, config: Config):
         self.session = session
         self.config = config
-        self._proxy = {}
 
     ## CACHE MANAGEMENT: Maintains the freshness of the data in the proxy.
     async def _maintain_freshness(self):
-        """
-        Maintain the freshness of the data in the proxy by checking the date_added
-        attribute of each course. If the data_age_days is greater than the stale_days,
-        set is_fresh to False and call _web_updater. If data_age_days is greater than
-        the expiry_days, remove the course from the proxy and call _web_updater.
-        """
         async for course_str, course_data in AsyncIter(
-            self._proxy.items(), delay=2, steps=1
+            self.config.courses().items(), delay=2, steps=1
         ):
             data_age_days = (datetime.now() - course_data["date_added"]).days
             if data_age_days > self._CACHE_STALE_DAYS:
                 course_data["is_fresh"] = False
                 await self._web_updater(course_str)
             if data_age_days > self._CACHE_EXPIRY_DAYS:
-                self._proxy.pop(course_str)
+                await self.config.courses().pop(course_str)
                 await self._web_updater(course_str)
         print(
             f"DEBUG: Maintaining freshness for {course_str}, data_age_days: {data_age_days}"
@@ -58,25 +51,25 @@ class CourseDataProxy:
 
         Returns:
             dict: The course data and its freshness status or 'Not Found' if the course is not found.
-
-        Notes:
-        Do not call _maintain freshness here because it meant to run on interval.
         """
-        course_data = self._proxy.get(course_str, None)
+        await self._maintain_freshness()
+        course_data = self.config.courses().get(course_str, None)
+
         if course_data is None:
             await self._web_updater(course_str)
-            course_data = self._proxy.get(course_str, "Not Found")
+            course_data = self.config.courses().get(course_str, "Not Found")
             if course_data != "Not Found":
-                print(f"Course data found in _proxy: {course_data}")
+                print(f"Course data found in config.courses: {course_data}")
             else:
-                print("Course not found in _proxy after calling web updater.")
+                print("Course not found in config.courses after calling web updater.")
         else:
-            print(f"Course data found in _proxy: {course_data}")
-        return course_data
+            print(f"Course data found in config.courses: {course_data}")
+
+        return course_data["course_data"] if course_data != "Not Found" else course_data
 
     ## Section - WEB UPDATE: Fetches course data from the online sourse. Requires term_id, course_str, t, and e.
 
-    async def _web_updater(self, course_str):
+    async def _web_updater(self, course_str: str):
         """
         Fetch course data from the online source and process it into a dictionary.
 
@@ -86,13 +79,19 @@ class CourseDataProxy:
         soup, error = await self._fetch_course_online(course_str)
         if soup is not None:
             course_data_processed = self._process_soup_content(soup)
-            self._proxy[course_str] = {
-                "course_data": course_data_processed,
-                "date_added": datetime.now(),
-                "is_fresh": True,
-            }
+            await self.config.courses().set(
+                course_str,
+                {
+                    "course_data": course_data_processed,
+                    "date_added": datetime.now(),
+                    "is_fresh": True,
+                },
+            )
+            return course_data_processed
+
         elif error is not None:
             print(f"Error fetching course data for {course_str}: {error}")
+            return None
 
     def _current_term(self) -> str:
         """Determine the current term based on the current month."""
@@ -480,11 +479,6 @@ class CourseManager(commands.Cog):
     async def print_guild_config(self, ctx):
         guild_config = await self.config.guild(ctx.guild).all()
         print(guild_config)
-
-    ### create a command that prints the contents of _proxy to the console.
-    @dev_course.command(name="printproxy")
-    async def print_proxy(self, ctx):
-        print(self.course_data_proxy._proxy)
 
     ### create a command that tests bypassing the cache and getting the latest data from the API and returning it as an embed. It should use _fetch_course_online(), _process_course_data(), and create_course_embed() to do this. Ignore private method indicators for now.
 
