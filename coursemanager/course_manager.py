@@ -121,7 +121,7 @@ class CourseDataProxy:
         :param course_str: The formatted course string.
         :return: A tuple containing the BeautifulSoup object and an error message, if any.
         """
-        current_term = self.current_term()
+        current_term = self._current_term()
         term_order = (
             self.TERM_NAMES[self.TERM_NAMES.index(current_term) :]
             + self.TERM_NAMES[: self.TERM_NAMES.index(current_term)]
@@ -131,11 +131,11 @@ class CourseDataProxy:
         error_message = None
 
         for term_name in term_order:
-            term_id = await self.get_term_id(term_name)
+            term_id = await self._get_term_id(term_name)
             if term_id is None:
                 continue
 
-            t, e = self.generate_time_code()
+            t, e = self._generate_time_code()
             url = self.URL_BASE.format(term=term_id, course_str=course_str, t=t, e=e)
 
             try:
