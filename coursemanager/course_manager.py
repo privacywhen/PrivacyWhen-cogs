@@ -1,13 +1,16 @@
 import re
 import discord
 from aiohttp import ClientSession
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from datetime import datetime, timedelta, timezone
 from math import floor
 from typing import Dict, List, Optional, Tuple
 import time
 
-from redbot.core import Config, commands, checks
+from redbot.core import AsyncIter, Config, commands, checks
+
+import functools
+import asyncio
 
 
 class CourseDataProxy:
@@ -16,94 +19,87 @@ class CourseDataProxy:
     _TERM_NAMES = ["winter", "spring", "fall"]
     _URL_BASE = "https://mytimetable.mcmaster.ca/getclassdata.jsp?term={term}&course_0_0={course_str}&t={t}&e={e}"
 
-    async def get_course_data(
-        self, course_str: str, ctx=None
-    ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
-        """Fetch course data from the cache, if available. Otherwise, fetch from the online source."""
-        course_data, is_stale = await self.check_course_cache(course_str)
+    def __init__(self, session: ClientSession):
+        self.session = session
 
-        if course_data is None or is_stale:
-            fetched_course_data = await self.fetch_and_process_course_data(
-                course_str, ctx
-            )
+    ## CACHE MANAGEMENT
 
-            if fetched_course_data:
-                await self.update_cache(course_str, fetched_course_data)
-                course_data = fetched_course_data
+    async def _maintain_freshness(self):
+        """
+        Maintain the freshness of the data in the proxy by checking the date_added
+        attribute of each course. If the data_age_days is greater than the stale_days,
+        set is_fresh to False and call _web_updater. If data_age_days is greater than
+        the expiry_days, remove the course from the proxy and call _web_updater.
+        """
+        async for course_str, course_data in AsyncIter(
+            self._proxy.items(), delay=2, steps=1
+        ):
+            data_age_days = (datetime.now() - course_data["date_added"]).days
+            if data_age_days > self._CACHE_STALE_DAYS:
+                course_data["is_fresh"] = False
+                await self._web_updater(course_str)
+            if data_age_days > self._CACHE_EXPIRY_DAYS:
+                self._proxy.pop(course_str)
+                await self._web_updater(course_str)
 
-        if is_stale:
-            course_data_note = {
-                "note": "The returned data may be out of date as it is older than 4 months and could not be updated from the online source."
-            }
-            if isinstance(course_data, list):
-                course_data.append(course_data_note)
-            else:
-                course_data = [course_data, course_data_note["note"]]
+    def find_course(self, course_str):
+        """
+        Find the course data in the proxy or update it if needed.
 
-        if not isinstance(course_data, list):
-            # If course_data is not a list, return it as the soup object and None as the error message
-            return course_data, None
-        # Return the first item in the list as the soup object
-        soup = course_data[0] if course_data else None
-        # Return the second item in the list as the error message string
-        error_message = course_data[1] if len(course_data) > 1 else None
-        return soup, error_message
+        Args:
+            course_str (str): The course identifier.
 
-    async def _fetch_and_process_course_data(self, course_str: str, ctx) -> list:
-        """Fetch course data from the online source and process it."""
-        soup, error_message = await self.fetch_course_online(course_str)
+        Returns:
+            dict: The course data and its freshness status or 'Not Found' if the course is not found.
 
+        Notes:
+        Do not call _maintain freshness here because it meant to run on interval.
+        """
+        course_data = self._proxy.get(course_str, None)
+        if course_data is None:
+            self._web_updater(course_str)
+            course_data = self._proxy.get(course_str, "Not Found")
+        return course_data
+
+    ## Section - WEB UPDATE: Fetches course data from the online sourse. Requires term_id, course_str, t, and e.
+
+    async def _web_updater(self, course_str):
+        """
+        Fetch course data from the online source and process it into a dictionary.
+
+        :param course_str: The formatted course string.
+        :return: A dictionary containing the course data.
+        """
+        soup, error = await self._fetch_course_online(course_str)
         if soup is not None:
-            return self.process_soup_content(soup)
-        if error_message is not None and ctx is not None:
-            await ctx.send(f"Error: {error_message}")
-        return []
+            course_data_processed = self._process_soup_content(soup)
+            self._proxy[course_str] = {
+                "course_data": course_data_processed,
+                "date_added": datetime.now(),
+                "is_fresh": True,
+            }
+        elif error is not None:
+            print(f"Error fetching course data for {course_str}: {error}")
 
     def _current_term(self) -> str:
         """Determine the current term based on the current month."""
         now = datetime.now(timezone.utc)
         if 1 <= now.month <= 4:
-            return self.TERM_NAMES[0]
+            return self._TERM_NAMES[0]
         elif 5 <= now.month <= 8:
-            return self.TERM_NAMES[1]
+            return self._TERM_NAMES[1]
         else:
-            return self.TERM_NAMES[2]
+            return self._TERM_NAMES[2]
+
+    async def _get_term_id(self, term_name: str) -> int:
+        term_codes = await self.config.term_codes()
+        return term_codes.get(term_name, None)
 
     def _generate_time_code(self) -> Tuple[int, int]:
         """Generate a time code for use in the query."""
         t = floor(time() / 60) % 1000
         e = t % 3 + t % 39 + t % 42
         return t, e
-
-    async def _get_term_id(self, term_name: str) -> int:
-        term_codes = await self.config.term_codes()
-        return term_codes.get(term_name, None)
-
-    async def _update_cache(self, course_str: str, course_data: list) -> None:
-        """Update the course cache with the new course data."""
-        course_key = course_str
-        now = datetime.now(timezone.utc)
-        expiry = (now + timedelta(days=self.CACHE_EXPIRY_DAYS)).isoformat()
-        async with self.config.courses() as courses:
-            courses[course_key] = {"expiry": expiry, "data": course_data}
-
-    async def _check_course_cache(
-        self, course_str: str
-    ) -> Tuple[Optional[BeautifulSoup], bool]:
-        """Check if the course data is in the cache and if it is still valid."""
-        courses = await self.config.courses()
-        course_key = course_str
-
-        if course_key in courses:
-            expiry = datetime.fromisoformat(courses[course_key]["expiry"])
-            stale_time = expiry - timedelta(days=self.CACHE_STALE_DAYS)
-            now = datetime.now(timezone.utc)
-            if now < expiry:
-                return courses[course_key]["data"], now >= stale_time
-            del courses[course_key]
-            await self.config.courses.set(courses)
-
-        return None, False
 
     async def _fetch_course_online(
         self, course_str: str
@@ -115,8 +111,8 @@ class CourseDataProxy:
         :return: A tuple with a BeautifulSoup object containing the course data,
         or None if there was an error, and an error message string, or None if there was no error.
         """
-        term_name = self.current_term()
-        term_id = await self.get_term_id(term_name)
+        term_name = self._current_term()
+        term_id = await self._get_term_id(term_name)
 
         if term_id is None:
             return (
@@ -124,8 +120,8 @@ class CourseDataProxy:
                 f"Error: Term code for {term_name.capitalize()} has not been set.",
             )
 
-        t, e = self.generate_time_code()
-        url = self.URL_BASE.format(term=term_id, course_str=course_str, t=t, e=e)
+        t, e = self._generate_time_code()
+        url = self._URL_BASE.format(term=term_id, course_str=course_str, t=t, e=e)
 
         try:
             async with self.session.get(url) as response:
@@ -140,24 +136,69 @@ class CourseDataProxy:
         except Exception as e:
             return None, f"Error: Exception occurred while fetching course data: {e}"
 
-    def _create_course_info(self) -> Dict[str, str]:
-        """
-        Create an empty course info dictionary.
+    ## COURSE DATA PROCESSING: Processes the course data from the online source into a dictionary.
 
-        :return: An empty course info dictionary.
+    def _extract_prereq_antireq(self, description: str) -> Tuple[str, str]:
         """
+        Extract prerequisites and antirequisites from the description.
+
+        :param description: The course description containing prerequisites and antirequisites.
+        :return: A tuple with prerequisites and antirequisites.
+        """
+        prereq_info = re.findall(
+            r"Prerequisite"
+            + re.escape("(s):")
+            + r"(.+?)(Antirequisite"
+            + re.escape("(s):")
+            + r"|Not open to|$)",
+            description,
+        )
+
+        antireq_info = re.findall(
+            r"Antirequisite" + re.escape("(s):") + r"(.+?)(Not open to|$)",
+            description,
+        )
+
+        return (
+            prereq_info[0][0].strip() if prereq_info else "",
+            antireq_info[0][0].strip() if antireq_info else "",
+        )
+
+    def _extract_course_details(self, course: Tag, offering: Tag) -> Dict[str, str]:
+        """
+        Extract course details from the course and offering tags.
+
+        :param course: BeautifulSoup Tag object containing course information.
+        :param offering: BeautifulSoup Tag object containing offering information.
+        :return: A dictionary with the extracted course details.
+        """
+        term_elem = course.find("term")
+        block = course.find("block")
+
+        prerequisites, antirequisites = self._extract_prereq_antireq(
+            offering.get("desc", "")
+        )
+
         return {
-            "teacher": "",
-            "location": "",
-            "campus": "",
-            "courseKey": "",
-            "prerequisites": "",
-            "antirequisites": "",
-            "notes": "",
-            "term_found": "",
-            "description": "",
-            "title": "",
-            "type": "",
+            "title": offering["title"],
+            "courseKey": offering["key"],
+            "description": re.sub(
+                r"Prerequisite"
+                + re.escape("(s):")
+                + r"(.+?)(Antirequisite"
+                + re.escape("(s):")
+                + r"|Not open to|$)",
+                "",
+                offering.get("desc", ""),
+            ).strip(),
+            "prerequisites": prerequisites,
+            "antirequisites": antirequisites,
+            "term_found": term_elem.get("v") if term_elem else "",
+            "type": block.get("type", "") if block else "",
+            "teacher": block.get("teacher", "") if block else "",
+            "location": block.get("location", "") if block else "",
+            "campus": block.get("campus", "") if block else "",
+            "notes": block.get("n", "") if block else "",
         }
 
     def _process_soup_content(self, soup: BeautifulSoup) -> List[Dict]:
@@ -167,53 +208,12 @@ class CourseDataProxy:
         :param soup: BeautifulSoup object containing the course data.
         :return: A list of dictionaries containing the processed course data.
         """
-        course_data = [
-            {
-                "title": offering["title"],
-                "courseKey": offering["key"],
-                "description": re.sub(
-                    r"Prerequisite"
-                    + re.escape("(s):")
-                    + r"(.+?)(Antirequisite"
-                    + re.escape("(s):")
-                    + r"|Not open to|$)",
-                    "",
-                    offering.get("desc", ""),
-                ).strip(),
-                "prerequisites": prereq_info[0][0].strip()
-                if (
-                    prereq_info := re.findall(
-                        r"Prerequisite"
-                        + re.escape("(s):")
-                        + r"(.+?)(Antirequisite"
-                        + re.escape("(s):")
-                        + r"|Not open to|$)",
-                        offering.get("desc", ""),
-                    )
-                )
-                else "",
-                "antirequisites": antireq_info[0][0].strip()
-                if (
-                    antireq_info := re.findall(
-                        r"Antirequisite" + re.escape("(s):") + r"(.+?)(Not open to|$)",
-                        offering.get("desc", ""),
-                    )
-                )
-                else "",
-                "term_found": (term_elem := course.find("term")).get("v")
-                if term_elem
-                else "",
-                "type": (block := course.find("block")).get("type", "")
-                if block
-                else "",
-                "teacher": block.get("teacher", "") if block else "",
-                "location": block.get("location", "") if block else "",
-                "campus": block.get("campus", "") if block else "",
-                "notes": block.get("n", "") if block else "",
-            }
-            for course in soup.find_all("course")
-            for offering in [course.find("offering")]
-        ]
+        course_data = []
+
+        for course in soup.find_all("course"):
+            offering = course.find("offering")
+            course_details = self._extract_course_details(course, offering)
+            course_data.append(course_details)
 
         for course in course_data:
             course.update(
@@ -222,6 +222,7 @@ class CourseDataProxy:
                     for key, value in course.items()
                 }
             )
+
         return course_data
 
 
@@ -237,14 +238,118 @@ class CourseManager(commands.Cog):
         self.config.register_global(courses={}, term_codes={})
         self.session = ClientSession()
         self.course_data_proxy = CourseDataProxy()
+        self.bot.loop.create_task(self.maintain_freshness())
 
-    async def cog_unload(self):
-        """Close the aiohttp session when the cog is unloaded."""
-        self.bot.loop.create_task(self.close_session())
+    async def maintain_freshness(self):
+        while True:
+            await self.course_data_proxy._maintain_freshness()
+            await asyncio.sleep(24 * 60 * 60)  # sleep for 24 hours
 
-    async def close_session(self):
-        """Close the aiohttp session."""
-        await self.session.close()
+    async def _log(self, message: str):
+        """Log a message to the logging channel if it is set."""
+        logging_channel_id = await self.config.logging_channel()
+        if logging_channel_id:
+            if logging_channel := self.bot.get_channel(logging_channel_id):
+                await logging_channel.send(message)
+
+    def log(func):
+        """A decorator to log function calls with their arguments."""
+
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            cls_instance = args[0]
+            await cls_instance._log(
+                f"Calling {func.__name__} with args: {args[1:]}, kwargs: {kwargs}"
+            )
+            return await func(*args, **kwargs)
+
+        return wrapper
+
+    ### Helper Functions
+    def format_course_code(self, course_code: str) -> Optional[Tuple[str, str]]:
+        print(f"Debug: format_course_code() - course_code: {course_code}")
+        # Convert to uppercase and replace hyphens and underscores with spaces
+        course_code = course_code.upper().replace("-", " ").replace("_", " ")
+        print(
+            f"Debug: course_code after replacing hyphens and underscores: {course_code}"
+        )
+        # Split by whitespace characters
+        course_parts = re.split(r"\s+", course_code.strip())
+
+        if len(course_parts) < 2:
+            return None
+        elif len(course_parts) > 2:
+            course_number = " ".join(course_parts[1:])
+        else:
+            course_number = course_parts[1]
+
+        department = course_parts[0]
+        print(f"Debug: department: {department}, course_number: {course_number}")
+
+        # Validate the department and course number for valid characters
+        department_pattern = re.compile(r"^[A-Z]+$")
+        course_number_pattern = re.compile(r"^(\d[0-9A-Za-z]{1,3}).*")
+
+        department_match = department_pattern.match(department)
+        course_number_match = course_number_pattern.match(course_number)
+
+        if not department_match or not course_number_match:
+            return None
+
+        # Remove any unwanted characters after the course_number
+        course_number = course_number_match[1]
+        print(
+            f"Debug: course_number after removing unwanted characters: {course_number}"
+        )
+
+        formatted_code = f"{department} {course_number}"
+        print(f"Debug: formatted_code: {formatted_code}")
+
+        return (department, course_number)
+
+    async def send_long_message(self, ctx, content, max_length=2000):
+        while content:
+            message_chunk = content[:max_length]
+            await ctx.send(message_chunk)
+            content = content[max_length:]
+
+    def create_course_embed(self, course_data, formatted_course_code):
+        embed = discord.Embed(title=f"{formatted_course_code}", color=0x00FF00)
+
+        field_info = [
+            ("teacher", "Teacher"),
+            ("term_found", "Term"),
+            ("description", "Description"),
+            ("notes", "Notes"),
+            ("prerequisites", "Prerequisites"),
+            ("antirequisites", "Antirequisites"),
+        ]
+
+        for course_info in course_data:
+            course_name = f"{course_info['course']} {course_info['section']}"
+
+            course_details = [
+                f"**{label}**: {course_info[field]}\n" if course_info[field] else ""
+                for field, label in field_info
+            ]
+
+            if course_info["title"]:
+                embed.set_author(name=formatted_course_code)
+                embed.title = course_info["title"]
+
+            if course_info["location"]:
+                footer_text = (
+                    f"{course_info['location']} ({course_info['campus']})"
+                    if course_info["campus"]
+                    else f"{course_info['location']}"
+                )
+                embed.set_footer(text=footer_text)
+
+            embed.add_field(
+                name=course_name, value="".join(course_details), inline=False
+            )
+
+        return embed
 
     ### User Command Section
 
@@ -343,64 +448,3 @@ class CourseManager(commands.Cog):
         # Create the Discord embed and add fields with course data
         embed = self.create_course_embed(processed_course_data, formatted_course_code)
         await ctx.send(embed=embed)
-
-
-#    @course.command()
-#    @commands.cooldown(1, 10, commands.BucketType.user)
-#    async def join(self, ctx, *, course_code: str):
-#        """Join a course channel."""
-#        print(f"Debug: join() - course_code: {course_code}")
-# Format the course code
-#        result = await self.format_course_code(course_code)
-#        if not result:
-#            await ctx.send(f"Error: The course code {course_code} is not valid. Please enter a valid course code.")
-#            return
-
-#        dept, code = result
-
-#        if len(self.get_user_courses(ctx, ctx.guild)) >= self.max_courses:
-#            await ctx.send(f"Error: You have reached the maximum limit of {self.max_courses} courses. Please leave a course before joining another.")
-#            return
-
-#        channel_name = f"{dept}-{code}"
-#        existing_channel = discord.utils.get(
-#            ctx.guild.channels, name=channel_name.lower())
-
-#        if existing_channel is None:
-#            existing_channel = await self.create_course_channel(ctx.guild, dept, code, ctx.author)
-
-#        user_permissions = existing_channel.overwrites_for(ctx.author)
-# use view_channel and send_messages permissions
-#        user_permissions.update(view_channel=True, send_messages=True)
-#        await existing_channel.set_permissions(ctx.author, overwrite=user_permissions)
-
-#        await ctx.send(f"You have successfully joined {dept} {code}.")
-#        if self.logging_channel:
-# use mention to ping user
-#            await self.logging_channel.send(f"{ctx.author.mention} has joined {dept} {code}.")
-
-#    @course.command()
-#    @commands.cooldown(1, 10, commands.BucketType.user)
-#    async def leave(self, ctx, *, course_code: str):
-#        """Leave a course channel."""
-#        print("Debug: leave()")
-#        result = await self.format_course_code(course_code)
-
-#        if not result:
-#            await ctx.send("Error: Invalid course code provided.")
-#            return
-
-#        dept, code = result
-
-#        channel_name = f"{dept}-{code}"
-#        existing_channel = discord.utils.get(
-#            ctx.guild.channels, name=channel_name.lower())
-
-#        if existing_channel is None:
-#            await ctx.send(f"Error: You are not a member of {dept}-{code}.")
-#            return
-
-#        await existing_channel.set_permissions(ctx.author, read_messages=None)
-#        await ctx.send(f"You have successfully left {channel_name}.")
-#        if self.logging_channel:
-#            await self.logging_channel.send(f"{ctx.author.mention} has left {channel_name}.")
