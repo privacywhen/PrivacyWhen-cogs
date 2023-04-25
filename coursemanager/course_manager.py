@@ -5,7 +5,8 @@ from bs4 import BeautifulSoup, Tag
 from datetime import datetime, timedelta, timezone
 from math import floor
 from typing import Dict, List, Optional, Tuple
-import time
+from time import time
+
 
 from redbot.core import Config, commands, checks
 from redbot.core.utils import AsyncIter
