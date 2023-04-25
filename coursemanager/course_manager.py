@@ -25,8 +25,7 @@ class CourseDataProxy:
         self.config = config
         self._proxy = {}
 
-    ## CACHE MANAGEMENT
-
+    ## CACHE MANAGEMENT: Maintains the freshness of the data in the proxy.
     async def _maintain_freshness(self):
         """
         Maintain the freshness of the data in the proxy by checking the date_added
@@ -340,19 +339,23 @@ class CourseManager(commands.Cog):
                 embed.set_author(name=formatted_course_code)
                 embed.title = course_info["title"]
 
-            if course_info["location"]:
-                footer_text = (
-                    f"{course_info['location']} ({course_info['campus']})"
-                    if course_info["campus"]
-                    else f"{course_info['location']}"
-                )
-                embed.set_footer(text=footer_text)
+            freshness_icon = "🟢" if course_info.get("is_fresh") else "🔴"
+
+            date_added = course_info.get("date_added")
+            date_added_str = (
+                date_added.strftime("%Y %b %d") if date_added else "Unknown"
+            )
+
+            footer_text = f"{freshness_icon} Last Updated: {date_added_str}"
+            embed.set_footer(text=footer_text)
 
             embed.add_field(
                 name=course_name, value="".join(course_details), inline=False
             )
 
         return embed
+
+    ### create a revised version of create_course_embed() that uses the new course_data format and freshness data
 
     ### User Command Section
 
@@ -364,12 +367,12 @@ class CourseManager(commands.Cog):
     ### Dev Command Section
 
     @checks.is_owner()
-    @commands.group(invoke_without_command=True)
+    @commands.group(name="dc", invoke_without_command=True)
     async def dev_course(self, ctx):
         """Developer commands for the course cog."""
         await ctx.send_help(self.course)
 
-    @dev_course.command()
+    @dev_course.command(name="term")
     async def set_term_codes(self, ctx, term_name: str, term_id: int):
         """Set the term code for the specified term."""
         async with self.config.term_codes() as term_codes:
@@ -378,7 +381,7 @@ class CourseManager(commands.Cog):
             f"Term code for {term_name.capitalize()} has been set to: {term_id}"
         )
 
-    @dev_course.command()
+    @dev_course.command(name="log")
     async def set_log(self, ctx, option: str, channel: discord.TextChannel):
         """Sets logging channel for the cog."""
         if option.lower() == "logging":
@@ -390,64 +393,172 @@ class CourseManager(commands.Cog):
             "Invalid option. Use '=course setlog logging' followed by the channel."
         )
 
-    @dev_course.command()
-    async def mine(self, ctx):
-        """Displays the courses the user belongs to."""
-        if courses := self.get_user_courses(ctx, ctx.guild, ctx.author):
-            await ctx.send(
-                f"{ctx.author.mention}, you are a member of the following courses:\n{', '.join(courses)}"
-            )
-        else:
-            await ctx.send(f"{ctx.author.mention}, you are not a member of any course.")
-
-    @dev_course.command()
-    async def delete(self, ctx, *, channel: discord.TextChannel):
-        """Deletes a course channel."""
-        if not channel.category or channel.category.name != self.category_name:
-            await ctx.send(f"Error: {channel} is not a course channel.")
-            return
-        await channel.delete()
-        await ctx.send(f"{channel.name} has been successfully deleted.")
-        if self.logging_channel:
-            await self.logging_channel.send(f"{channel} has been deleted.")
-
-    @dev_course.command()
-    async def online(self, ctx, *, raw_course_code: str):
-        """Gets course data from the McMaster API."""
-        print(f"Debug: online start() - course_code: {raw_course_code}")
-        # Format the course code
-        result = self.format_course_code(raw_course_code)
-        if not result:
-            await ctx.send(
-                f"Error: The course code {raw_course_code} is not valid. Please enter a valid course code."
-            )
+    @dev_course.command(name="find")
+    async def find_course(self, ctx, *, course_code: str):
+        """Find a course by its course code."""
+        formatted_course_code = self.format_course_code(course_code)
+        if not formatted_course_code:
+            await ctx.send("Invalid course code.")
             return
 
-        dept, code = result
-        formatted_course_code = f"{dept}-{code}"
-
-        course_data = await self.cache_handler.fetch_course_online(
-            formatted_course_code
+        department, course_number = formatted_course_code
+        course_data = await self.course_data_proxy.find_course(
+            department, course_number
         )
-        print(f"Debug: course_data: {course_data}")  # Debug
 
-        if course_data is None:  # Course not found
-            await ctx.send(
-                f"Error: The course {formatted_course_code} was not found. Please enter a valid course code."
-            )
+        if not course_data:
+            await ctx.send("Course not found.")
             return
 
-        # Format the course data
-        soup, error_message = course_data
-
-        if soup is not None:
-            processed_course_data = self.cache_handler.process_soup_content(
-                soup
-            )  # Process the soup content
-        else:
-            await ctx.send(f"Error: {error_message}")
-            return
-
-        # Create the Discord embed and add fields with course data
-        embed = self.create_course_embed(processed_course_data, formatted_course_code)
+        embed = self.create_course_embed(course_data, formatted_course_code)
         await ctx.send(embed=embed)
+
+    @dev_course.command(name="clearall")
+    async def clear_all(self, ctx):
+        """Clear all config data."""
+        await self.config.clear_all()
+        await ctx.send("All config data cleared.")
+
+    ### create a command that tests bypassing the cache and getting the latest data from the API and returning it as an embed. It should use _fetch_course_online(), _process_course_data(), and create_course_embed() to do this. Ignore private method indicators for now.
+
+    @dev_course.command(name="onlineembed")
+    async def test_online_embed(self, ctx, *, course_code: str):
+        """Find a course by its course code."""
+        formatted_course_code = self.format_course_code(course_code)
+        if not formatted_course_code:
+            await ctx.send("Invalid course code.")
+            return
+
+        department, course_number = formatted_course_code
+        course_data = await self._fetch_course_online(department, course_number)
+        course_data = await self._process_course_data(course_data)
+        embed = self.create_course_embed(course_data, formatted_course_code)
+        await ctx.send(embed=embed)
+
+    ### create a command that tests _current_term() and term_codes() and returns the current term code and the term codes dict
+    @dev_course.command(name="testterm")
+    async def test_term(self, ctx):
+        """Test _current_term() and term_codes()"""
+        current_term = await self._current_term()
+        term_codes = await self.config.term_codes()
+        await ctx.send(f"Current term: {current_term}\nTerm codes: {term_codes}")
+
+    ### create a command that tests the proxy's _process_course_data() method and returns the result
+    @dev_course.command(name="testprocess")
+    async def test_process(self, ctx, *, course_code: str):
+        """Test the proxy's _process_course_data() method"""
+        formatted_course_code = self.format_course_code(course_code)
+        if not formatted_course_code:
+            await ctx.send("Invalid course code.")
+            return
+
+        department, course_number = formatted_course_code
+        course_data = await self.course_data_proxy._fetch_course_online(
+            department, course_number
+        )
+        course_data = await self.course_data_proxy._process_course_data(course_data)
+        await ctx.send(course_data)
+
+    ### create a command that tests the proxy's find_course() method and returns the result
+    @dev_course.command(name="testfind")
+    async def test_find(self, ctx, *, course_code: str):
+        """Test the proxy's find_course() method"""
+        formatted_course_code = self.format_course_code(course_code)
+        if not formatted_course_code:
+            await ctx.send("Invalid course code.")
+            return
+
+        department, course_number = formatted_course_code
+        course_data = await self.course_data_proxy.find_course(
+            department, course_number
+        )
+        await ctx.send(course_data)
+
+    ### create a command that tests the proxy's _fetch_course_online() method and returns the result
+    @dev_course.command(name="testfetch")
+    async def test_fetch(self, ctx, *, course_code: str):
+        """Test the proxy's _fetch_course_online() method"""
+        formatted_course_code = self.format_course_code(course_code)
+        if not formatted_course_code:
+            await ctx.send("Invalid course code.")
+            return
+
+        department, course_number = formatted_course_code
+        course_data = await self.course_data_proxy._fetch_course_online(
+            department, course_number
+        )
+        await ctx.send(course_data)
+
+    ### create a command that tests the proxy's freshness functionality and returns the result
+    @dev_course.command(name="testfresh")
+    async def test_fresh(self, ctx, *, course_code: str):
+        """Test the proxy's freshness functionality"""
+        formatted_course_code = self.format_course_code(course_code)
+        if not formatted_course_code:
+            await ctx.send("Invalid course code.")
+            return
+
+        department, course_number = formatted_course_code
+        course_data = await self.course_data_proxy.find_course(
+            department, course_number
+        )
+        await ctx.send(course_data)
+
+    @dev_course.command(name="testsuite")
+    async def testsuite(self, ctx, course_code: str):
+        """Run a test suite for the CourseManager Cog."""
+
+        # Test format_course_code()
+        print("Testing format_course_code()")
+        department, course_number = self.format_course_code(course_code)
+        print(f"Formatted course code: {department} {course_number}")
+
+        # Test _current_term()
+        print("Testing _current_term()")
+        current_term = self.course_data_proxy._current_term()
+        print(f"Current term: {current_term}")
+
+        # Test _get_term_id()
+        print("Testing _get_term_id()")
+        term_id = await self.course_data_proxy._get_term_id(current_term)
+        print(f"Term ID for {current_term}: {term_id}")
+
+        # Test _generate_time_code()
+        print("Testing _generate_time_code()")
+        t, e = self.course_data_proxy._generate_time_code()
+        print(f"Time code (t, e): {t}, {e}")
+
+        # Test _fetch_course_online()
+        print("Testing _fetch_course_online()")
+        soup, error = await self.course_data_proxy._fetch_course_online(course_code)
+        if soup:
+            print("Course data fetched successfully.")
+        else:
+            print(f"Error: {error}")
+
+        # Test _process_soup_content()
+        print("Testing _process_soup_content()")
+        course_data = self.course_data_proxy._process_soup_content(soup)
+        print(f"Course data: {course_data}")
+
+        # Test find_course()
+        print("Testing find_course()")
+        course_data_found = await self.course_data_proxy.find_course(
+            course_code
+        )  # Updated with 'await'
+        print(f"Found course data: {course_data_found}")
+
+        # Test create_course_embed()
+        print("Testing create_course_embed()")
+        embed = self.create_course_embed(
+            course_data_found, f"{department} {course_number}"
+        )
+        await ctx.send(embed=embed)
+
+        # Test maintain_freshness() indirectly
+        print(
+            "Testing maintain_freshness() indirectly by checking the freshness status of the found course data"
+        )
+        is_fresh = course_data_found.get("is_fresh", None)
+        freshness_status = "Fresh" if is_fresh else "Stale"
+        print(f"Course data freshness status: {freshness_status}")
