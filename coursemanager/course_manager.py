@@ -20,8 +20,10 @@ class CourseDataProxy:
     _TERM_NAMES = ["winter", "spring", "fall"]
     _URL_BASE = "https://mytimetable.mcmaster.ca/getclassdata.jsp?term={term}&course_0_0={course_str}&t={t}&e={e}"
 
-    def __init__(self, session: ClientSession):
+    def __init__(self, session: ClientSession, config: Config):
         self.session = session
+        self.config = config
+        self._proxy = {}
 
     ## CACHE MANAGEMENT
 
@@ -233,12 +235,12 @@ class CourseManager(commands.Cog):
     def __init__(self, bot):
         """Initialize the CourseManager class."""
         self.bot = bot
+        self.session = ClientSession()
         self.config = Config.get_conf(
             self.bot, identifier=3720194665, force_registration=True
         )
         self.config.register_global(courses={}, term_codes={})
-        self.session = ClientSession()
-        self.course_data_proxy = CourseDataProxy()
+        self.course_data_proxy = CourseDataProxy(self.session, self.config)
         self.bot.loop.create_task(self.maintain_freshness())
 
     async def maintain_freshness(self):
