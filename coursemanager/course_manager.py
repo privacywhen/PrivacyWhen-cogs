@@ -2,7 +2,7 @@ import re
 import discord
 from aiohttp import ClientSession
 from bs4 import BeautifulSoup, Tag
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from math import floor
 from typing import Dict, List, Optional, Tuple
 from time import time
@@ -321,44 +321,47 @@ class CourseManager(commands.Cog):
             await ctx.send(message_chunk)
             content = content[max_length:]
 
+    def create_course_embed(self, course_data):
+        course_code = course_data[0]["course_code"]
+        course_number = course_data[0]["course_number"]
+        embed = discord.Embed(title=f"{course_code} {course_number}", color=0x00FF00)
 
-def create_course_embed(self, course_data):
-    course_code = course_data[0]["course_code"]
-    course_number = course_data[0]["course_number"]
-    embed = discord.Embed(title=f"{course_code} {course_number}", color=0x00FF00)
-
-    field_info = [
-        ("teacher", "Teacher"),
-        ("term_found", "Term"),
-        ("description", "Description"),
-        ("notes", "Notes"),
-        ("prerequisites", "Prerequisites"),
-        ("antirequisites", "Antirequisites"),
-    ]
-
-    for course_info in course_data:
-        course_name = f"{course_info['course']} {course_info['section']}"
-
-        course_details = [
-            f"**{label}**: {course_info[field]}\n" if course_info[field] else ""
-            for field, label in field_info
+        field_info = [
+            ("teacher", "Teacher"),
+            ("term_found", "Term"),
+            ("description", "Description"),
+            ("notes", "Notes"),
+            ("prerequisites", "Prerequisites"),
+            ("antirequisites", "Antirequisites"),
         ]
 
-        if course_info["title"]:
-            embed.set_author(name=f"{course_code} {course_number}")
-            embed.title = course_info["title"]
+        for course_info in course_data:
+            course_name = f"{course_info['course']} {course_info['section']}"
 
-        freshness_icon = "🟢" if course_info.get("is_fresh") else "🔴"
+            course_details = [
+                f"**{label}**: {course_info[field]}\n" if course_info[field] else ""
+                for field, label in field_info
+            ]
 
-        date_added = course_info.get("date_added")
-        date_added_str = date_added.strftime("%Y %b %d") if date_added else "Unknown"
+            if course_info["title"]:
+                embed.set_author(name=f"{course_code} {course_number}")
+                embed.title = course_info["title"]
 
-        footer_text = f"{freshness_icon} Last Updated: {date_added_str}"
-        embed.set_footer(text=footer_text)
+            freshness_icon = "🟢" if course_info.get("is_fresh") else "🔴"
 
-        embed.add_field(name=course_name, value="".join(course_details), inline=False)
+            date_added = course_info.get("date_added")
+            date_added_str = (
+                date_added.strftime("%Y %b %d") if date_added else "Unknown"
+            )
 
-    return embed
+            footer_text = f"{freshness_icon} Last Updated: {date_added_str}"
+            embed.set_footer(text=footer_text)
+
+            embed.add_field(
+                name=course_name, value="".join(course_details), inline=False
+            )
+
+        return embed
 
     ### create a revised version of create_course_embed() that uses the new course_data format and freshness data
 
