@@ -3,16 +3,14 @@ import aiohttp
 import discord
 from aiohttp import ClientSession
 from bs4 import BeautifulSoup, Tag
-from datetime import datetime, timezone
+from datetime import datetime
 from math import floor
 from typing import Dict, List, Optional, Tuple
 from time import time
 
-
 from redbot.core import Config, commands, checks
 from redbot.core.utils import AsyncIter
 
-import functools
 import asyncio
 
 
@@ -29,15 +27,14 @@ class CourseDataProxy:
     ## CACHE MANAGEMENT: Maintains the freshness of the data in the proxy.
     async def _maintain_freshness(self):
         async for course_str, course_data in AsyncIter(
-            self.config.courses().items(), delay=2, steps=1
+            await self.config.courses().items(), delay=2, steps=1
         ):
-            data_age_days = (datetime.now() - course_data["date_added"]).days
+            data_age_days = (datetime.now - course_data["date_added"]).days
             if data_age_days > self._CACHE_STALE_DAYS:
                 course_data["is_fresh"] = False
                 await self._web_updater(course_str)
             if data_age_days > self._CACHE_EXPIRY_DAYS:
                 await self.config.courses().pop(course_str)
-                await self._web_updater(course_str)
         print(
             f"DEBUG: Maintaining freshness for {course_str}, data_age_days: {data_age_days}"
         )
@@ -83,7 +80,7 @@ class CourseDataProxy:
                 course_str,
                 {
                     "course_data": course_data_processed,
-                    "date_added": datetime.now(),
+                    "date_added": datetime.now().strftime("%Y %b %d"),
                     "is_fresh": True,
                 },
             )
@@ -95,13 +92,8 @@ class CourseDataProxy:
 
     def _current_term(self) -> str:
         """Determine the current term based on the current month."""
-        now = datetime.now(timezone.utc)
-        if 1 <= now.month <= 4:
-            return self._TERM_NAMES[0]
-        elif 5 <= now.month <= 8:
-            return self._TERM_NAMES[1]
-        else:
-            return self._TERM_NAMES[2]
+        now = datetime.now()
+        return self._TERM_NAMES[(now.month - 1) // 4]
 
     async def _get_term_id(self, term_name: str) -> int:
         term_codes = await self.config.term_codes()
@@ -283,26 +275,6 @@ class CourseManager(commands.Cog):
             await self.course_data_proxy._maintain_freshness()
             await asyncio.sleep(24 * 60 * 60)  # sleep for 24 hours
 
-    async def _log(self, message: str):
-        """Log a message to the logging channel if it is set."""
-        logging_channel_id = await self.config.logging_channel()
-        if logging_channel_id:
-            if logging_channel := self.bot.get_channel(logging_channel_id):
-                await logging_channel.send(message)
-
-    def log(func):
-        """A decorator to log function calls with their arguments."""
-
-        @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
-            cls_instance = args[0]
-            await cls_instance._log(
-                f"Calling {func.__name__} with args: {args[1:]}, kwargs: {kwargs}"
-            )
-            return await func(*args, **kwargs)
-
-        return wrapper
-
     ### Helper Functions
     def format_course_code(self, course_code: str) -> Optional[Tuple[str, str]]:
         print(f"Debug: format_course_code() - course_code: {course_code}")
@@ -341,10 +313,7 @@ class CourseManager(commands.Cog):
             f"Debug: course_number after removing unwanted characters: {course_number}"
         )
 
-        formatted_code = f"{department} {course_number}"
-        print(f"Debug: formatted_code: {formatted_code}")
-
-        return (department, course_number)
+        return department, course_number
 
     async def send_long_message(self, ctx, content, max_length=2000):
         while content:
@@ -391,9 +360,7 @@ class CourseManager(commands.Cog):
             freshness_icon = "🟢" if course_data.get("is_fresh") else "🔴"
 
             date_added = course_data.get("date_added")
-            date_added_str = (
-                date_added.strftime("%Y %b %d") if date_added else "Unknown"
-            )
+            date_added_str = date_added or "Unknown"
 
             footer_text = f"{freshness_icon} Last Updated: {date_added_str}"
             embed.set_footer(text=footer_text)
