@@ -351,7 +351,8 @@ class CourseManager(commands.Cog):
         ]
 
         for course_info in course_data:
-            course_name = f"{course_info['course']} {course_info['section']}"
+            course_name = f"{course_data['course_data'][0]['course_code']} {course_data['course_data'][0]['course_number']}"
+
             print(f"DEBUG: Creating embed for course_name: {course_name}")
 
             course_details = [
