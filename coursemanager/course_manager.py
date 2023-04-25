@@ -136,7 +136,7 @@ class CourseDataProxy:
                 continue
 
             t, e = self._generate_time_code()
-            url = self.URL_BASE.format(term=term_id, course_str=course_str, t=t, e=e)
+            url = self._URL_BASE.format(term=term_id, course_str=course_str, t=t, e=e)
 
             try:
                 async with self.session.get(url) as response:
