@@ -123,8 +123,8 @@ class CourseDataProxy:
         """
         current_term = self._current_term()
         term_order = (
-            self.TERM_NAMES[self.TERM_NAMES.index(current_term) :]
-            + self.TERM_NAMES[: self.TERM_NAMES.index(current_term)]
+            self._TERM_NAMES[self._TERM_NAMES.index(current_term) :]
+            + self._TERM_NAMES[: self._TERM_NAMES.index(current_term)]
         )
 
         soup = None
