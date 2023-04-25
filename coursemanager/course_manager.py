@@ -44,6 +44,9 @@ class CourseDataProxy:
             if data_age_days > self._CACHE_EXPIRY_DAYS:
                 self._proxy.pop(course_str)
                 await self._web_updater(course_str)
+        print(
+            f"DEBUG: Maintaining freshness for {course_str}, data_age_days: {data_age_days}"
+        )
 
     async def find_course(self, course_str):
         """
@@ -60,7 +63,7 @@ class CourseDataProxy:
         """
         course_data = self._proxy.get(course_str, None)
         if course_data is None:
-            self._web_updater(course_str)
+            await self._web_updater(course_str)
             course_data = self._proxy.get(course_str, "Not Found")
         print(course_data)
         return course_data
@@ -129,6 +132,7 @@ class CourseDataProxy:
 
         try:
             async with self.session.get(url) as response:
+                print(f"DEBUG: Fetching course data from URL: {url}")
                 if response.status != 200:
                     return (
                         None,
@@ -231,7 +235,7 @@ class CourseDataProxy:
                     for key, value in course.items()
                 }
             )
-
+        print(f"DEBUG: _process_soup_content: {course_data}")
         return course_data
 
 
@@ -252,6 +256,7 @@ class CourseManager(commands.Cog):
     async def maintain_freshness(self):
         """Maintain the freshness of the course data."""
         while True:
+            print("DEBUG: Starting maintain_freshness loop")
             await self.course_data_proxy._maintain_freshness()
             await asyncio.sleep(24 * 60 * 60)  # sleep for 24 hours
 
@@ -285,6 +290,7 @@ class CourseManager(commands.Cog):
         )
         # Split by whitespace characters
         course_parts = re.split(r"\s+", course_code.strip())
+        print(f"DEBUG: Course parts: {course_parts}")
 
         if len(course_parts) < 2:
             return None
@@ -324,6 +330,12 @@ class CourseManager(commands.Cog):
             content = content[max_length:]
 
     def create_course_embed(self, course_data):
+        if course_data == "Not Found":
+            return discord.Embed(
+                title="Course not found",
+                description="No data available for this course.",
+                color=0xFF0000,
+            )
         print(f"DEBUG: course_data: {course_data}")
         course_code = course_data["course_code"]
         course_number = course_data["course_number"]
@@ -340,6 +352,7 @@ class CourseManager(commands.Cog):
 
         for course_info in course_data:
             course_name = f"{course_info['course']} {course_info['section']}"
+            print(f"DEBUG: Creating embed for course_name: {course_name}")
 
             course_details = [
                 f"**{label}**: {course_info[field]}\n" if course_info[field] else ""
@@ -386,6 +399,7 @@ class CourseManager(commands.Cog):
             return
 
         course_data = await self.course_data_proxy.find_course(formatted_course_code)
+        print(f"DEBUG: Course data for {formatted_course_code}: {course_data}")
 
         if not course_data:
             await ctx.send(f"Course not found: {formatted_course_code}")
