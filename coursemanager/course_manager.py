@@ -27,7 +27,7 @@ class CourseDataProxy:
     ## CACHE MANAGEMENT: Maintains the freshness of the data in the proxy.
     async def _maintain_freshness(self):
         async for course_str, course_data in AsyncIter(
-            await self.config.courses().all(), delay=2, steps=1
+            await self.config.courses.all(), delay=2, steps=1
         ):
             data_age_days = (datetime.now - course_data["date_added"]).days
             if data_age_days > self._CACHE_STALE_DAYS:
@@ -39,7 +39,7 @@ class CourseDataProxy:
             f"DEBUG: Maintaining freshness for {course_str}, data_age_days: {data_age_days}"
         )
 
-    async def find_course(self, course_str):
+    async def find_course(self, course_str: str) -> Optional[Dict[str, str]]:
         """
         Find the course data in the proxy or update it if needed.
 
@@ -51,7 +51,7 @@ class CourseDataProxy:
 
         Note: This function should not call _maintain_freshness() as it is intended to run on a schedule.
         """
-        course_data = self.config.courses().get(course_str, None)
+        course_data = (await self.config.courses()).get(course_str, None)
 
         if course_data is None:
             await self._web_updater(course_str)
