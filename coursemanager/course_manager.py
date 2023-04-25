@@ -329,53 +329,56 @@ class CourseManager(commands.Cog):
             await ctx.send(message_chunk)
             content = content[max_length:]
 
+    def create_course_embed(self, course_data):
+        if course_data == "Not Found":
+            return discord.Embed(
+                title="Course not found",
+                description="No data available for this course.",
+                color=0xFF0000,
+            )
+        print(f"DEBUG: course_data: {course_data}")
+        course_code = course_data["course_data"][0]["course_code"]
+        course_number = course_data["course_data"][0]["course_number"]
+        embed = discord.Embed(title=f"{course_code} {course_number}", color=0x00FF00)
 
-def create_course_embed(self, course_data):
-    if course_data == "Not Found":
-        return discord.Embed(
-            title="Course not found",
-            description="No data available for this course.",
-            color=0xFF0000,
-        )
-    print(f"DEBUG: course_data: {course_data}")
-    course_code = course_data["course_data"][0]["course_code"]
-    course_number = course_data["course_data"][0]["course_number"]
-    embed = discord.Embed(title=f"{course_code} {course_number}", color=0x00FF00)
-
-    field_info = [
-        ("teacher", "Teacher"),
-        ("term_found", "Term"),
-        ("description", "Description"),
-        ("notes", "Notes"),
-        ("prerequisites", "Prerequisites"),
-        ("antirequisites", "Antirequisites"),
-    ]
-
-    for course_info in course_data["course_data"]:
-        course_name = f"{course_info['course_code']} {course_info['course_number']}"
-
-        print(f"DEBUG: Creating embed for course_name: {course_name}")
-
-        course_details = [
-            f"**{label}**: {course_info[field]}\n" if course_info[field] else ""
-            for field, label in field_info
+        field_info = [
+            ("teacher", "Teacher"),
+            ("term_found", "Term"),
+            ("description", "Description"),
+            ("notes", "Notes"),
+            ("prerequisites", "Prerequisites"),
+            ("antirequisites", "Antirequisites"),
         ]
 
-        if course_info["title"]:
-            embed.set_author(name=course_name)
-            embed.title = course_info["title"]
+        for course_info in course_data["course_data"]:
+            course_name = f"{course_info['course_code']} {course_info['course_number']}"
 
-        freshness_icon = "🟢" if course_data.get("is_fresh") else "🔴"
+            print(f"DEBUG: Creating embed for course_name: {course_name}")
 
-        date_added = course_data.get("date_added")
-        date_added_str = date_added.strftime("%Y %b %d") if date_added else "Unknown"
+            course_details = [
+                f"**{label}**: {course_info[field]}\n" if course_info[field] else ""
+                for field, label in field_info
+            ]
 
-        footer_text = f"{freshness_icon} Last Updated: {date_added_str}"
-        embed.set_footer(text=footer_text)
+            if course_info["title"]:
+                embed.set_author(name=course_name)
+                embed.title = course_info["title"]
 
-        embed.add_field(name=course_name, value="".join(course_details), inline=False)
+            freshness_icon = "🟢" if course_data.get("is_fresh") else "🔴"
 
-    return embed
+            date_added = course_data.get("date_added")
+            date_added_str = (
+                date_added.strftime("%Y %b %d") if date_added else "Unknown"
+            )
+
+            footer_text = f"{freshness_icon} Last Updated: {date_added_str}"
+            embed.set_footer(text=footer_text)
+
+            embed.add_field(
+                name=course_name, value="".join(course_details), inline=False
+            )
+
+        return embed
 
     ### create a revised version of create_course_embed() that uses the new course_data format and freshness data
 
