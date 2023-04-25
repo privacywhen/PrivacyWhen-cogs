@@ -140,6 +140,7 @@ class CourseDataProxy:
 
             try:
                 async with self.session.get(url) as response:
+                    print(f"DEBUG: Fetching course data from {url}")
                     if response.status != 200:
                         continue
                     content = await response.text()
