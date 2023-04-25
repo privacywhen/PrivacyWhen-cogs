@@ -402,9 +402,9 @@ class CourseManager(commands.Cog):
             await ctx.send("Invalid course code.")
             return
 
-        department, course_number = formatted_course_code.split(" ")
+        department, course_number = formatted_course_code
         course_data = await self.course_data_proxy.find_course(
-            department, course_number
+            f"{department} {course_number}"
         )
 
         if not course_data:
