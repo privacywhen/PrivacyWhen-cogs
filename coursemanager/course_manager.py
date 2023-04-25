@@ -365,6 +365,27 @@ class CourseManager(commands.Cog):
     async def course(self, ctx):
         await ctx.send_help(self.course)
 
+    @course.command(name="details")
+    async def course_details(self, ctx, *, course_code: str):
+        """Get the details of a course."""
+        formatted_course_code = self.format_course_code(course_code)
+        if not formatted_course_code:
+            await ctx.send(
+                f"Invalid course code: {course_code}. Please use the format: `department course_number`"
+            )
+            return
+
+        course_data = await self.course_data_proxy.get_course_data(
+            formatted_course_code
+        )
+
+        if not course_data:
+            await ctx.send(f"Course not found: {formatted_course_code}")
+            return
+
+        embed = self.create_course_embed(course_data, formatted_course_code)
+        await ctx.send(embed=embed)
+
     ### Dev Command Section
 
     @checks.is_owner()
