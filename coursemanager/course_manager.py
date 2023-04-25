@@ -375,9 +375,7 @@ class CourseManager(commands.Cog):
             )
             return
 
-        course_data = await self.course_data_proxy.get_course_data(
-            formatted_course_code
-        )
+        course_data = await self.course_data_proxy.find_course(formatted_course_code)
 
         if not course_data:
             await ctx.send(f"Course not found: {formatted_course_code}")
@@ -479,21 +477,6 @@ class CourseManager(commands.Cog):
             department, course_number
         )
         course_data = await self.course_data_proxy._process_course_data(course_data)
-        await ctx.send(course_data)
-
-    ### create a command that tests the proxy's find_course() method and returns the result
-    @dev_course.command(name="testfind")
-    async def test_find(self, ctx, *, course_code: str):
-        """Test the proxy's find_course() method"""
-        formatted_course_code = self.format_course_code(course_code)
-        if not formatted_course_code:
-            await ctx.send("Invalid course code.")
-            return
-
-        department, course_number = formatted_course_code
-        course_data = await self.course_data_proxy.find_course(
-            department, course_number
-        )
         await ctx.send(course_data)
 
     ### create a command that tests the proxy's _fetch_course_online() method and returns the result
