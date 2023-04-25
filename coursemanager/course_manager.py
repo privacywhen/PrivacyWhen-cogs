@@ -505,7 +505,7 @@ class CourseManager(commands.Cog):
         await ctx.send(course_data)
 
     @dev_course.command(name="testsuite")
-    async def testsuite(self, ctx, course_code: str):
+    async def testsuite(self, ctx, *, course_code: str):
         """Run a test suite for the CourseManager Cog."""
 
         # Test format_course_code()
@@ -522,11 +522,6 @@ class CourseManager(commands.Cog):
         print("Testing _get_term_id()")
         term_id = await self.course_data_proxy._get_term_id(current_term)
         print(f"Term ID for {current_term}: {term_id}")
-
-        # Test _generate_time_code()
-        print("Testing _generate_time_code()")
-        t, e = self.course_data_proxy._generate_time_code()
-        print(f"Time code (t, e): {t}, {e}")
 
         # Test _fetch_course_online()
         print("Testing _fetch_course_online()")
