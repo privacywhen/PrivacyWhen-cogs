@@ -249,6 +249,7 @@ class CourseManager(commands.Cog):
         self.bot.loop.create_task(self.maintain_freshness())
 
     async def maintain_freshness(self):
+        """Maintain the freshness of the course data."""
         while True:
             await self.course_data_proxy._maintain_freshness()
             await asyncio.sleep(24 * 60 * 60)  # sleep for 24 hours
@@ -322,6 +323,7 @@ class CourseManager(commands.Cog):
             content = content[max_length:]
 
     def create_course_embed(self, course_data):
+        print(f"DEBUG: course_data: {course_data}")
         course_code = course_data[0]["course_code"]
         course_number = course_data[0]["course_number"]
         embed = discord.Embed(title=f"{course_code} {course_number}", color=0x00FF00)
@@ -419,26 +421,6 @@ class CourseManager(commands.Cog):
         await ctx.send(
             "Invalid option. Use '=course setlog logging' followed by the channel."
         )
-
-    @dev_course.command(name="find")
-    async def find_course(self, ctx, *, course_code: str):
-        """Find a course by its course code."""
-        formatted_course_code = self.format_course_code(course_code)
-        if not formatted_course_code:
-            await ctx.send("Invalid course code.")
-            return
-
-        department, course_number = formatted_course_code
-        course_data = await self.course_data_proxy.find_course(
-            f"{department} {course_number}"
-        )
-
-        if not course_data:
-            await ctx.send("Course not found.")
-            return
-
-        embed = self.create_course_embed(course_data, formatted_course_code)
-        await ctx.send(embed=embed)
 
     @dev_course.command(name="clearall")
     async def clear_all(self, ctx):
