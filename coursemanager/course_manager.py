@@ -77,7 +77,7 @@ class CourseDataProxy:
         soup, error = await self._fetch_course_online(course_str)
         if soup is not None:
             course_data_processed = self._process_soup_content(soup)
-            await self.config.courses().set(
+            await self.config.courses.set(
                 course_str,
                 {
                     "course_data": course_data_processed,
