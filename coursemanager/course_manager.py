@@ -5,11 +5,12 @@ from aiohttp import ClientSession
 from bs4 import BeautifulSoup, Tag
 from datetime import datetime
 from math import floor
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from time import time
 
 from redbot.core import Config, commands, checks
-from redbot.core.utils import AsyncIter
+
+# from redbot.core.utils import AsyncIter
 
 import asyncio
 
@@ -26,70 +27,65 @@ class CourseDataProxy:
 
     ## CACHE MANAGEMENT: Maintains the freshness of the data in the proxy.
     async def _maintain_freshness(self):
-        async for course_str, course_data in AsyncIter(
-            await self.config.courses.all(), delay=2, steps=1
-        ):
-            data_age_days = (datetime.now - course_data["date_added"]).days
-            if data_age_days > self._CACHE_STALE_DAYS:
-                course_data["is_fresh"] = False
-                await self._web_updater(course_str)
+        courses = await self.config.courses()
+        for course_str, course_data in courses.items():
+            data_age_days = (
+                datetime.datetime.now()
+                - datetime.datetime.strptime(course_data["date_added"], "%Y %b %d")
+            ).days
+
+            # Check if the data is expired and remove it
             if data_age_days > self._CACHE_EXPIRY_DAYS:
-                await self.config.courses().pop(course_str)
+                await self.config.courses.pop(course_str)
+            elif data_age_days > self._CACHE_STALE_DAYS and not course_data["is_fresh"]:
+                # Fetch fresh data using the get_course_data method
+                await self.get_course_data(course_str)
+
         print(
             f"DEBUG: Maintaining freshness for {course_str}, data_age_days: {data_age_days}"
         )
 
-    async def find_course(self, course_str: str) -> Optional[Dict[str, str]]:
+    async def get_course_data(self, course_str: str) -> Dict[str, Any]:
         """
-        Find the course data in the proxy or update it if needed.
+        Get the course data from the cache or update it if needed.
 
         Args:
             course_str (str): The course identifier.
 
         Returns:
-            dict: The course data and its freshness status or 'Not Found' if the course is not found.
+            dict: The course data or an empty dictionary if the course is not found.
 
         Note: This function should not call _maintain_freshness() as it is intended to run on a schedule.
         """
-        course_data = (await self.config.courses()).get(course_str, None)
+        courses = await self.config.courses()
+        course_data = courses.get(course_str, None)
 
-        if course_data is None:
-            await self._web_updater(course_str)
-            course_data = self.config.courses().get(course_str, "Not Found")
-            if course_data != "Not Found":
-                print(f"Course data found in config.courses: {course_data}")
-            else:
-                print("Course not found in config.courses after calling web updater.")
-        else:
-            print(f"Course data found in config.courses: {course_data}")
+        if course_data is None or not course_data.get("is_fresh", False):
+            # Fetch course data from the web
+            soup, error = await self._fetch_course_online(course_str)
+            if soup is not None:
+                course_data_processed = self._process_soup_content(soup)
 
-        return course_data["course_data"] if course_data != "Not Found" else course_data
+                # Update the course data and timestamp
+                await self.config.courses.set(
+                    course_str,
+                    {
+                        "course_data": course_data_processed,
+                        "date_added": datetime.datetime.now().strftime("%Y %b %d"),
+                        "is_fresh": True,
+                    },
+                )
+                courses = (
+                    await self.config.courses()
+                )  # Update the courses dictionary after the web update
+
+            elif error is not None:
+                print(f"Error fetching course data for {course_str}: {error}")
+                return {}
+
+        return courses[course_str]["course_data"] if course_str in courses else {}
 
     ## Section - WEB UPDATE: Fetches course data from the online sourse. Requires term_id, course_str, t, and e.
-
-    async def _web_updater(self, course_str: str):
-        """
-        Fetch course data from the online source and process it into a dictionary.
-
-        :param course_str: The formatted course string.
-        :return: A dictionary containing the course data.
-        """
-        soup, error = await self._fetch_course_online(course_str)
-        if soup is not None:
-            course_data_processed = self._process_soup_content(soup)
-            await self.config.courses.set(
-                course_str,
-                {
-                    "course_data": course_data_processed,
-                    "date_added": datetime.now().strftime("%Y %b %d"),
-                    "is_fresh": True,
-                },
-            )
-            return course_data_processed
-
-        elif error is not None:
-            print(f"Error fetching course data for {course_str}: {error}")
-            return None
 
     def _current_term(self) -> str:
         """Determine the current term based on the current month."""
@@ -429,145 +425,3 @@ class CourseManager(commands.Cog):
         await ctx.send(
             "Invalid option. Use '=course setlog logging' followed by the channel."
         )
-
-    @dev_course.command(name="clearall")
-    async def clear_all(self, ctx):
-        """Clear all config data."""
-        await self.config.clear_all()
-        await ctx.send("All config data cleared.")
-
-    ### create a command that prints the entire config to the console.
-    @dev_course.command(name="printconfig")
-    async def print_config(self, ctx):
-        config = await self.config.all()
-        print(config)
-
-    ### create a command that prints the entire guild config to the console.
-    @dev_course.command(name="printguildconfig")
-    async def print_guild_config(self, ctx):
-        guild_config = await self.config.guild(ctx.guild).all()
-        print(guild_config)
-
-    ### create a command that tests bypassing the cache and getting the latest data from the API and returning it as an embed. It should use _fetch_course_online(), _process_course_data(), and create_course_embed() to do this. Ignore private method indicators for now.
-
-    @dev_course.command(name="onlineembed")
-    async def test_online_embed(self, ctx, *, course_code: str):
-        """Find a course by its course code."""
-        formatted_course_code = self.format_course_code(course_code)
-        if not formatted_course_code:
-            await ctx.send("Invalid course code.")
-            return
-
-        department, course_number = formatted_course_code
-        course_data = await self._fetch_course_online(department, course_number)
-        course_data = await self._process_course_data(course_data)
-        embed = self.create_course_embed(course_data, formatted_course_code)
-        await ctx.send(embed=embed)
-
-    ### create a command that tests _current_term() and term_codes() and returns the current term code and the term codes dict
-    @dev_course.command(name="testterm")
-    async def test_term(self, ctx):
-        """Test _current_term() and term_codes()"""
-        current_term = await self._current_term()
-        term_codes = await self.config.term_codes()
-        await ctx.send(f"Current term: {current_term}\nTerm codes: {term_codes}")
-
-    ### create a command that tests the proxy's _process_course_data() method and returns the result
-    @dev_course.command(name="testprocess")
-    async def test_process(self, ctx, *, course_code: str):
-        """Test the proxy's _process_course_data() method"""
-        formatted_course_code = self.format_course_code(course_code)
-        if not formatted_course_code:
-            await ctx.send("Invalid course code.")
-            return
-
-        department, course_number = formatted_course_code
-        course_data = await self.course_data_proxy._fetch_course_online(
-            department, course_number
-        )
-        course_data = await self.course_data_proxy._process_course_data(course_data)
-        await ctx.send(course_data)
-
-    ### create a command that tests the proxy's _fetch_course_online() method and returns the result
-    @dev_course.command(name="testfetch")
-    async def test_fetch(self, ctx, *, course_code: str):
-        """Test the proxy's _fetch_course_online() method"""
-        formatted_course_code = self.format_course_code(course_code)
-        if not formatted_course_code:
-            await ctx.send("Invalid course code.")
-            return
-
-        department, course_number = formatted_course_code
-        course_data = await self.course_data_proxy._fetch_course_online(
-            department, course_number
-        )
-        await ctx.send(course_data)
-
-    ### create a command that tests the proxy's freshness functionality and returns the result
-    @dev_course.command(name="testfresh")
-    async def test_fresh(self, ctx, *, course_code: str):
-        """Test the proxy's freshness functionality"""
-        formatted_course_code = self.format_course_code(course_code)
-        if not formatted_course_code:
-            await ctx.send("Invalid course code.")
-            return
-
-        department, course_number = formatted_course_code
-        course_data = await self.course_data_proxy.find_course(
-            department, course_number
-        )
-        await ctx.send(course_data)
-
-    @dev_course.command(name="testsuite")
-    async def testsuite(self, ctx, *, course_code: str):
-        """Run a test suite for the CourseManager Cog."""
-
-        # Test format_course_code()
-        print("Testing format_course_code()")
-        department, course_number = self.format_course_code(course_code)
-        print(f"Formatted course code: {department} {course_number}")
-
-        # Test _current_term()
-        print("Testing _current_term()")
-        current_term = self.course_data_proxy._current_term()
-        print(f"Current term: {current_term}")
-
-        # Test _get_term_id()
-        print("Testing _get_term_id()")
-        term_id = await self.course_data_proxy._get_term_id(current_term)
-        print(f"Term ID for {current_term}: {term_id}")
-
-        # Test _fetch_course_online()
-        print("Testing _fetch_course_online()")
-        soup, error = await self.course_data_proxy._fetch_course_online(course_code)
-        if soup:
-            print("Course data fetched successfully.")
-        else:
-            print(f"Error: {error}")
-
-        # Test _process_soup_content()
-        print("Testing _process_soup_content()")
-        course_data = self.course_data_proxy._process_soup_content(soup)
-        print(f"Course data: {course_data}")
-
-        # Test find_course()
-        print("Testing find_course()")
-        course_data_found = await self.course_data_proxy.find_course(
-            course_code
-        )  # Updated with 'await'
-        print(f"Found course data: {course_data_found}")
-
-        # Test create_course_embed()
-        print("Testing create_course_embed()")
-        embed = self.create_course_embed(
-            course_data_found, f"{department} {course_number}"
-        )
-        await ctx.send(embed=embed)
-
-        # Test maintain_freshness() indirectly
-        print(
-            "Testing maintain_freshness() indirectly by checking the freshness status of the found course data"
-        )
-        is_fresh = course_data_found.get("is_fresh", None)
-        freshness_status = "Fresh" if is_fresh else "Stale"
-        print(f"Course data freshness status: {freshness_status}")
