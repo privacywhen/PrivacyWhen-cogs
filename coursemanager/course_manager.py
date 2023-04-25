@@ -324,8 +324,8 @@ class CourseManager(commands.Cog):
 
     def create_course_embed(self, course_data):
         print(f"DEBUG: course_data: {course_data}")
-        course_code = course_data[0]["course_code"]
-        course_number = course_data[0]["course_number"]
+        course_code = course_data["course_code"]
+        course_number = course_data["course_number"]
         embed = discord.Embed(title=f"{course_code} {course_number}", color=0x00FF00)
 
         field_info = [
