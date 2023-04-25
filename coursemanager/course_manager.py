@@ -27,7 +27,7 @@ class CourseDataProxy:
     ## CACHE MANAGEMENT: Maintains the freshness of the data in the proxy.
     async def _maintain_freshness(self):
         async for course_str, course_data in AsyncIter(
-            await self.config.courses().items(), delay=2, steps=1
+            await self.config.courses().all(), delay=2, steps=1
         ):
             data_age_days = (datetime.now - course_data["date_added"]).days
             if data_age_days > self._CACHE_STALE_DAYS:
