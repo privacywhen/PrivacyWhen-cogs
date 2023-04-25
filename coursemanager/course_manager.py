@@ -62,6 +62,7 @@ class CourseDataProxy:
         if course_data is None:
             self._web_updater(course_str)
             course_data = self._proxy.get(course_str, "Not Found")
+        print(course_data)
         return course_data
 
     ## Section - WEB UPDATE: Fetches course data from the online sourse. Requires term_id, course_str, t, and e.
