@@ -48,8 +48,9 @@ class CourseDataProxy:
 
         Returns:
             dict: The course data and its freshness status or 'Not Found' if the course is not found.
+
+        Note: This function should not call _maintain_freshness() as it is intended to run on a schedule.
         """
-        await self._maintain_freshness()
         course_data = self.config.courses().get(course_str, None)
 
         if course_data is None:
