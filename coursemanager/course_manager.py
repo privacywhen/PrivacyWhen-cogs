@@ -7,7 +7,8 @@ from math import floor
 from typing import Dict, List, Optional, Tuple
 import time
 
-from redbot.core import AsyncIter, Config, commands, checks
+from redbot.core import Config, commands, checks
+from redbot.core.utils import AsyncIter
 
 import functools
 import asyncio
