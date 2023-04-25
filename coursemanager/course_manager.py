@@ -65,7 +65,12 @@ class CourseDataProxy:
         if course_data is None:
             await self._web_updater(course_str)
             course_data = self._proxy.get(course_str, "Not Found")
-        print(course_data)
+            if course_data != "Not Found":
+                print(f"Course data found in _proxy: {course_data}")
+            else:
+                print("Course not found in _proxy after calling web updater.")
+        else:
+            print(f"Course data found in _proxy: {course_data}")
         return course_data
 
     ## Section - WEB UPDATE: Fetches course data from the online sourse. Requires term_id, course_str, t, and e.
@@ -140,6 +145,7 @@ class CourseDataProxy:
                     )
                 content = await response.text()
                 soup = BeautifulSoup(content, "xml")
+                print(f"DEBUG: Fetched course data from URL: {soup}")
                 return soup, None
         except Exception as e:
             return None, f"Error: Exception occurred while fetching course data: {e}"
