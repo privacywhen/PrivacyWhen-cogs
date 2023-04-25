@@ -337,8 +337,9 @@ class CourseManager(commands.Cog):
                 color=0xFF0000,
             )
         print(f"DEBUG: course_data: {course_data}")
-        course_code = course_data["course_data"][0]["course_code"]
-        course_number = course_data["course_data"][0]["course_number"]
+        if len(course_data["course_data"]) > 0:
+            course_code = course_data["course_data"][0]["course_code"]
+            course_number = course_data["course_data"][0]["course_number"]
         embed = discord.Embed(title=f"{course_code} {course_number}", color=0x00FF00)
 
         field_info = [
@@ -513,6 +514,12 @@ class CourseManager(commands.Cog):
             department, course_number
         )
         await ctx.send(course_data)
+
+    ### create a command that prints the entire config to the console.
+    @dev_course.command(name="printconfig")
+    async def print_config(self, ctx):
+        config = await self.config.all()
+        print(config)
 
     @dev_course.command(name="testsuite")
     async def testsuite(self, ctx, *, course_code: str):
