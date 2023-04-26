@@ -109,9 +109,11 @@ class CourseDataProxy:
             if not term_id:
                 continue
 
-            url = self.build_url(term_id, course_key_formatted)
+            url = self._build_url(term_id, course_key_formatted)
 
-            soup, error_message = await self._fetch_data_with_retries(url, term_name)
+            soup, error_message = await self._fetch_data_with_retries(
+                url, term_name, course_key_formatted
+            )
             if soup:
                 return soup, None
 
