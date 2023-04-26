@@ -323,9 +323,9 @@ class CourseManager(commands.Cog):
             ("corequisites", "Corequisites"),
             ("antirequisites", "Antirequisites"),
             ("restrictions_and_priority", "Access"),
-            ("course_format", "Format"),
+            ("course_format_and_duration", "Format"),
             ("notes", "Notes"),
-            ("additional_notes", "Other"),
+            ("additional_notes_and_schedule", "Other"),
             ("cross_listing", "Alt Names"),
         ]
 
