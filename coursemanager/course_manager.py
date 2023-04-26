@@ -326,7 +326,7 @@ class CourseManager(commands.Cog):
             ("course_format_and_duration", "Format"),
             ("notes", "Notes"),
             ("additional_notes_and_schedule", "Other"),
-            ("cross_listing", "Alt Names"),
+            ("cross_listings", "Alt Names"),
         ]
 
         for course_info in course_data["course_data"]:
