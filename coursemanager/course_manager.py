@@ -316,15 +316,10 @@ class CourseManager(commands.Cog):
                 color=0xFF0000,
             )
 
-        if (
-            not course_data
-            or "course_data" not in course_data
-            or not course_data["course_data"]
-        ):
+        if not course_data or not course_data.get("course_data"):
             return None
 
-        course_info = course_data["course_data"][0]
-        course_key = course_info["course_key_extracted"]
+        course_key = course_data["course_data"][0]["course_key_extracted"]
         embed = discord.Embed(title=course_key, color=0x00FF00)
 
         field_info = [
@@ -336,22 +331,25 @@ class CourseManager(commands.Cog):
             ("antirequisites", "Antirequisites"),
         ]
 
-        course_details = [
-            f"**{label}**: {course_info[field]}\n" if course_info[field] else ""
-            for field, label in field_info
-        ]
+        for course_info in course_data["course_data"]:
+            course_details = [
+                f"**{label}**: {course_info[field]}\n" if course_info[field] else ""
+                for field, label in field_info
+            ]
 
-        if course_info["title"]:
-            embed.set_author(name=course_key)
-            embed.title = course_info["title"]
+            if course_info["title"]:
+                embed.set_author(name=course_key)
+                embed.title = course_info["title"]
 
-        freshness_icon = "🟢" if course_data.get("is_fresh") else "🔴"
-        date_added = course_data.get("date_added")
-        date_added_str = date_added or "Unknown"
-        footer_text = f"{freshness_icon} Last Updated: {date_added_str}"
-        embed.set_footer(text=footer_text)
+            freshness_icon = "🟢" if course_data.get("is_fresh") else "🔴"
+            date_added = course_data.get("date_added")
+            date_added_str = date_added or "Unknown"
+            footer_text = f"{freshness_icon} Last Updated: {date_added_str}"
+            embed.set_footer(text=footer_text)
 
-        embed.add_field(name=course_key, value="".join(course_details), inline=False)
+            embed.add_field(
+                name=course_key, value="".join(course_details), inline=False
+            )
 
         return embed
 
