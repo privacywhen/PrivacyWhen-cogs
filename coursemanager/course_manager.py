@@ -316,7 +316,7 @@ class CourseManager(commands.Cog):
                 color=0xFF0000,
             )
 
-        if not course_data or not course_data.get("course_data"):
+        if not course_data or not course_data["course_data"]:
             return None
 
         course_key = course_data["course_data"][0]["course_key_extracted"]
@@ -341,8 +341,8 @@ class CourseManager(commands.Cog):
                 embed.set_author(name=course_key)
                 embed.title = course_info["title"]
 
-            freshness_icon = "🟢" if course_data.get("is_fresh") else "🔴"
-            date_added = course_data.get("date_added")
+            freshness_icon = "🟢" if course_data["is_fresh"] else "🔴"
+            date_added = course_data["date_added"]
             date_added_str = date_added or "Unknown"
             footer_text = f"{freshness_icon} Last Updated: {date_added_str}"
             embed.set_footer(text=footer_text)
