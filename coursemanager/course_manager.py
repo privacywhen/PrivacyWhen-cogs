@@ -103,20 +103,10 @@ class CourseDataProxy:
         """Fetch the course data from the online source."""
         term_order = self._determine_term_order()
 
-        for term_name in term_order:
-            term_id = await self._get_term_id(term_name)
-            if not term_id:
-                continue
-
-            url = self._build_url(term_id, course_key_formatted)
-
-            soup, error_message = await self._fetch_data_with_retries(
-                url, term_name, course_key_formatted
-            )
-            if soup:
-                return soup, None
-
-        return None, error_message
+        soup, error_message = await self._fetch_data_with_retries(
+            term_order, course_key_formatted
+        )
+        return (soup, None) if soup else (None, error_message)
 
     def _determine_term_order(self) -> List[str]:
         """Determine the order of the terms to check."""
@@ -135,27 +125,45 @@ class CourseDataProxy:
         )
 
     async def _fetch_data_with_retries(
-        self, url: str, term_name: str, course_key_formatted: str
+        self, term_order: List[str], course_key_formatted: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
         """Fetch the data with retries."""
         max_retries = 3
         retry_delay = 5
 
-        for retry_count in range(max_retries):
-            try:
-                soup, error_message = await self._fetch_single_attempt(url)
-                if soup:
-                    return soup, None
-                elif error_message and retry_count != max_retries - 1:
-                    await asyncio.sleep(retry_delay)
-            except (ClientResponseError, ClientConnectionError) as error:
-                log.error(f"Error fetching course data: {error}")
-                error_message = (
-                    "Error: An issue occurred while fetching the course data."
-                )
-            except asyncio.TimeoutError:
-                log.error(f"Timeout error while fetching course data from {url}")
-                error_message = "Error: Timeout while fetching the course data."
+        for term_name in term_order:
+            term_id = await self._get_term_id(term_name)
+            if not term_id:
+                continue
+
+            url = self._build_url(term_id, course_key_formatted)
+
+            for retry_count in range(max_retries):
+                try:
+                    soup, error_message = await self._fetch_single_attempt(url)
+                    if soup:
+                        return soup, None
+                    elif error_message:
+                        if matched_term := next(
+                            (
+                                term
+                                for term in self._TERM_NAMES
+                                if term in error_message.lower()
+                            ),
+                            None,
+                        ):
+                            print(f"{error_message} matches {matched_term}")
+                            break  # Break the retry loop to try the next term
+                        elif retry_count != max_retries - 1:
+                            await asyncio.sleep(retry_delay)
+                except (ClientResponseError, ClientConnectionError) as error:
+                    log.error(f"Error fetching course data: {error}")
+                    error_message = (
+                        "Error: An issue occurred while fetching the course data."
+                    )
+                except asyncio.TimeoutError:
+                    log.error(f"Timeout error while fetching course data from {url}")
+                    error_message = "Error: Timeout while fetching the course data."
 
         log.error(
             f"Reached max retries ({max_retries}) while fetching course data from {url}"
