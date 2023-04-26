@@ -300,7 +300,7 @@ class CourseManager(commands.Cog):
         if validated_course_key is None:
             return None
 
-        return f"{validated_course_key[0]}-{validated_course_key[1]}"
+        return f"{validated_course_key[0]} {validated_course_key[1]}"
 
     async def send_long_message(self, ctx, content, max_length=2000):
         while content:
@@ -315,11 +315,12 @@ class CourseManager(commands.Cog):
                 description="No data available for this course.",
                 color=0xFF0000,
             )
-        print(f"DEBUG: course_data: {course_data}")
-        if len(course_data["course_data"]) > 0:
-            course_code = course_data["course_data"][0]["course_code"]
-            course_number = course_data["course_data"][0]["course_number"]
-        embed = discord.Embed(title=f"{course_code} {course_number}", color=0x00FF00)
+
+        if not course_data["course_data"]:
+            return None
+
+        course_key = course_data["course_data"][0]["course_key_extracted"]
+        embed = discord.Embed(title=course_key, color=0x00FF00)
 
         field_info = [
             ("teacher", "Teacher"),
@@ -331,33 +332,23 @@ class CourseManager(commands.Cog):
         ]
 
         for course_info in course_data["course_data"]:
-            course_key_extracted = (
-                f"{course_info['course_code']} {course_info['course_number']}"
-            )
-
-            print(
-                f"DEBUG: Creating embed for course_key_extracted: {course_key_extracted}"
-            )
-
             course_details = [
                 f"**{label}**: {course_info[field]}\n" if course_info[field] else ""
                 for field, label in field_info
             ]
 
             if course_info["title"]:
-                embed.set_author(name=course_key_extracted)
+                embed.set_author(name=course_key)
                 embed.title = course_info["title"]
 
             freshness_icon = "🟢" if course_data.get("is_fresh") else "🔴"
-
             date_added = course_data.get("date_added")
             date_added_str = date_added or "Unknown"
-
             footer_text = f"{freshness_icon} Last Updated: {date_added_str}"
             embed.set_footer(text=footer_text)
 
             embed.add_field(
-                name=course_key_extracted, value="".join(course_details), inline=False
+                name=course_key, value="".join(course_details), inline=False
             )
 
         return embed
