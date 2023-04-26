@@ -151,6 +151,7 @@ class CourseDataProxy:
 
     @staticmethod
     def _find_and_remove_pattern(pattern, course_description):
+        """Find and remove a pattern from the course description."""
         if match := re.search(pattern, course_description):
             result = match[1].strip()
             course_description = re.sub(pattern, "", course_description)
@@ -159,6 +160,7 @@ class CourseDataProxy:
         return result, course_description
 
     def _preprocess_course_description(self, course_description):
+        """Preprocess the course description to remove unnecessary content."""
         course_desc = {
             "Course Information": "",
             "Course Format and Duration": "",
@@ -180,12 +182,14 @@ class CourseDataProxy:
         }
 
         for key, pattern in patterns.items():
-            course_desc[key], self = self._find_and_remove_pattern(pattern, self)
+            course_desc[key], course_description = self._find_and_remove_pattern(
+                pattern, course_description
+            )
 
-        self = re.sub(r"<br/>", "", self).strip()
+        course_description = re.sub(r"<br/>", "", course_description).strip()
         course_parts = re.split(
             r"(Three lectures|Lectures \(three hours\)|Two lectures|Three hours|Three lectures, two hour seminar/lab every other week)",
-            self,
+            course_description,
         )
 
         course_desc["Course Information"] = course_parts[0].strip()
@@ -194,13 +198,7 @@ class CourseDataProxy:
         return course_desc
 
     def _extract_course_details(self, course: Tag, offering: Tag) -> Dict[str, str]:
-        """
-        Extract course details from the course and offering tags.
-
-        :param course: BeautifulSoup Tag object containing course information.
-        :param offering: BeautifulSoup Tag object containing offering information.
-        :return: A dictionary with the extracted course details.
-        """
+        """Extract course details from the course data."""
         term_elem = course.find("term")
         block = course.find("block")
 
@@ -208,10 +206,6 @@ class CourseDataProxy:
         preprocessed_description = self._preprocess_course_description(
             course_description
         )
-
-        course_key_extracted = course["key"]
-        course_code = course["code"]
-        course_number = course["number"]
 
         extracted_details = {
             "title": offering["title"],
@@ -221,9 +215,9 @@ class CourseDataProxy:
             "location": block.get("location", "") if block else "",
             "campus": block.get("campus", "") if block else "",
             "notes": block.get("n", "") if block else "",
-            "course_code": course_code,
-            "course_number": course_number,
-            "course_key_extracted": course_key_extracted,
+            "course_code": course["code"],
+            "course_number": course["number"],
+            "course_key_extracted": course["key"],
         }
 
         return {**preprocessed_description, **extracted_details}
@@ -249,7 +243,6 @@ class CourseDataProxy:
                     for key, value in course.items()
                 }
             )
-        logger.debug(f"DEBUG: _process_soup_content: {course_data}")
         return course_data
 
 
