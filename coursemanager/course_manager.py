@@ -294,7 +294,7 @@ class CourseManager(commands.Cog):
             self.bot, identifier=3720194665, force_registration=True
         )
         self.config.register_global(courses={}, term_codes={})
-        self.course_data_proxy = CourseDataProxy(self.session, self.config)
+        self.course_data_proxy = CourseDataProxy(self.config)
         self.bot.loop.create_task(self.maintain_freshness())
 
     async def maintain_freshness(self):
