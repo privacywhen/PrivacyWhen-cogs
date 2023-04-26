@@ -1,18 +1,15 @@
+import asyncio
 import re
+from datetime import date
+from math import floor
+from typing import Dict, List, Optional, Tuple, Any
+
 import aiohttp
 import discord
 from aiohttp import ClientSession
 from bs4 import BeautifulSoup, Tag
-from datetime import date
-from math import floor
-from typing import Dict, List, Optional, Tuple, Any
 from time import time
-
 from redbot.core import Config, commands, checks
-
-# from redbot.core.utils import AsyncIter
-
-import asyncio
 
 
 class CourseDataProxy:
@@ -57,12 +54,11 @@ class CourseDataProxy:
         Note: This function should not call _maintain_freshness() as it is intended to run on a schedule.
         """
         courses = await self.config.courses()
-        course_data = courses.get(course_key_formatted, None)
-        print(f"DEBUG: **course_data**: {course_data}")
+        course_data = courses.get(course_key_formatted)
 
-        if course_data is None or not course_data.get("is_fresh", False):
+        if not course_data or not course_data.get("is_fresh", False):
             soup, error = await self._fetch_course_online(course_key_formatted)
-            if soup is not None:
+            if soup:
                 course_data_processed = self._process_soup_content(soup)
 
                 await self.config.courses.set_raw(
@@ -73,14 +69,12 @@ class CourseDataProxy:
                         "is_fresh": True,
                     },
                 )
-
                 courses = await self.config.courses()
-
-            elif error is not None:
+            elif error:
                 print(f"Error fetching course data for {course_key_formatted}: {error}")
                 return {}
-        print(f"DEBUG: **courses**: {courses}")
-        return courses[course_key_formatted] if course_key_formatted in courses else {}
+
+        return courses.get(course_key_formatted, {})
 
     ## Section - WEB UPDATE: Fetches course data from the online sourse. Requires term_id, course_key_formatted, t, and e.
 
