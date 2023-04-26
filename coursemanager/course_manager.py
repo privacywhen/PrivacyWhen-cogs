@@ -4,10 +4,14 @@ from datetime import date
 from math import floor
 from typing import Dict, List, Optional, Tuple, Any
 
-import aiohttp
 import discord
 import logging
-from aiohttp import ClientSession
+from aiohttp import (
+    ClientSession,
+    ClientTimeout,
+    ClientConnectionError,
+    ClientResponseError,
+)
 from bs4 import BeautifulSoup, Tag
 from time import time
 from redbot.core import Config, commands, checks
@@ -23,8 +27,7 @@ class CourseDataProxy:
     _TERM_NAMES = ["winter", "spring", "fall"]
     _URL_BASE = "https://mytimetable.mcmaster.ca/getclassdata.jsp?term={term}&course_0_0={course_key_formatted}&t={t}&e={e}"
 
-    def __init__(self, session: ClientSession, config: Config):
-        self.session = session
+    def __init__(self, config: Config):
         self.config = config
 
     ## CACHE MANAGEMENT: Maintains the freshness of the data in the proxy.
@@ -84,7 +87,6 @@ class CourseDataProxy:
     ## Section - WEB UPDATE: Fetches course data from the online sourse. Requires term_id, course_key_formatted, t, and e.
 
     def _current_term(self) -> str:
-        """Determine the current term based on the current month."""
         now = date.today()
         return self._TERM_NAMES[(now.month - 1) // 4]
 
@@ -93,73 +95,95 @@ class CourseDataProxy:
         return term_codes.get(term_name, None)
 
     def _generate_time_code(self) -> Tuple[int, int]:
-        """Generate a time code for use in the query."""
         t = floor(time() / 60) % 1000
         e = t % 3 + t % 39 + t % 42
         return t, e
 
-    async def _fetch_course_online(
+    async def fetch_course_online(
         self, course_key_formatted: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
-        current_term = self._current_term()
-        term_order = (
-            self._TERM_NAMES[self._TERM_NAMES.index(current_term) :]
-            + self._TERM_NAMES[: self._TERM_NAMES.index(current_term)]
-        )
-
-        soup = None
-        error_message = None
-        max_retries = 3
-        retry_count = 0
+        term_order = self._determine_term_order()
 
         for term_name in term_order:
             term_id = await self._get_term_id(term_name)
             if not term_id:
                 continue
 
-            t, e = self._generate_time_code()
-            url = self._URL_BASE.format(
-                term=term_id, course_key_formatted=course_key_formatted, t=t, e=e
-            )
+            url = self.build_url(term_id, course_key_formatted)
 
-            while retry_count < max_retries:
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(url) as response:
-                            log.debug(f"Fetching course data from {url}")
-                            if response.status != 200:
+            soup, error_message = await self._fetch_data_with_retries(url, term_name)
+            if soup:
+                return soup, None
+
+        return None, error_message
+
+    def _determine_term_order(self) -> List[str]:
+        _current_term = self._current_term()
+        return (
+            self._TERM_NAMES[self._TERM_NAMES.index(_current_term) :]
+            + self._TERM_NAMES[: self._TERM_NAMES.index(_current_term)]
+        )
+
+    def build_url(self, term_id: int, course_key_formatted: str) -> str:
+        t, e = self._generate_time_code()
+        return self._URL_BASE.format(
+            term=term_id, course_key_formatted=course_key_formatted, t=t, e=e
+        )
+
+    async def _fetch_data_with_retries(
+        self, url: str, term_name: str, course_key_formatted: str
+    ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
+        max_retries = 3
+
+        for retry_count in range(max_retries):
+            try:
+                timeout = ClientTimeout(total=10)
+                async with ClientSession(timeout=timeout) as session:
+                    async with session.get(url) as response:
+                        log.debug(f"Fetching course data from {url}")
+                        if response.status != 200:
+                            continue
+                        content = await response.text()
+                        soup = BeautifulSoup(content, "xml")
+                        if error_tag := soup.find("error"):
+                            error_message = error_tag.text
+                            if term_name := next(
+                                (
+                                    term
+                                    for term in self._TERM_NAMES
+                                    if term.upper() in error_message.upper()
+                                ),
+                                None,
+                            ):
+                                term_id = await self._get_term_id(term_name)
+                                log.debug(
+                                    f"Updating term ID to {term_id} for term {term_name}"
+                                )
+                                url = self.build_url(term_id, course_key_formatted)
+                            else:
+                                log.error(f"Error tag: {error_message}")
+                                if retry_count != max_retries - 1:
+                                    log.debug(
+                                        f"Retrying... (attempt {retry_count + 1})"
+                                    )
                                 continue
-                            content = await response.text()
-                            soup = BeautifulSoup(content, "xml")
-                            if error_tag := soup.find("error"):
-                                error_message = error_tag.text
-                                continue
 
-                            break
-                except (
-                    aiohttp.ClientResponseError,
-                    aiohttp.ClientConnectionError,
-                ) as error:
-                    log.error(f"Error fetching course data: {error}")
-                    error_message = (
-                        "Error: An issue occurred while fetching the course data."
-                    )
-                    retry_count += 1
-                except asyncio.TimeoutError:
-                    log.error(f"Timeout error while fetching course data from {url}")
-                    error_message = "Error: Timeout while fetching the course data."
-                    retry_count += 1
-
-            if retry_count == max_retries:
-                log.error(
-                    f"Reached max retries ({max_retries}) while fetching course data from {url}"
-                )
+                            return soup, None
+            except (ClientResponseError, ClientConnectionError) as error:
+                log.error(f"Error fetching course data: {error}")
                 error_message = (
-                    "Error: Max retries reached while fetching the course data."
+                    "Error: An issue occurred while fetching the course data."
                 )
-                break
+            except asyncio.TimeoutError:
+                log.error(f"Timeout error while fetching course data from {url}")
+                error_message = "Error: Timeout while fetching the course data."
 
-        return soup, error_message
+        log.error(
+            f"Reached max retries ({max_retries}) while fetching course data from {url}"
+        )
+        error_message = "Error: Max retries reached while fetching the course data."
+
+        return None, error_message
 
     ## COURSE DATA PROCESSING: Processes the course data from the online source into a dictionary.
 
@@ -266,7 +290,6 @@ class CourseManager(commands.Cog):
     def __init__(self, bot):
         """Initialize the CourseManager class."""
         self.bot = bot
-        self.session = ClientSession()
         self.config = Config.get_conf(
             self.bot, identifier=3720194665, force_registration=True
         )
