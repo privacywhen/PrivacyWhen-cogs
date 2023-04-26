@@ -318,10 +318,15 @@ class CourseManager(commands.Cog):
         field_info = [
             ("teacher", "Teacher"),
             ("term_found", "Term"),
-            ("description", "Description"),
+            ("Course Information", "Description"),
             ("notes", "Notes"),
             ("prerequisites", "Prerequisites"),
+            ("corequisites", "Corequisites"),
             ("antirequisites", "Antirequisites"),
+            ("restrictions", "Restrictions and Priority"),
+            ("additional_notes", "Additional Notes and Schedule"),
+            ("course_format", "Course Format and Duration"),
+            ("cross_listing", "Cross-listing(s)"),
         ]
 
         for course_info in course_data["course_data"]:
