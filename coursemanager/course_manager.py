@@ -410,3 +410,9 @@ class CourseManager(commands.Cog):
         await ctx.send(
             "Invalid option. Use '=course setlog logging' followed by the channel."
         )
+
+    ## Create a command that will print the global config data to console
+    @dev_course.command(name="printconfig")
+    async def print_config(self, ctx):
+        """Prints the global config data to console"""
+        print(await self.config.all())
