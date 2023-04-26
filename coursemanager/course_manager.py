@@ -6,10 +6,15 @@ from typing import Dict, List, Optional, Tuple, Any
 
 import aiohttp
 import discord
+import logging
 from aiohttp import ClientSession
 from bs4 import BeautifulSoup, Tag
 from time import time
 from redbot.core import Config, commands, checks
+
+logger = logging.getLogger("red.course_manager")
+logger.setLevel(logging.DEBUG)
+logger.addHandler(logging.StreamHandler())
 
 
 class CourseDataProxy:
@@ -37,7 +42,7 @@ class CourseDataProxy:
                 # Fetch fresh data using the get_course_data method
                 await self.get_course_data(course_key_formatted)
 
-        print(
+        logger.debug(
             f"DEBUG: Maintaining freshness for {course_key_formatted}, data_age_days: {data_age_days}"
         )
 
@@ -96,11 +101,6 @@ class CourseDataProxy:
     async def _fetch_course_online(
         self, course_key_formatted: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
-        """
-        Fetch course data from the online source.
-        :param course_key_formatted: The formatted course string.
-        :return: A tuple containing the BeautifulSoup object and an error message, if any.
-        """
         current_term = self._current_term()
         term_order = (
             self._TERM_NAMES[self._TERM_NAMES.index(current_term) :]
@@ -112,7 +112,7 @@ class CourseDataProxy:
 
         for term_name in term_order:
             term_id = await self._get_term_id(term_name)
-            if term_id is None:
+            if not term_id:
                 continue
 
             t, e = self._generate_time_code()
@@ -122,26 +122,24 @@ class CourseDataProxy:
 
             try:
                 async with self.session.get(url) as response:
-                    print(f"DEBUG: Fetching course data from {url}")
+                    logger.debug(f"DEBUG: Fetching course data from {url}")
                     if response.status != 200:
                         continue
                     content = await response.text()
                     soup = BeautifulSoup(content, "xml")
-                    error_tag = soup.find("error")
-
-                    if error_tag is not None:
+                    if error_tag := soup.find("error"):
                         error_message = error_tag.text
-                        continue  # Continue to the next term_id if there is an error
+                        continue
 
-                    break  # No error, break the loop
+                    break
             except aiohttp.ClientResponseError as error:
-                print(f"Error fetching course data: {error}")
+                logger.error(f"Error fetching course data: {error}")
                 error_message = (
                     "Error: An issue occurred while fetching the course data."
                 )
                 break
             except aiohttp.ClientConnectionError as error:
-                print(f"Error connecting to server: {error}")
+                logger.error(f"Error connecting to server: {error}")
                 error_message = (
                     "Error: An issue occurred while connecting to the server."
                 )
@@ -240,7 +238,7 @@ class CourseDataProxy:
                     for key, value in course.items()
                 }
             )
-        print(f"DEBUG: _process_soup_content: {course_data}")
+        logger.debug(f"DEBUG: _process_soup_content: {course_data}")
         return course_data
 
 
@@ -261,7 +259,7 @@ class CourseManager(commands.Cog):
     async def maintain_freshness(self):
         """Maintain the freshness of the course data."""
         while True:
-            print("DEBUG: Starting maintain_freshness loop")
+            logger.debug("DEBUG: Starting maintain_freshness loop")
             await self.course_data_proxy._maintain_freshness()
             await asyncio.sleep(24 * 60 * 60)  # sleep for 24 hours
 
