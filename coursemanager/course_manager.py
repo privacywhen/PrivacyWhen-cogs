@@ -86,15 +86,13 @@ class CourseDataProxy:
 
     ## Section - WEB UPDATE: Fetches course data from the online sourse. Requires term_id, course_key_formatted, t, and e.
 
-    def _current_term(self) -> str:
-        now = date.today()
-        return self._TERM_NAMES[(now.month - 1) // 4]
-
     async def _get_term_id(self, term_name: str) -> int:
+        """Get the term id from the config."""
         term_codes = await self.config.term_codes()
         return term_codes.get(term_name, None)
 
     def _generate_time_code(self) -> Tuple[int, int]:
+        """Generate the time code for the request."""
         t = floor(time() / 60) % 1000
         e = t % 3 + t % 39 + t % 42
         return t, e
@@ -102,6 +100,7 @@ class CourseDataProxy:
     async def _fetch_course_online(
         self, course_key_formatted: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
+        """Fetch the course data from the online source."""
         term_order = self._determine_term_order()
 
         for term_name in term_order:
@@ -120,13 +119,16 @@ class CourseDataProxy:
         return None, error_message
 
     def _determine_term_order(self) -> List[str]:
-        _current_term = self._current_term()
+        """Determine the order of the terms to check."""
+        now = date.today()
+        current_term_index = (now.month - 1) // 4
         return (
-            self._TERM_NAMES[self._TERM_NAMES.index(_current_term) :]
-            + self._TERM_NAMES[: self._TERM_NAMES.index(_current_term)]
+            self._TERM_NAMES[current_term_index:]
+            + self._TERM_NAMES[:current_term_index]
         )
 
     def _build_url(self, term_id: int, course_key_formatted: str) -> str:
+        """Build the URL for the request."""
         t, e = self._generate_time_code()
         return self._URL_BASE.format(
             term=term_id, course_key_formatted=course_key_formatted, t=t, e=e
@@ -135,6 +137,7 @@ class CourseDataProxy:
     async def _fetch_data_with_retries(
         self, url: str, term_name: str, course_key_formatted: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
+        """Fetch the data with retries."""
         max_retries = 3
 
         for retry_count in range(max_retries):
@@ -297,10 +300,10 @@ class CourseManager(commands.Cog):
         )
         self.config.register_global(courses={}, term_codes={})
         self.course_data_proxy = CourseDataProxy(self.config)
-        self.bot.loop.create_task(self.maintain_freshness())
+        self.bot.loop.create_task(self.maintain_freshness_task())
 
-    async def maintain_freshness(self):
-        """Maintain the freshness of the course data."""
+    async def maintain_freshness_task(self):
+        """A coroutine to wrap maintain_freshness function."""
         while True:
             log.debug("DEBUG: Starting maintain_freshness loop")
             await self.course_data_proxy._maintain_freshness()
