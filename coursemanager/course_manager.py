@@ -336,7 +336,6 @@ class CourseManager(commands.Cog):
             ]
 
             if course_info["title"]:
-                embed.set_author(name=course_key)
                 embed.title = course_info["title"]
 
             freshness_icon = "🟢" if course_data.get("is_fresh") else "🔴"
