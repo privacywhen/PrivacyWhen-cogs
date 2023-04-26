@@ -370,16 +370,9 @@ class CourseManager(commands.Cog):
             return
 
         course_data = await self.course_data_proxy.get_course_data(course_key_formatted)
-        is_fresh = course_data.get("is_fresh")
-        date_added = course_data.get("date_added")
-        print(
-            f"DEBUG: Course data for {course_key_formatted}: {course_data} ({is_fresh}, {date_added})"
-        )
-
         if not course_data:
             await ctx.send(f"Course not found: {course_key_formatted}")
             return
-        print(f"DEBUG: Course data for {course_key_formatted}: {course_data}")
         embed = self.create_course_embed(course_data)
         await ctx.send(embed=embed)
 
