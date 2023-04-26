@@ -12,9 +12,9 @@ from bs4 import BeautifulSoup, Tag
 from time import time
 from redbot.core import Config, commands, checks
 
-logger = logging.getLogger("red.course_manager")
-logger.setLevel(logging.DEBUG)
-logger.addHandler(logging.StreamHandler())
+log = logging.getLogger("red.course_manager")
+log.setLevel(logging.DEBUG)
+log.addHandler(logging.StreamHandler())
 
 
 class CourseDataProxy:
@@ -42,7 +42,7 @@ class CourseDataProxy:
                 # Fetch fresh data using the get_course_data method
                 await self.get_course_data(course_key_formatted)
 
-        logger.debug(
+        log.debug(
             f"DEBUG: Maintaining freshness for {course_key_formatted}, data_age_days: {data_age_days}"
         )
 
@@ -109,6 +109,8 @@ class CourseDataProxy:
 
         soup = None
         error_message = None
+        max_retries = 3
+        retry_count = 0
 
         for term_name in term_order:
             term_id = await self._get_term_id(term_name)
@@ -120,28 +122,40 @@ class CourseDataProxy:
                 term=term_id, course_key_formatted=course_key_formatted, t=t, e=e
             )
 
-            try:
-                async with self.session.get(url) as response:
-                    logger.debug(f"DEBUG: Fetching course data from {url}")
-                    if response.status != 200:
-                        continue
-                    content = await response.text()
-                    soup = BeautifulSoup(content, "xml")
-                    if error_tag := soup.find("error"):
-                        error_message = error_tag.text
-                        continue
+            while retry_count < max_retries:
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(url) as response:
+                            log.debug(f"Fetching course data from {url}")
+                            if response.status != 200:
+                                continue
+                            content = await response.text()
+                            soup = BeautifulSoup(content, "xml")
+                            if error_tag := soup.find("error"):
+                                error_message = error_tag.text
+                                continue
 
-                    break
-            except aiohttp.ClientResponseError as error:
-                logger.error(f"Error fetching course data: {error}")
-                error_message = (
-                    "Error: An issue occurred while fetching the course data."
+                            break
+                except (
+                    aiohttp.ClientResponseError,
+                    aiohttp.ClientConnectionError,
+                ) as error:
+                    log.error(f"Error fetching course data: {error}")
+                    error_message = (
+                        "Error: An issue occurred while fetching the course data."
+                    )
+                    retry_count += 1
+                except asyncio.TimeoutError:
+                    log.error(f"Timeout error while fetching course data from {url}")
+                    error_message = "Error: Timeout while fetching the course data."
+                    retry_count += 1
+
+            if retry_count == max_retries:
+                log.error(
+                    f"Reached max retries ({max_retries}) while fetching course data from {url}"
                 )
-                break
-            except aiohttp.ClientConnectionError as error:
-                logger.error(f"Error connecting to server: {error}")
                 error_message = (
-                    "Error: An issue occurred while connecting to the server."
+                    "Error: Max retries reached while fetching the course data."
                 )
                 break
 
@@ -263,7 +277,7 @@ class CourseManager(commands.Cog):
     async def maintain_freshness(self):
         """Maintain the freshness of the course data."""
         while True:
-            logger.debug("DEBUG: Starting maintain_freshness loop")
+            log.debug("DEBUG: Starting maintain_freshness loop")
             await self.course_data_proxy._maintain_freshness()
             await asyncio.sleep(24 * 60 * 60)  # sleep for 24 hours
 
