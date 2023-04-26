@@ -176,7 +176,7 @@ class CourseDataProxy:
             "prerequisites": r"(?i)Prerequisite\(s\):(.+?)(\n|<br/>|$)",
             "corequisites": r"(?i)Co-requisite\(s\):(.+?)(\n|<br/>|$)",
             "antirequisites": r"(?i)Antirequisite\(s\):(.+?)(\n|<br/>|$)",
-            "restrictions and Priority": r"(?i)(Not open to.+?|Priority.+?)(\n|<br/>|$)",
+            "restrictions_and_priority": r"(?i)(Not open to.+?|Priority.+?)(\n|<br/>|$)",
             "cross-listings": r"(?i)Cross-list\(s\):(.+?)(\n|<br/>|$)",
             "additional_notes_and_schedule": r"(?i)(Formerly.+?|Students are strongly encouraged.+?|Offered on an irregular basis.)(\n|<br/>|$)",
         }
@@ -322,7 +322,7 @@ class CourseManager(commands.Cog):
             ("prerequisites", "Prerequisites"),
             ("corequisites", "Corequisites"),
             ("antirequisites", "Antirequisites"),
-            ("restrictions", "Access"),
+            ("restrictions_and_priority", "Access"),
             ("course_format", "Format"),
             ("notes", "Notes"),
             ("additional_notes", "Other"),
