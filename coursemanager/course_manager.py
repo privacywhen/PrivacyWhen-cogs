@@ -3,7 +3,7 @@ import aiohttp
 import discord
 from aiohttp import ClientSession
 from bs4 import BeautifulSoup, Tag
-from datetime import datetime
+from datetime import datetime, date
 from math import floor
 from typing import Dict, List, Optional, Tuple, Any
 from time import time
@@ -30,8 +30,7 @@ class CourseDataProxy:
         courses = await self.config.courses()
         for course_str, course_data in courses.items():
             data_age_days = (
-                datetime.datetime.now()
-                - datetime.datetime.strptime(course_data["date_added"], "%Y %b %d")
+                date.today() - date.fromisoformat(course_data["date_added"])
             ).days
 
             # Check if the data is expired and remove it
@@ -71,7 +70,7 @@ class CourseDataProxy:
                     course_str,
                     {
                         "course_data": course_data_processed,
-                        "date_added": datetime.datetime.now().strftime("%Y %b %d"),
+                        "date_added": date.today(),
                         "is_fresh": True,
                     },
                 )
@@ -89,7 +88,7 @@ class CourseDataProxy:
 
     def _current_term(self) -> str:
         """Determine the current term based on the current month."""
-        now = datetime.now()
+        now = date.today()
         return self._TERM_NAMES[(now.month - 1) // 4]
 
     async def _get_term_id(self, term_name: str) -> int:
