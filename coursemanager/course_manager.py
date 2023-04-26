@@ -149,31 +149,49 @@ class CourseDataProxy:
 
     ## COURSE DATA PROCESSING: Processes the course data from the online source into a dictionary.
 
-    def _extract_prereq_antireq(self, description: str) -> Tuple[str, str]:
-        """
-        Extract prerequisites and antirequisites from the description.
+    @staticmethod
+    def _find_and_remove_pattern(pattern, course_description):
+        if match := re.search(pattern, course_description):
+            result = match[1].strip()
+            course_description = re.sub(pattern, "", course_description)
+        else:
+            result = ""
+        return result, course_description
 
-        :param description: The course description containing prerequisites and antirequisites.
-        :return: A tuple with prerequisites and antirequisites.
-        """
-        prereq_info = re.findall(
-            r"Prerequisite"
-            + re.escape("(s):")
-            + r"(.+?)(Antirequisite"
-            + re.escape("(s):")
-            + r"|Not open to|$)",
-            description,
+    def _preprocess_course_description(self, course_description):
+        course_desc = {
+            "Course Information": "",
+            "Course Format and Duration": "",
+            "Prerequisite(s)": "",
+            "Corequisite(s)": "",
+            "Antirequisite(s)": "",
+            "Restrictions and Priority": "",
+            "Additional Notes and Schedule": "",
+            "Cross-listing(s)": "",
+        }
+
+        patterns = {
+            "Prerequisite(s)": r"Prerequisite\(s\):(.+?)(\n|<br/>|$)",
+            "Corequisite(s)": r"Co-requisite\(s\):(.+?)(\n|<br/>|$)",
+            "Antirequisite(s)": r"Antirequisite\(s\):(.+?)(\n|<br/>|$)",
+            "Restrictions and Priority": r"(Not open to.+?|Priority.+?)(\n|<br/>|$)",
+            "Cross-listing(s)": r"Cross-list\(s\):(.+?)(\n|<br/>|$)",
+            "Additional Notes and Schedule": r"(Formerly.+?|Students are strongly encouraged.+?|Offered on an irregular basis.)(\n|<br/>|$)",
+        }
+
+        for key, pattern in patterns.items():
+            course_desc[key], self = self._find_and_remove_pattern(pattern, self)
+
+        self = re.sub(r"<br/>", "", self).strip()
+        course_parts = re.split(
+            r"(Three lectures|Lectures \(three hours\)|Two lectures|Three hours|Three lectures, two hour seminar/lab every other week)",
+            self,
         )
 
-        antireq_info = re.findall(
-            r"Antirequisite" + re.escape("(s):") + r"(.+?)(Not open to|$)",
-            description,
-        )
+        course_desc["Course Information"] = course_parts[0].strip()
+        course_desc["Course Format and Duration"] = "".join(course_parts[1:]).strip()
 
-        return (
-            prereq_info[0][0].strip() if prereq_info else "",
-            antireq_info[0][0].strip() if antireq_info else "",
-        )
+        return course_desc
 
     def _extract_course_details(self, course: Tag, offering: Tag) -> Dict[str, str]:
         """
@@ -186,26 +204,17 @@ class CourseDataProxy:
         term_elem = course.find("term")
         block = course.find("block")
 
-        prerequisites, antirequisites = self._extract_prereq_antireq(
-            offering.get("desc", "")
+        course_description = offering.get("desc", "")
+        preprocessed_description = self._preprocess_course_description(
+            course_description
         )
+
         course_key_extracted = course["key"]
         course_code = course["code"]
         course_number = course["number"]
 
-        return {
+        extracted_details = {
             "title": offering["title"],
-            "description": re.sub(
-                r"Prerequisite"
-                + re.escape("(s):")
-                + r"(.+?)(Antirequisite"
-                + re.escape("(s):")
-                + r"|Not open to|$)",
-                "",
-                offering.get("desc", ""),
-            ).strip(),
-            "prerequisites": prerequisites,
-            "antirequisites": antirequisites,
             "term_found": term_elem.get("v") if term_elem else "",
             "type": block.get("type", "") if block else "",
             "teacher": block.get("teacher", "") if block else "",
@@ -216,6 +225,8 @@ class CourseDataProxy:
             "course_number": course_number,
             "course_key_extracted": course_key_extracted,
         }
+
+        return {**preprocessed_description, **extracted_details}
 
     def _process_soup_content(self, soup: BeautifulSoup) -> List[Dict]:
         """
