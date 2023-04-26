@@ -172,8 +172,11 @@ class CourseDataProxy:
                                         f"Retrying... (attempt {retry_count + 1})"
                                     )
                                 continue
-
-                            return soup, None
+                        else:
+                            return (
+                                soup,
+                                None,
+                            )  # Only return soup, None when no error tag is found
             except (ClientResponseError, ClientConnectionError) as error:
                 log.error(f"Error fetching course data: {error}")
                 error_message = (
