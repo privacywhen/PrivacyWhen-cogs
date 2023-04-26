@@ -164,20 +164,20 @@ class CourseDataProxy:
         course_desc = {
             "course_information": "",
             "course_format_and_duration": "",
-            "prerequisite(s)": "",
-            "corequisite(s)": "",
-            "antirequisite(s)": "",
+            "prerequisites": "",
+            "corequisites": "",
+            "antirequisites": "",
             "restrictions_and_priority": "",
             "additional_notes_and_schedule": "",
-            "cross_listing(s)": "",
+            "cross_listings": "",
         }
 
         patterns = {
-            "prerequisite(s)": r"(?i)Prerequisite\(s\):(.+?)(\n|<br/>|$)",
-            "corequisite(s)": r"(?i)Co-requisite\(s\):(.+?)(\n|<br/>|$)",
-            "antirequisite(s)": r"(?i)Antirequisite\(s\):(.+?)(\n|<br/>|$)",
+            "prerequisites": r"(?i)Prerequisite\(s\):(.+?)(\n|<br/>|$)",
+            "corequisites": r"(?i)Co-requisite\(s\):(.+?)(\n|<br/>|$)",
+            "antirequisites": r"(?i)Antirequisite\(s\):(.+?)(\n|<br/>|$)",
             "restrictions and Priority": r"(?i)(Not open to.+?|Priority.+?)(\n|<br/>|$)",
-            "cross-listing(s)": r"(?i)Cross-list\(s\):(.+?)(\n|<br/>|$)",
+            "cross-listings": r"(?i)Cross-list\(s\):(.+?)(\n|<br/>|$)",
             "additional_notes_and_schedule": r"(?i)(Formerly.+?|Students are strongly encouraged.+?|Offered on an irregular basis.)(\n|<br/>|$)",
         }
 
