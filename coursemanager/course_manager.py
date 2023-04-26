@@ -74,6 +74,7 @@ class CourseDataProxy:
                         "is_fresh": True,
                     },
                 )
+
                 courses = (
                     await self.config.courses()
                 )  # Update the courses dictionary after the web update
