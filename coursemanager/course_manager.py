@@ -316,7 +316,7 @@ class CourseManager(commands.Cog):
                 color=0xFF0000,
             )
 
-        if not course_data or not course_data["course_data"]:
+        if not course_data or not course_data.get("course_data"):
             return None
 
         course_key = course_data["course_data"][0]["course_key_extracted"]
