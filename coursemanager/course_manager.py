@@ -139,7 +139,7 @@ class CourseDataProxy:
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
         """Fetch the data with retries."""
         max_retries = 3
-        retry_delay = 1
+        retry_delay = 5
 
         for retry_count in range(max_retries):
             try:
@@ -168,7 +168,7 @@ class CourseDataProxy:
         self, url: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
         """Fetch the data with a single attempt."""
-        timeout = ClientTimeout(total=10)
+        timeout = ClientTimeout(total=15)
         async with ClientSession(timeout=timeout) as session:
             async with session.get(url) as response:
                 log.debug(f"Fetching course data from {url}")
