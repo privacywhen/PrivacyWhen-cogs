@@ -66,11 +66,11 @@ class CourseDataProxy:
                 course_data_processed = self._process_soup_content(soup)
 
                 # Update the course data and timestamp
-                await self.config.courses.set(
+                await self.config.courses.set_raw(
                     course_str,
-                    {
+                    value={
                         "course_data": course_data_processed,
-                        "date_added": date.today(),
+                        "date_added": date.today().isoformat(),
                         "is_fresh": True,
                     },
                 )
