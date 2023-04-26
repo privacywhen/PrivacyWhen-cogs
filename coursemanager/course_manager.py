@@ -162,23 +162,23 @@ class CourseDataProxy:
     def _preprocess_course_description(self, course_description):
         """Preprocess the course description to remove unnecessary content."""
         course_desc = {
-            "Course Information": "",
-            "Course Format and Duration": "",
-            "Prerequisite(s)": "",
-            "Corequisite(s)": "",
-            "Antirequisite(s)": "",
-            "Restrictions and Priority": "",
-            "Additional Notes and Schedule": "",
-            "Cross-listing(s)": "",
+            "course_information": "",
+            "course_format_and_duration": "",
+            "prerequisite(s)": "",
+            "corequisite(s)": "",
+            "antirequisite(s)": "",
+            "restrictions_and_priority": "",
+            "additional_notes_and_schedule": "",
+            "cross_listing(s)": "",
         }
 
         patterns = {
-            "Prerequisite(s)": r"Prerequisite\(s\):(.+?)(\n|<br/>|$)",
-            "Corequisite(s)": r"Co-requisite\(s\):(.+?)(\n|<br/>|$)",
-            "Antirequisite(s)": r"Antirequisite\(s\):(.+?)(\n|<br/>|$)",
-            "Restrictions and Priority": r"(Not open to.+?|Priority.+?)(\n|<br/>|$)",
-            "Cross-listing(s)": r"Cross-list\(s\):(.+?)(\n|<br/>|$)",
-            "Additional Notes and Schedule": r"(Formerly.+?|Students are strongly encouraged.+?|Offered on an irregular basis.)(\n|<br/>|$)",
+            "prerequisite(s)": r"(?i)Prerequisite\(s\):(.+?)(\n|<br/>|$)",
+            "corequisite(s)": r"(?i)Co-requisite\(s\):(.+?)(\n|<br/>|$)",
+            "antirequisite(s)": r"(?i)Antirequisite\(s\):(.+?)(\n|<br/>|$)",
+            "restrictions and Priority": r"(?i)(Not open to.+?|Priority.+?)(\n|<br/>|$)",
+            "cross-listing(s)": r"(?i)Cross-list\(s\):(.+?)(\n|<br/>|$)",
+            "additional_notes_and_schedule": r"(?i)(Formerly.+?|Students are strongly encouraged.+?|Offered on an irregular basis.)(\n|<br/>|$)",
         }
 
         for key, pattern in patterns.items():
@@ -188,12 +188,12 @@ class CourseDataProxy:
 
         course_description = re.sub(r"<br/>", "", course_description).strip()
         course_parts = re.split(
-            r"(Three lectures|Lectures \(three hours\)|Two lectures|Three hours|Three lectures, two hour seminar/lab every other week)",
+            r"(?i)(Three lectures|Lectures \(three hours\)|Two lectures|Three hours|Three lectures, two hour seminar/lab every other week)",
             course_description,
         )
 
-        course_desc["Course Information"] = course_parts[0].strip()
-        course_desc["Course Format and Duration"] = "".join(course_parts[1:]).strip()
+        course_desc["course_information"] = course_parts[0].strip()
+        course_desc["course_format_and_duration"] = "".join(course_parts[1:]).strip()
 
         return course_desc
 
@@ -318,15 +318,15 @@ class CourseManager(commands.Cog):
         field_info = [
             ("teacher", "Teacher"),
             ("term_found", "Term"),
-            ("Course Information", "Description"),
-            ("notes", "Notes"),
+            ("course_information", "Description"),
             ("prerequisites", "Prerequisites"),
             ("corequisites", "Corequisites"),
             ("antirequisites", "Antirequisites"),
-            ("restrictions", "Restrictions and Priority"),
-            ("additional_notes", "Additional Notes and Schedule"),
-            ("course_format", "Course Format and Duration"),
-            ("cross_listing", "Cross-listing(s)"),
+            ("restrictions", "Access"),
+            ("course_format", "Format"),
+            ("notes", "Notes"),
+            ("additional_notes", "Other"),
+            ("cross_listing", "Alt Names"),
         ]
 
         for course_info in course_data["course_data"]:
