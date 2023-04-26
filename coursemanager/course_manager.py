@@ -336,6 +336,7 @@ class CourseManager(commands.Cog):
             ]
 
             if course_info["title"]:
+                embed.set_author(name=course_key)
                 embed.title = course_info["title"]
 
             freshness_icon = "🟢" if course_data.get("is_fresh") else "🔴"
@@ -344,7 +345,7 @@ class CourseManager(commands.Cog):
             footer_text = f"{freshness_icon} Last Updated: {date_added_str}"
             embed.set_footer(text=footer_text)
 
-            embed.add_field(value="".join(course_details), inline=False)
+            embed.add_field(name="", value="".join(course_details), inline=False)
 
         return embed
 
