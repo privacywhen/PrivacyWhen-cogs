@@ -179,7 +179,7 @@ class CourseDataProxy:
                 if not (error_tag := soup.find("error")):
                     return soup, None
                 error_message = error_tag.text.strip()
-                return None, error_message if error_message else None
+                return None, error_message or None
 
     ## COURSE DATA PROCESSING: Processes the course data from the online source into a dictionary.
 
