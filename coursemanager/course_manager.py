@@ -139,44 +139,15 @@ class CourseDataProxy:
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
         """Fetch the data with retries."""
         max_retries = 3
+        retry_delay = 1
 
         for retry_count in range(max_retries):
             try:
-                timeout = ClientTimeout(total=10)
-                async with ClientSession(timeout=timeout) as session:
-                    async with session.get(url) as response:
-                        log.debug(f"Fetching course data from {url}")
-                        if response.status != 200:
-                            continue
-                        content = await response.text()
-                        soup = BeautifulSoup(content, "xml")
-                        if error_tag := soup.find("error"):
-                            error_message = error_tag.text
-                            if term_name := next(
-                                (
-                                    term
-                                    for term in self._TERM_NAMES
-                                    if term.upper() in error_message.upper()
-                                ),
-                                None,
-                            ):
-                                term_id = await self._get_term_id(term_name)
-                                log.debug(
-                                    f"Updating term ID to {term_id} for term {term_name}"
-                                )
-                                url = self.build_url(term_id, course_key_formatted)
-                            else:
-                                log.error(f"Error tag: {error_message}")
-                                if retry_count != max_retries - 1:
-                                    log.debug(
-                                        f"Retrying... (attempt {retry_count + 1})"
-                                    )
-                                continue
-                        else:
-                            return (
-                                soup,
-                                None,
-                            )  # Only return soup, None when no error tag is found
+                soup, error_message = await self._fetch_single_attempt(url)
+                if soup:
+                    return soup, None
+                elif error_message and retry_count != max_retries - 1:
+                    await asyncio.sleep(retry_delay)
             except (ClientResponseError, ClientConnectionError) as error:
                 log.error(f"Error fetching course data: {error}")
                 error_message = (
@@ -192,6 +163,23 @@ class CourseDataProxy:
         error_message = "Error: Max retries reached while fetching the course data."
 
         return None, error_message
+
+    async def _fetch_single_attempt(
+        self, url: str
+    ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
+        """Fetch the data with a single attempt."""
+        timeout = ClientTimeout(total=10)
+        async with ClientSession(timeout=timeout) as session:
+            async with session.get(url) as response:
+                log.debug(f"Fetching course data from {url}")
+                if response.status != 200:
+                    return None, None
+                content = await response.text()
+                soup = BeautifulSoup(content, "xml")
+                if not (error_tag := soup.find("error")):
+                    return soup, None
+                error_message = error_tag.text.strip()
+                return None, error_message if error_message else None
 
     ## COURSE DATA PROCESSING: Processes the course data from the online source into a dictionary.
 
