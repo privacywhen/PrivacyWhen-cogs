@@ -126,7 +126,7 @@ class CourseDataProxy:
             + self._TERM_NAMES[: self._TERM_NAMES.index(_current_term)]
         )
 
-    def build_url(self, term_id: int, course_key_formatted: str) -> str:
+    def _build_url(self, term_id: int, course_key_formatted: str) -> str:
         t, e = self._generate_time_code()
         return self._URL_BASE.format(
             term=term_id, course_key_formatted=course_key_formatted, t=t, e=e
