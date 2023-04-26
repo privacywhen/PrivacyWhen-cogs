@@ -275,44 +275,32 @@ class CourseManager(commands.Cog):
             await asyncio.sleep(24 * 60 * 60)  # sleep for 24 hours
 
     ### Helper Functions
-    def format_course_key_raw(self, course_key_raw: str) -> Optional[Tuple[str, str]]:
-        print(f"Debug: format_course_key_raw() - course_key_raw: {course_key_raw}")
-        # Convert to uppercase and replace hyphens and underscores with spaces
-        course_key_raw = course_key_raw.upper().replace("-", " ").replace("_", " ")
-        print(
-            f"Debug: course_key_raw after replacing hyphens and underscores: {course_key_raw}"
-        )
-        # Split by whitespace characters
+    def _split_course_key_raw(self, course_key_raw) -> Tuple[str, str]:
+        course_key_raw = re.sub(r"[-_]", " ", course_key_raw.upper())
         course_parts = re.split(r"\s+", course_key_raw.strip())
-        print(f"DEBUG: Course parts: {course_parts}")
-
-        if len(course_parts) < 2:
-            return None
-        elif len(course_parts) > 2:
-            course_number = " ".join(course_parts[1:])
-        else:
-            course_number = course_parts[1]
-
-        course_code = course_parts[0]
-        print(f"Debug: course_code: {course_code}, course_number: {course_number}")
-
-        # Validate the course_code and course number for valid characters
-        course_code_pattern = re.compile(r"^[A-Z]+$")
-        course_number_pattern = re.compile(r"^(\d[0-9A-Za-z]{1,3}).*")
-
-        course_code_match = course_code_pattern.match(course_code)
-        course_number_match = course_number_pattern.match(course_number)
-
-        if not course_code_match or not course_number_match:
-            return None
-
-        # Remove any unwanted characters after the course_number
-        course_number = course_number_match[1]
-        print(
-            f"Debug: course_number after removing unwanted characters: {course_number}"
-        )
-
+        course_code, course_number = course_parts[0], " ".join(course_parts[1:])
         return course_code, course_number
+
+    def _validate_course_key(
+        self, course_code: str, course_number: str
+    ) -> Optional[Tuple[str, str]]:
+        if not (
+            re.match(r"^[A-Z]+$", course_code)
+            and re.match(r"^(\d[\w]{1,3})", course_number)
+        ):
+            return None
+
+        course_number = re.match(r"^(\d[\w]{1,3})", course_number)[1]
+        return course_code, course_number
+
+    def _format_course_key(self, course_key_raw) -> Optional[str]:
+        course_code, course_number = self._split_course_key_raw(course_key_raw)
+        validated_course_key = self._validate_course_key(course_code, course_number)
+
+        if validated_course_key is None:
+            return None
+
+        return f"{validated_course_key[0]} {validated_course_key[1]}"
 
     async def send_long_message(self, ctx, content, max_length=2000):
         while content:
@@ -386,7 +374,7 @@ class CourseManager(commands.Cog):
     @course.command(name="details")
     async def course_details(self, ctx, *, course_key_raw: str):
         """Get the details of a course."""
-        course_key_formatted = self.format_course_key_raw(course_key_raw)
+        course_key_formatted = self._format_course_key(course_key_raw)
         if not course_key_formatted:
             await ctx.send(
                 f"Invalid course code: {course_key_raw}. Please use the format: `course_code course_number`"
