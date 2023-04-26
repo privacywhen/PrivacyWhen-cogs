@@ -403,3 +403,10 @@ class CourseManager(commands.Cog):
     async def print_config(self, ctx):
         """Prints the global config data to console"""
         print(await self.config.all())
+
+    ## Create a command that will clear courses from the global config and print the result to console
+    @dev_course.command(name="clearcourses")
+    async def clear_courses(self, ctx):
+        """Clears courses from the global config"""
+        await self.config.courses.set({})
+        print(await self.config.courses())
