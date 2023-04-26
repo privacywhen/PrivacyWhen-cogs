@@ -13,7 +13,6 @@ from redbot.core import Config, commands, checks
 # from redbot.core.utils import AsyncIter
 
 import asyncio
-import inspect
 
 
 class CourseDataProxy:
@@ -58,8 +57,8 @@ class CourseDataProxy:
         Note: This function should not call _maintain_freshness() as it is intended to run on a schedule.
         """
         courses = await self.config.courses()
-        CourseManager.debug_print(courses)
         course_data = courses.get(course_key_formatted, None)
+        print(f"DEBUG: **course_data**: {course_data}")
 
         if course_data is None or not course_data.get("is_fresh", False):
             soup, error = await self._fetch_course_online(course_key_formatted)
@@ -80,12 +79,8 @@ class CourseDataProxy:
             elif error is not None:
                 print(f"Error fetching course data for {course_key_formatted}: {error}")
                 return {}
-
-        return (
-            courses[course_key_formatted]["course_data", "date_added", "is_fresh"]
-            if course_key_formatted in courses
-            else {}
-        )
+        print(f"DEBUG: **courses**: {courses}")
+        return courses[course_key_formatted] if course_key_formatted in courses else {}
 
     ## Section - WEB UPDATE: Fetches course data from the online sourse. Requires term_id, course_key_formatted, t, and e.
 
@@ -375,36 +370,18 @@ class CourseManager(commands.Cog):
             return
 
         course_data = await self.course_data_proxy.get_course_data(course_key_formatted)
-        print(f"DEBUG: Course data for {course_key_formatted}: {course_data}")
-
-        if not course_data:
-            await ctx.send(f"Course not found: {course_key_formatted}")
-            return
-
-        embed = self.create_course_embed(course_data)
-        await ctx.send(embed=embed)
-
-    ### Create a command that is similar to course_details but gets course_data, is_fresh, and date_added from get_course_data() and prints it to console
-    @course.command(name="fulldetails")
-    async def full_course_details(self, ctx, *, course_key_raw: str):
-        """Get the details of a course."""
-        course_key_formatted = self._format_course_key(course_key_raw)
-        if not course_key_formatted:
-            await ctx.send(
-                f"Invalid course code: {course_key_raw}. Please use the format: `course_code course_number`"
-            )
-            return
-
-        course_data = CourseDataProxy.courses[course_key_formatted]["course_data"]
-        date_added = CourseDataProxy.courses[course_key_formatted]["date_added"]
-        is_fresh = CourseDataProxy.courses[course_key_formatted]["is_fresh"]
+        is_fresh = course_data.get("is_fresh")
+        date_added = course_data.get("date_added")
         print(
-            f"DEBUG: Course data for {course_key_formatted}: {course_data}, {is_fresh}, {date_added}"
+            f"DEBUG: Course data for {course_key_formatted}: {course_data} ({is_fresh}, {date_added})"
         )
 
         if not course_data:
             await ctx.send(f"Course not found: {course_key_formatted}")
             return
+        print(f"DEBUG: Course data for {course_key_formatted}: {course_data}")
+        embed = self.create_course_embed(course_data, is_fresh, date_added)
+        await ctx.send(embed=embed)
 
     ### Dev Command Section
 
@@ -447,8 +424,3 @@ class CourseManager(commands.Cog):
         """Clears courses from the global config"""
         await self.config.courses.set({})
         print(await self.config.courses())
-
-    @staticmethod
-    def debug_print(*args):
-        caller_name = inspect.stack()[1][3]
-        print(f"\033[1mDEBUG: {caller_name}\033[0m", *args)
