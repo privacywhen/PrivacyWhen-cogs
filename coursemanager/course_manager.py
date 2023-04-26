@@ -99,7 +99,7 @@ class CourseDataProxy:
         e = t % 3 + t % 39 + t % 42
         return t, e
 
-    async def fetch_course_online(
+    async def _fetch_course_online(
         self, course_key_formatted: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
         term_order = self._determine_term_order()
