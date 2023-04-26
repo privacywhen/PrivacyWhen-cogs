@@ -395,9 +395,9 @@ class CourseManager(commands.Cog):
             )
             return
 
-        course_data = await self.course_data_proxy.get_course_data(course_key_formatted)
-        is_fresh = await self.course_data_proxy.get.is_fresh(course_key_formatted)
-        date_added = await self.course_data_proxy.get.date_added(course_key_formatted)
+        course_data = CourseDataProxy.courses[course_key_formatted]["course_data"]
+        date_added = CourseDataProxy.courses[course_key_formatted]["date_added"]
+        is_fresh = CourseDataProxy.courses[course_key_formatted]["is_fresh"]
         print(
             f"DEBUG: Course data for {course_key_formatted}: {course_data}, {is_fresh}, {date_added}"
         )
