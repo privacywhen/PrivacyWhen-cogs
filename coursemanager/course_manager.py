@@ -3,7 +3,7 @@ import aiohttp
 import discord
 from aiohttp import ClientSession
 from bs4 import BeautifulSoup, Tag
-from datetime import datetime, date
+from datetime import date
 from math import floor
 from typing import Dict, List, Optional, Tuple, Any
 from time import time
@@ -19,7 +19,7 @@ class CourseDataProxy:
     _CACHE_STALE_DAYS = 120
     _CACHE_EXPIRY_DAYS = 240
     _TERM_NAMES = ["winter", "spring", "fall"]
-    _URL_BASE = "https://mytimetable.mcmaster.ca/getclassdata.jsp?term={term}&course_0_0={course_str}&t={t}&e={e}"
+    _URL_BASE = "https://mytimetable.mcmaster.ca/getclassdata.jsp?term={term}&course_0_0={course_key_formatted}&t={t}&e={e}"
 
     def __init__(self, session: ClientSession, config: Config):
         self.session = session
@@ -28,28 +28,28 @@ class CourseDataProxy:
     ## CACHE MANAGEMENT: Maintains the freshness of the data in the proxy.
     async def _maintain_freshness(self):
         courses = await self.config.courses()
-        for course_str, course_data in courses.items():
+        for course_key_formatted, course_data in courses.items():
             data_age_days = (
                 date.today() - date.fromisoformat(course_data["date_added"])
             ).days
 
             # Check if the data is expired and remove it
             if data_age_days > self._CACHE_EXPIRY_DAYS:
-                await self.config.courses.pop(course_str)
+                await self.config.courses.pop(course_key_formatted)
             elif data_age_days > self._CACHE_STALE_DAYS and not course_data["is_fresh"]:
                 # Fetch fresh data using the get_course_data method
-                await self.get_course_data(course_str)
+                await self.get_course_data(course_key_formatted)
 
         print(
-            f"DEBUG: Maintaining freshness for {course_str}, data_age_days: {data_age_days}"
+            f"DEBUG: Maintaining freshness for {course_key_formatted}, data_age_days: {data_age_days}"
         )
 
-    async def get_course_data(self, course_str: str) -> Dict[str, Any]:
+    async def get_course_data(self, course_key_formatted: str) -> Dict[str, Any]:
         """
         Get the course data from the cache or update it if needed.
 
         Args:
-            course_str (str): The course identifier.
+            course_key_formatted (str): The course identifier.
 
         Returns:
             dict: The course data or an empty dictionary if the course is not found.
@@ -57,17 +57,15 @@ class CourseDataProxy:
         Note: This function should not call _maintain_freshness() as it is intended to run on a schedule.
         """
         courses = await self.config.courses()
-        course_data = courses.get(course_str, None)
+        course_data = courses.get(course_key_formatted, None)
 
         if course_data is None or not course_data.get("is_fresh", False):
-            # Fetch course data from the web
-            soup, error = await self._fetch_course_online(course_str)
+            soup, error = await self._fetch_course_online(course_key_formatted)
             if soup is not None:
                 course_data_processed = self._process_soup_content(soup)
 
-                # Update the course data and timestamp
                 await self.config.courses.set_raw(
-                    course_str,
+                    course_key_formatted,
                     value={
                         "course_data": course_data_processed,
                         "date_added": date.today().isoformat(),
@@ -75,17 +73,19 @@ class CourseDataProxy:
                     },
                 )
 
-                courses = (
-                    await self.config.courses()
-                )  # Update the courses dictionary after the web update
+                courses = await self.config.courses()
 
             elif error is not None:
-                print(f"Error fetching course data for {course_str}: {error}")
+                print(f"Error fetching course data for {course_key_formatted}: {error}")
                 return {}
 
-        return courses[course_str]["course_data"] if course_str in courses else {}
+        return (
+            courses[course_key_formatted]["course_data"]
+            if course_key_formatted in courses
+            else {}
+        )
 
-    ## Section - WEB UPDATE: Fetches course data from the online sourse. Requires term_id, course_str, t, and e.
+    ## Section - WEB UPDATE: Fetches course data from the online sourse. Requires term_id, course_key_formatted, t, and e.
 
     def _current_term(self) -> str:
         """Determine the current term based on the current month."""
@@ -103,11 +103,11 @@ class CourseDataProxy:
         return t, e
 
     async def _fetch_course_online(
-        self, course_str: str
+        self, course_key_formatted: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
         """
         Fetch course data from the online source.
-        :param course_str: The formatted course string.
+        :param course_key_formatted: The formatted course string.
         :return: A tuple containing the BeautifulSoup object and an error message, if any.
         """
         current_term = self._current_term()
@@ -125,7 +125,9 @@ class CourseDataProxy:
                 continue
 
             t, e = self._generate_time_code()
-            url = self._URL_BASE.format(term=term_id, course_str=course_str, t=t, e=e)
+            url = self._URL_BASE.format(
+                term=term_id, course_key_formatted=course_key_formatted, t=t, e=e
+            )
 
             try:
                 async with self.session.get(url) as response:
@@ -198,13 +200,12 @@ class CourseDataProxy:
         prerequisites, antirequisites = self._extract_prereq_antireq(
             offering.get("desc", "")
         )
-
+        course_key_extracted = course["key"]
         course_code = course["code"]
         course_number = course["number"]
 
         return {
             "title": offering["title"],
-            "courseKey": offering["key"],
             "description": re.sub(
                 r"Prerequisite"
                 + re.escape("(s):")
@@ -224,6 +225,7 @@ class CourseDataProxy:
             "notes": block.get("n", "") if block else "",
             "course_code": course_code,
             "course_number": course_number,
+            "course_key_extracted": course_key_extracted,
         }
 
     def _process_soup_content(self, soup: BeautifulSoup) -> List[Dict]:
@@ -273,15 +275,15 @@ class CourseManager(commands.Cog):
             await asyncio.sleep(24 * 60 * 60)  # sleep for 24 hours
 
     ### Helper Functions
-    def format_course_code(self, course_code: str) -> Optional[Tuple[str, str]]:
-        print(f"Debug: format_course_code() - course_code: {course_code}")
+    def format_course_key_raw(self, course_key_raw: str) -> Optional[Tuple[str, str]]:
+        print(f"Debug: format_course_key_raw() - course_key_raw: {course_key_raw}")
         # Convert to uppercase and replace hyphens and underscores with spaces
-        course_code = course_code.upper().replace("-", " ").replace("_", " ")
+        course_key_raw = course_key_raw.upper().replace("-", " ").replace("_", " ")
         print(
-            f"Debug: course_code after replacing hyphens and underscores: {course_code}"
+            f"Debug: course_key_raw after replacing hyphens and underscores: {course_key_raw}"
         )
         # Split by whitespace characters
-        course_parts = re.split(r"\s+", course_code.strip())
+        course_parts = re.split(r"\s+", course_key_raw.strip())
         print(f"DEBUG: Course parts: {course_parts}")
 
         if len(course_parts) < 2:
@@ -291,17 +293,17 @@ class CourseManager(commands.Cog):
         else:
             course_number = course_parts[1]
 
-        department = course_parts[0]
-        print(f"Debug: department: {department}, course_number: {course_number}")
+        course_code = course_parts[0]
+        print(f"Debug: course_code: {course_code}, course_number: {course_number}")
 
-        # Validate the department and course number for valid characters
-        department_pattern = re.compile(r"^[A-Z]+$")
+        # Validate the course_code and course number for valid characters
+        course_code_pattern = re.compile(r"^[A-Z]+$")
         course_number_pattern = re.compile(r"^(\d[0-9A-Za-z]{1,3}).*")
 
-        department_match = department_pattern.match(department)
+        course_code_match = course_code_pattern.match(course_code)
         course_number_match = course_number_pattern.match(course_number)
 
-        if not department_match or not course_number_match:
+        if not course_code_match or not course_number_match:
             return None
 
         # Remove any unwanted characters after the course_number
@@ -310,7 +312,7 @@ class CourseManager(commands.Cog):
             f"Debug: course_number after removing unwanted characters: {course_number}"
         )
 
-        return department, course_number
+        return course_code, course_number
 
     async def send_long_message(self, ctx, content, max_length=2000):
         while content:
@@ -341,9 +343,13 @@ class CourseManager(commands.Cog):
         ]
 
         for course_info in course_data["course_data"]:
-            course_name = f"{course_info['course_code']} {course_info['course_number']}"
+            course_key_extracted = (
+                f"{course_info['course_code']} {course_info['course_number']}"
+            )
 
-            print(f"DEBUG: Creating embed for course_name: {course_name}")
+            print(
+                f"DEBUG: Creating embed for course_key_extracted: {course_key_extracted}"
+            )
 
             course_details = [
                 f"**{label}**: {course_info[field]}\n" if course_info[field] else ""
@@ -351,7 +357,7 @@ class CourseManager(commands.Cog):
             ]
 
             if course_info["title"]:
-                embed.set_author(name=course_name)
+                embed.set_author(name=course_key_extracted)
                 embed.title = course_info["title"]
 
             freshness_icon = "🟢" if course_data.get("is_fresh") else "🔴"
@@ -363,7 +369,7 @@ class CourseManager(commands.Cog):
             embed.set_footer(text=footer_text)
 
             embed.add_field(
-                name=course_name, value="".join(course_details), inline=False
+                name=course_key_extracted, value="".join(course_details), inline=False
             )
 
         return embed
@@ -378,22 +384,20 @@ class CourseManager(commands.Cog):
         await ctx.send_help(self.course)
 
     @course.command(name="details")
-    async def course_details(self, ctx, *, course_code: str):
+    async def course_details(self, ctx, *, course_key_raw: str):
         """Get the details of a course."""
-        formatted_course_code = self.format_course_code(course_code)
-        if not formatted_course_code:
+        course_key_formatted = self.format_course_key_raw(course_key_raw)
+        if not course_key_formatted:
             await ctx.send(
-                f"Invalid course code: {course_code}. Please use the format: `department course_number`"
+                f"Invalid course code: {course_key_raw}. Please use the format: `course_code course_number`"
             )
             return
 
-        course_data = await self.course_data_proxy.get_course_data(
-            formatted_course_code
-        )
-        print(f"DEBUG: Course data for {formatted_course_code}: {course_data}")
+        course_data = await self.course_data_proxy.get_course_data(course_key_formatted)
+        print(f"DEBUG: Course data for {course_key_formatted}: {course_data}")
 
         if not course_data:
-            await ctx.send(f"Course not found: {formatted_course_code}")
+            await ctx.send(f"Course not found: {course_key_formatted}")
             return
 
         embed = self.create_course_embed(course_data)
