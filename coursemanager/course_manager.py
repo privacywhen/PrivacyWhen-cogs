@@ -309,34 +309,49 @@ class CourseManager(commands.Cog):
             content = content[max_length:]
 
     def create_course_embed(self, course_data):
-        if not course_data or not course_data["course_data"]:
+        if course_data == "Not Found":
+            return discord.Embed(
+                title="Course not found",
+                description="No data available for this course.",
+                color=0xFF0000,
+            )
+
+        if (
+            not course_data
+            or "course_data" not in course_data
+            or not course_data["course_data"]
+        ):
             return None
 
-        course_items = course_data["course_data"][0]
-        is_fresh = course_data["is_fresh"]
-        date_added = course_data["date_added"]
+        course_info = course_data["course_data"][0]
+        course_key = course_info["course_key_extracted"]
+        embed = discord.Embed(title=course_key, color=0x00FF00)
 
-        embed = discord.Embed(
-            title=course_items["title"],
-            description=course_items["description"],
-            color=discord.Color.dark_blue(),
-        )
+        field_info = [
+            ("teacher", "Teacher"),
+            ("term_found", "Term"),
+            ("description", "Description"),
+            ("notes", "Notes"),
+            ("prerequisites", "Prerequisites"),
+            ("antirequisites", "Antirequisites"),
+        ]
 
-        embed.add_field(
-            name="Course Code", value=course_items["course_code"], inline=True
-        )
-        embed.add_field(
-            name="Course Number", value=course_items["course_number"], inline=True
-        )
-        embed.add_field(name="Instructor", value=course_items["teacher"], inline=True)
-        embed.add_field(name="Type", value=course_items["type"], inline=True)
-        embed.add_field(name="Location", value=course_items["location"], inline=True)
-        embed.add_field(
-            name="Term Found", value=course_items["term_found"], inline=True
-        )
-        embed.add_field(name="Notes", value=course_items["notes"], inline=True)
-        embed.add_field(name="Is Fresh", value=is_fresh, inline=True)
-        embed.add_field(name="Date Added", value=date_added, inline=True)
+        course_details = [
+            f"**{label}**: {course_info[field]}\n" if course_info[field] else ""
+            for field, label in field_info
+        ]
+
+        if course_info["title"]:
+            embed.set_author(name=course_key)
+            embed.title = course_info["title"]
+
+        freshness_icon = "🟢" if course_data.get("is_fresh") else "🔴"
+        date_added = course_data.get("date_added")
+        date_added_str = date_added or "Unknown"
+        footer_text = f"{freshness_icon} Last Updated: {date_added_str}"
+        embed.set_footer(text=footer_text)
+
+        embed.add_field(name=course_key, value="".join(course_details), inline=False)
 
         return embed
 
