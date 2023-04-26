@@ -300,7 +300,7 @@ class CourseManager(commands.Cog):
         if validated_course_key is None:
             return None
 
-        return f"{validated_course_key[0]} {validated_course_key[1]}"
+        return f"{validated_course_key[0]}-{validated_course_key[1]}"
 
     async def send_long_message(self, ctx, content, max_length=2000):
         while content:
