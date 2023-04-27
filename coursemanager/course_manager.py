@@ -508,7 +508,9 @@ class CourseManager(commands.Cog):
                 allowed_to_join,
                 join_error_message,
             ) = await self._check_user_allowed_to_join(ctx, course_key_formatted)
-            course_data = await self.course_data_proxy.get_courses(course_key_formatted)
+            course_data = await self.course_data_proxy.get_course_data(
+                course_key_formatted
+            )
             log.info(f"channel_exists: {channel_exists}")
             log.info(f"allowed_to_join: {allowed_to_join}")
             log.error(f"join_error_message: {join_error_message}")
@@ -545,9 +547,11 @@ class CourseManager(commands.Cog):
             elif (
                 not channel_exists
                 and allowed_to_join
+                log.debug(course_data)
                 and course_key_formatted not in course_data
             ):
                 await ctx.send(f"{course_key_formatted} is an invalid course code.")
+                log.debug(course_data)
                 log.error("Invalid course code.")
 
             elif not channel_exists and not allowed_to_join:
