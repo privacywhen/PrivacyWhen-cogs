@@ -32,6 +32,7 @@ class CourseDataProxy:
 
     ## CACHE MANAGEMENT: Maintains the freshness of the data in the proxy.
     async def _maintain_freshness(self):
+        """Maintain the freshness of the data in the proxy."""
         courses = await self.config.courses()
         for course_key_formatted, course_data in courses.items():
             data_age_days = (
@@ -58,8 +59,6 @@ class CourseDataProxy:
 
         Returns:
             dict: The course data or an empty dictionary if the course is not found.
-
-        Note: This function should not call _maintain_freshness() as it is intended to run on a schedule.
         """
         courses = await self.config.courses()
         course_data = courses.get(course_key_formatted)
@@ -84,8 +83,8 @@ class CourseDataProxy:
 
         return courses.get(course_key_formatted, {})
 
-    ## Section - WEB UPDATE: Fetches course data from the online sourse. Requires term_id, course_key_formatted, t, and e.
 
+class CourseScraper(CourseDataProxy):
     async def _get_term_id(self, term_name: str) -> int:
         """Get the term id from the config."""
         term_codes = await self.config.term_codes()
@@ -97,16 +96,46 @@ class CourseDataProxy:
         e = t % 3 + t % 39 + t % 42
         return t, e
 
-    async def _fetch_course_online(
-        self, course_key_formatted: str
+    async def _fetch_single_attempt(
+        self, url: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
-        """Fetch the course data from the online source."""
-        term_order = self._determine_term_order()
+        """Fetch the data with a single attempt."""
+        timeout = ClientTimeout(total=15)
+        async with ClientSession(timeout=timeout) as session:
+            async with session.get(url) as response:
+                log.debug(f"Fetching course data from {url}")
+                if response.status != 200:
+                    return None, None
+                content = await response.text()
+                soup = BeautifulSoup(content, "xml")
+                if not (error_tag := soup.find("error")):
+                    return soup, None
+                error_message = error_tag.text.strip()
+                return None, error_message or None
 
-        soup, error_message = await self._fetch_data_with_retries(
-            term_order, course_key_formatted
+    def _check_error_message_for_matches(self, error_message: str) -> Tuple[str, str]:
+        """Check the error message for matches with term names or other provided strings."""
+        original_error_message = error_message
+        error_message = error_message.lower()
+
+        if matched_term := next(
+            (term for term in self._TERM_NAMES if term in error_message), None
+        ):
+            return f"term_match:{matched_term}", ""
+
+        error_dict = {
+            "could not be found in any enabled term": "no_term_match",
+            "check your pc time and timezone": "time_error",
+            "not authorized": "auth_error",
+        }
+        return next(
+            (
+                (value, original_error_message)
+                for key, value in error_dict.items()
+                if key in error_message
+            ),
+            ("unmatched_error", original_error_message),
         )
-        return (soup, None) if soup else (None, error_message)
 
     def _determine_term_order(self) -> List[str]:
         """Determine the order of the terms to check."""
@@ -144,16 +173,27 @@ class CourseDataProxy:
                     if soup:
                         return soup, None
                     elif error_message:
-                        if matched_term := next(
-                            (
-                                term
-                                for term in self._TERM_NAMES
-                                if term in error_message.lower()
-                            ),
-                            None,
-                        ):
-                            print(f"{error_message} matches {matched_term}")
+                        (
+                            match_result,
+                            original_error_message,
+                        ) = self._check_error_message_for_matches(error_message)
+                        if match_result.startswith("term_match:"):
+                            print(
+                                f"{original_error_message} matches {match_result[10:]}"
+                            )
                             break  # Break the retry loop to try the next term
+                        elif match_result == "no_term_match":
+                            return None, original_error_message
+                        elif match_result == "time_error":
+                            log.error(
+                                "Time and timezone error. Please check your PC time and timezone."
+                            )
+                            return None, original_error_message
+                        elif match_result == "auth_error":
+                            log.error(
+                                "Error 7133: Not Authorized. Check encryption key and time key."
+                            )
+                            return None, original_error_message
                         elif retry_count != max_retries - 1:
                             await asyncio.sleep(retry_delay)
                 except (ClientResponseError, ClientConnectionError) as error:
@@ -172,22 +212,16 @@ class CourseDataProxy:
 
         return None, error_message
 
-    async def _fetch_single_attempt(
-        self, url: str
+    async def _fetch_course_online(
+        self, course_key_formatted: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
-        """Fetch the data with a single attempt."""
-        timeout = ClientTimeout(total=15)
-        async with ClientSession(timeout=timeout) as session:
-            async with session.get(url) as response:
-                log.debug(f"Fetching course data from {url}")
-                if response.status != 200:
-                    return None, None
-                content = await response.text()
-                soup = BeautifulSoup(content, "xml")
-                if not (error_tag := soup.find("error")):
-                    return soup, None
-                error_message = error_tag.text.strip()
-                return None, error_message or None
+        """Fetch the course data from the online source."""
+        term_order = self._determine_term_order()
+
+        soup, error_message = await self._fetch_data_with_retries(
+            term_order, course_key_formatted
+        )
+        return (soup, None) if soup else (None, error_message)
 
     ## COURSE DATA PROCESSING: Processes the course data from the online source into a dictionary.
 
