@@ -41,11 +41,9 @@ class CourseDataProxy:
                 date.today() - date.fromisoformat(course_data["date_added"])
             ).days
 
-            # Check if the data is expired and remove it
             if data_age_days > self._CACHE_EXPIRY_DAYS:
                 await self.config.courses.pop(course_key_formatted)
             elif data_age_days > self._CACHE_STALE_DAYS and not course_data["is_fresh"]:
-                # Fetch fresh data using the get_course_data method
                 await self.get_course_data(course_key_formatted)
 
         log.debug(
@@ -513,15 +511,26 @@ class CourseManager(commands.Cog):
             course_data = await self.course_data_proxy.get_course_data(
                 course_key_formatted
             )
+            log.info(f"channel_exists: {channel_exists}")
+            log.info(f"allowed_to_join: {allowed_to_join}")
+            log.error(f"join_error_message: {join_error_message}")
+            log.info(f"course_data: {course_data}")
 
             if channel_exists:
                 await self._add_user_to_channel(ctx, course_key_formatted)
+                log.info("Adding user to channel")
+
             elif not allowed_to_join:
                 await ctx.send(f"{course_key_formatted}: {join_error_message}")
+                log.error("User cannot join course.")
+
             elif course_key_formatted in course_data:
                 await self._create_course_channel(ctx, course_key_formatted)
+                log.info("Creating course channel.")
+
             else:
                 await ctx.send(f"{course_key_formatted} is an invalid course code.")
+                log.error("Invalid course code.")
 
             await asyncio.sleep(5)
 
@@ -534,6 +543,7 @@ class CourseManager(commands.Cog):
             for faculty, courses in FACULTIES.items()
             for course in courses
         }
+        log.info(f"Checking if course {course_key_formatted} exists in {temp_dict}")
         return course_key_formatted in temp_dict
 
     async def _list_of_course_channels(self, ctx):
@@ -544,6 +554,7 @@ class CourseManager(commands.Cog):
         for category_name in FACULTIES.keys():
             if category := discord.utils.get(ctx.guild.categories, name=category_name):
                 course_channels.extend(category.channels)
+        log.debug(f"List of course channels: {course_channels}")
         return course_channels
 
     async def _check_user_allowed_to_join(self, ctx, course_key_formatted):
@@ -565,10 +576,12 @@ class CourseManager(commands.Cog):
             in {course for courses in FACULTIES.values() for course in courses}
         ]
         if len(course_channels) >= 10:
+            log.info("User attempting to add more than allowed courses.")
             return False, "User attempting to add more than allowed courses."
         elif any(
             channel.name.upper() == course_key_formatted for channel in course_channels
         ):
+            log.info("User has already added this course.")
             return False, "User has already added this course."
         else:
             return True, None
@@ -578,7 +591,7 @@ class CourseManager(commands.Cog):
         Returns the faculty of the course.
         """
         course_code = course_key_formatted.split()[0]
-        return next(
+        faculty = next(
             (
                 faculty
                 for faculty, courses in FACULTIES.items()
@@ -586,6 +599,9 @@ class CourseManager(commands.Cog):
             ),
             None,
         )
+        if faculty is None:
+            log.info(f"Faculty not found for course {course_code}")
+        return faculty
 
     async def _create_course_channel(self, ctx, course_key_formatted):
         """
@@ -602,9 +618,12 @@ class CourseManager(commands.Cog):
                 ),
             }
             category = discord.utils.get(ctx.guild.categories, name=faculty)
+            print(f"Creating channel {course_key_formatted} with category {category}")
             await ctx.guild.create_text_channel(
                 course_key_formatted, category=category, overwrites=overwrites
             )
+        else:
+            print(f"Faculty not found for course {course_key_formatted}")
 
     async def _update_user_channel_perms(self, ctx, course_channel, user, add=True):
         """
@@ -617,6 +636,7 @@ class CourseManager(commands.Cog):
                 read_messages=False, send_messages=False
             )
         await course_channel.set_permissions(user, overwrite=perms)
+        log.info(f"{user} has been granted access to {course_channel}")
 
 
 #    @course.command()
