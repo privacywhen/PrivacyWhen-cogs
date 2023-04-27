@@ -525,15 +525,15 @@ class CourseManager(commands.Cog):
                 )
                 log.info("Adding user to channel")
 
-            elif channel_exists and not allowed_to_join:
+            elif (
+                channel_exists
+                or (not allowed_to_join or course_key_formatted not in course_data)
+                and not allowed_to_join
+            ):
                 await ctx.send(f"{course_key_formatted}: {join_error_message}")
                 log.error("User cannot join course.")
 
-            elif (
-                not channel_exists
-                and allowed_to_join
-                and course_key_formatted in course_data
-            ):
+            elif course_key_formatted in course_data:
                 await self._create_course_channel(ctx, course_key_formatted)
                 log.info("Creating course channel.")
                 course_channel = discord.utils.get(
@@ -544,19 +544,10 @@ class CourseManager(commands.Cog):
                 )
                 log.info("Adding user to channel.")
 
-            elif (
-                not channel_exists
-                and allowed_to_join
-                log.debug(course_data)
-                and course_key_formatted not in course_data
-            ):
+            else:
                 await ctx.send(f"{course_key_formatted} is an invalid course code.")
                 log.debug(course_data)
                 log.error("Invalid course code.")
-
-            elif not channel_exists and not allowed_to_join:
-                await ctx.send(f"{course_key_formatted}: {join_error_message}")
-                log.error("User cannot join course.")
 
             await asyncio.sleep(5)
 
