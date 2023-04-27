@@ -511,12 +511,16 @@ class CourseManager(commands.Cog):
             course_data = await self.course_data_proxy.get_course_data(
                 course_key_formatted
             )
+            action = self.get_action(
+                channel_exists, allowed_to_join, course_key_formatted in course_data
+            )
+
             log.info(f"channel_exists: {channel_exists}")
             log.info(f"allowed_to_join: {allowed_to_join}")
             log.error(f"join_error_message: {join_error_message}")
             log.info(f"course_data: {course_data}")
 
-            if channel_exists and allowed_to_join:
+            if action == "add_user_to_channel":
                 course_channel = discord.utils.get(
                     ctx.guild.text_channels, name=course_key_formatted
                 )
@@ -525,15 +529,11 @@ class CourseManager(commands.Cog):
                 )
                 log.info("Adding user to channel")
 
-            elif (
-                channel_exists
-                or (not allowed_to_join or course_key_formatted not in course_data)
-                and not allowed_to_join
-            ):
+            elif action == "user_cannot_join_channel":
                 await ctx.send(f"{course_key_formatted}: {join_error_message}")
                 log.error("User cannot join course.")
 
-            elif course_key_formatted in course_data:
+            elif action == "create_channel_and_add_user":
                 await self._create_course_channel(ctx, course_key_formatted)
                 log.info("Creating course channel.")
                 course_channel = discord.utils.get(
@@ -544,12 +544,23 @@ class CourseManager(commands.Cog):
                 )
                 log.info("Adding user to channel.")
 
-            else:
+            elif action == "invalid_course_code":
                 await ctx.send(f"{course_key_formatted} is an invalid course code.")
-                log.debug(course_data)
                 log.error("Invalid course code.")
 
-            await asyncio.sleep(5)
+        await asyncio.sleep(5)
+
+    def get_action(channel_exists, allowed_to_join, valid_course):
+        if channel_exists and allowed_to_join:
+            return "add_user_to_channel"
+        if channel_exists and not allowed_to_join:
+            return "user_cannot_join_channel"
+        if not channel_exists and allowed_to_join and valid_course:
+            return "create_channel_and_add_user"
+        if not channel_exists and allowed_to_join and not valid_course:
+            return "invalid_course_code"
+        if not channel_exists and not allowed_to_join:
+            return "user_cannot_join_channel"
 
     async def _check_channel_exists(self, ctx, course_key_formatted):
         """
