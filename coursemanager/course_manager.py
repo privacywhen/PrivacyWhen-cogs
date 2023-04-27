@@ -516,21 +516,45 @@ class CourseManager(commands.Cog):
             log.error(f"join_error_message: {join_error_message}")
             log.info(f"course_data: {course_data}")
 
-            if channel_exists:
-                await self._add_user_to_channel(ctx, course_key_formatted)
+            if channel_exists and allowed_to_join:
+                course_channel = discord.utils.get(
+                    ctx.guild.text_channels, name=course_key_formatted
+                )
+                await self._update_user_channel_perms(
+                    ctx, course_channel, ctx.message.author, add=True
+                )
                 log.info("Adding user to channel")
 
-            elif not allowed_to_join:
+            elif channel_exists and not allowed_to_join:
                 await ctx.send(f"{course_key_formatted}: {join_error_message}")
                 log.error("User cannot join course.")
 
-            elif course_key_formatted in course_data:
+            elif (
+                not channel_exists
+                and allowed_to_join
+                and course_key_formatted in course_data
+            ):
                 await self._create_course_channel(ctx, course_key_formatted)
                 log.info("Creating course channel.")
+                course_channel = discord.utils.get(
+                    ctx.guild.text_channels, name=course_key_formatted
+                )
+                await self._update_user_channel_perms(
+                    ctx, course_channel, ctx.message.author, add=True
+                )
+                log.info("Adding user to channel.")
 
-            else:
+            elif (
+                not channel_exists
+                and allowed_to_join
+                and course_key_formatted not in course_data
+            ):
                 await ctx.send(f"{course_key_formatted} is an invalid course code.")
                 log.error("Invalid course code.")
+
+            elif not channel_exists and not allowed_to_join:
+                await ctx.send(f"{course_key_formatted}: {join_error_message}")
+                log.error("User cannot join course.")
 
             await asyncio.sleep(5)
 
