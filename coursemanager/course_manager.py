@@ -508,9 +508,7 @@ class CourseManager(commands.Cog):
                 allowed_to_join,
                 join_error_message,
             ) = await self._check_user_allowed_to_join(ctx, course_key_formatted)
-            course_data = await self.course_data_proxy.get_course_data(
-                course_key_formatted
-            )
+            course_data = await self.course_data_proxy.get_courses(course_key_formatted)
             log.info(f"channel_exists: {channel_exists}")
             log.info(f"allowed_to_join: {allowed_to_join}")
             log.error(f"join_error_message: {join_error_message}")
