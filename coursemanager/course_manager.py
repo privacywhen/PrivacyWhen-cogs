@@ -512,7 +512,7 @@ class CourseManager(commands.Cog):
                 course_key_formatted
             )
             action = self.get_action(
-                channel_exists, allowed_to_join, course_key_formatted in course_data
+                channel_exists, allowed_to_join, valid_course=course_data
             )
 
             log.info(f"channel_exists: {channel_exists}")
