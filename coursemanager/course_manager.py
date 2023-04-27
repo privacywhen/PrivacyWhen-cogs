@@ -549,7 +549,7 @@ class CourseManager(commands.Cog):
 
         await asyncio.sleep(5)
 
-    def get_action(channel_exists, allowed_to_join, valid_course):
+    def get_action(self, channel_exists, allowed_to_join, valid_course):
         if channel_exists and allowed_to_join:
             return "add_user_to_channel"
         if channel_exists and not allowed_to_join:
