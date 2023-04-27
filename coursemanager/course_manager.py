@@ -83,8 +83,6 @@ class CourseDataProxy:
 
         return courses.get(course_key_formatted, {})
 
-
-class CourseScraper(CourseDataProxy):
     async def _get_term_id(self, term_name: str) -> int:
         """Get the term id from the config."""
         term_codes = await self.config.term_codes()
