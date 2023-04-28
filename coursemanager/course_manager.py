@@ -15,6 +15,7 @@ from aiohttp import (
 from bs4 import BeautifulSoup, Tag
 from time import time
 from redbot.core import Config, commands, checks
+from redbot.core.utils import bounded_gather
 from .error_handler import ErrorHandler
 from .faculty_dictionary import FACULTIES
 
@@ -78,7 +79,9 @@ class CourseDataProxy:
                 )
                 courses = await self.config.courses()
             elif error:
-                print(f"Error fetching course data for {course_key_formatted}: {error}")
+                log.error(
+                    f"Error fetching course data for {course_key_formatted}: {error}"
+                )
                 return {}
 
         return courses.get(course_key_formatted, {})
@@ -176,7 +179,7 @@ class CourseDataProxy:
                             original_error_message,
                         ) = self._check_error_message_for_matches(error_message)
                         if match_result.startswith("term_match:"):
-                            print(
+                            log.error(
                                 f"{original_error_message} matches {match_result[10:]}"
                             )
                             break  # Break the retry loop to try the next term
@@ -329,7 +332,8 @@ class CourseManager(commands.Cog):
         self.config = Config.get_conf(
             self.bot, identifier=3720194665, force_registration=True
         )
-        self.config.register_global(courses={}, term_codes={})
+        self.config.register_global(term_codes={}, courses={})
+        self.config.register_guild(channels={})
         self.course_data_proxy = CourseDataProxy(self.config)
         self.bot.loop.create_task(self.maintain_freshness_task())
 
@@ -338,7 +342,7 @@ class CourseManager(commands.Cog):
         while True:
             log.debug("DEBUG: Starting maintain_freshness loop")
             await self.course_data_proxy._maintain_freshness()
-            await asyncio.sleep(24 * 60 * 60)  # sleep for 24 hours
+            await asyncio.sleep(24 * 60 * 60)
 
     ### Helper Functions
     def _split_course_key_raw(self, course_key_raw) -> Tuple[str, str]:
@@ -377,7 +381,7 @@ class CourseManager(commands.Cog):
                 try:
                     await ctx.send(message_chunk)
                 except Exception as e:
-                    print(f"Error sending message: {e}")
+                    log.error(f"Error sending message: {e}")
                     break
                 content = content[max_length:]
 
@@ -493,132 +497,126 @@ class CourseManager(commands.Cog):
         await self.config.courses.set({})
         print(await self.config.courses())
 
-    ### ACTIVE DEVELOPMENT ###
-    @course.command(name="addcourse", aliases=["add"])
-    async def add_course(self, ctx, *, course_list: str):
-        course_keys_raw = [course.strip() for course in course_list.split(";")]
+    @course.command(name="managecoursechannels", alias="mc")
+    async def manage_course_channels(
+        self, ctx, subcommand: str, *, course_keys_raw: str
+    ):
+        """Manage course channels"""
+        course_keys_raw = [course.strip() for course in course_keys_raw.split(";")]
         if len(course_keys_raw) > 5:
             await ctx.send("You can only add up to 5 courses at a time.")
             return
 
-        for course_key_raw in course_keys_raw:
-            course_key_formatted = self._format_course_key(course_key_raw)
-            channel_exists = await self._check_channel_exists(ctx, course_key_formatted)
-            (
-                allowed_to_join,
-                join_error_message,
-            ) = await self._check_user_allowed_to_join(ctx, course_key_formatted)
-            course_data = await self.course_data_proxy.get_course_data(
-                course_key_formatted
-            )
-            valid_course = course_data is not None
-            action = self.get_action(channel_exists, allowed_to_join, valid_course)
-
-            log.info(f"channel_exists: {channel_exists}")
-            log.info(f"allowed_to_join: {allowed_to_join}")
-            log.error(f"join_error_message: {join_error_message}")
-            log.info(f"course_data: {course_data}")
-
-            if action == "add_user_to_channel":
-                course_channel = discord.utils.get(
-                    ctx.guild.text_channels, name=course_key_formatted
-                )
-                await self._update_user_channel_perms(
-                    ctx, course_channel, ctx.message.author, add=True
-                )
-                log.info("Adding user to channel")
-
-            elif action == "user_cannot_join_channel":
-                await ctx.send(f"{course_key_formatted}: {join_error_message}")
-                log.error("User cannot join course.")
-
-            elif action == "create_channel_and_add_user":
-                await self._create_course_channel(ctx, course_key_formatted)
-                log.info("Creating course channel.")
-                course_channel = discord.utils.get(
-                    ctx.guild.text_channels, name=course_key_formatted
-                )
-                await self._update_user_channel_perms(
-                    ctx, course_channel, ctx.message.author, add=True
-                )
-                log.info("Adding user to channel.")
-
-            elif action == "invalid_course_code":
-                await ctx.send(f"{course_key_formatted} is an invalid course code.")
-                log.error("Invalid course code.")
+        course_channel = CourseChannel(self.bot, self.config, self.course_data_proxy)
+        if subcommand.lower() == "add":
+            await course_channel.add_user_to_channel(ctx, course_keys_raw)
+        elif subcommand.lower() == "remove":
+            await course_channel.remove_course(ctx, course_keys_raw)
+        elif subcommand.lower() == "list":
+            await course_channel.get_course_channels(ctx)
+        else:
+            await ctx.send("Invalid subcommand. Use 'add', 'remove', or 'list'")
 
         await asyncio.sleep(5)
 
-    def get_action(self, channel_exists, allowed_to_join, valid_course):
-        if channel_exists and allowed_to_join:
-            return "add_user_to_channel"
-        if channel_exists and not allowed_to_join:
-            return "user_cannot_join_channel"
-        if not channel_exists and allowed_to_join and valid_course:
-            return "create_channel_and_add_user"
-        if not channel_exists and allowed_to_join and not valid_course:
-            return "invalid_course_code"
-        if not channel_exists and not allowed_to_join:
-            return "user_cannot_join_channel"
 
-    async def _check_channel_exists(self, ctx, course_key_formatted):
-        """
-        Checks if a channel with the given course_key_formatted exists.
-        """
-        temp_dict = {
-            course: faculty
-            for faculty, courses in FACULTIES.items()
-            for course in courses
-        }
-        log.info(f"Checking if course {course_key_formatted} exists in {temp_dict}")
-        return course_key_formatted in temp_dict
+class CourseChannel:
+    def __init__(self, bot, config, course_data_proxy):
+        self.bot = bot
+        self.config = config
+        self.course_data_proxy = course_data_proxy
 
-    async def _list_of_course_channels(self, ctx):
-        """
-        Returns a list of all course channels.
-        """
-        course_channels = []
-        for category_name in FACULTIES.keys():
-            if category := discord.utils.get(ctx.guild.categories, name=category_name):
-                course_channels.extend(category.channels)
-        log.debug(f"List of course channels: {course_channels}")
-        return course_channels
+    async def add_user_to_channel(self, ctx, *, course_keys_raw):
+        tasks = self._create_tasks(ctx, course_keys_raw)
+        results = await bounded_gather(*tasks, limit=4)
+        await self._process_results(ctx, course_keys_raw, results)
 
-    async def _check_user_allowed_to_join(self, ctx, course_key_formatted):
+    def _create_tasks(self, ctx, course_keys_raw):
+        tasks = []
+        for course_key_raw in course_keys_raw:
+            course_key_formatted = self._format_course_key(course_key_raw)
+            channel_exists_task = self._is_channel_found(ctx, course_key_formatted)
+            allowed_to_join_task = self._is_user_allowed_to_join(
+                ctx, course_key_formatted
+            )
+            course_data_task = self.course_data_proxy.get_course_data(
+                course_key_formatted
+            )
+            tasks.extend([channel_exists_task, allowed_to_join_task, course_data_task])
+        return tasks
+
+    async def _process_results(self, ctx, course_keys_raw, results):
+        for i in range(len(course_keys_raw)):
+            channel_exists, (allowed_to_join, join_error_message), course_data = (
+                results[i * 3],
+                results[i * 3 + 1],
+                results[i * 3 + 2],
+            )
+            course_key_formatted = course_keys_raw[i]
+
+            valid_course = course_data is not None
+            await self.handle_course_action(
+                ctx,
+                course_key_formatted,
+                channel_exists,
+                allowed_to_join,
+                join_error_message,
+                valid_course,
+            )
+
+    async def _is_channel_found(self, ctx, course_key_formatted) -> bool:
+        """
+        Checks if a channel with the given course_key_formatted exists in config.guild.course_info, if not, checks if it exists in the guild.
+        """
+        course_info = await self.config.guild(ctx.guild).course_info()
+        return course_key_formatted in course_info or discord.utils.get(
+            ctx.guild.text_channels, name=course_key_formatted
+        )
+
+    async def _is_user_allowed_to_join(self, ctx, course_key_formatted):
         """
         Checks if the user is allowed to join the course.
         """
         user = ctx.message.author
+        course_channels = self._get_allowed_channels(user)
+
+        if self._is_course_limit_reached(course_channels):
+            log.info("User attempting to add more than allowed courses.")
+            return False, "User attempting to add more than allowed courses."
+        elif self._is_course_already_added(course_channels, course_key_formatted):
+            log.info("User has already added this course.")
+            return False, "User has already added this course."
+        else:
+            return True, None
+
+    def _get_allowed_channels(self, user):
         user_allowed_channels = [
             channel
             for channel in user.guild.channels
             if channel.overwrites_for(user).view_channel
             and channel.overwrites_for(user).send_messages
         ]
-
-        course_channels = [
+        return [
             channel
             for channel in user_allowed_channels
             if channel.name.upper()
             in {course for courses in FACULTIES.values() for course in courses}
         ]
-        if len(course_channels) >= 10:
-            log.info("User attempting to add more than allowed courses.")
-            return False, "User attempting to add more than allowed courses."
-        elif any(
+
+    def _is_course_limit_reached(self, course_channels):
+        return len(course_channels) >= 10
+
+    def _is_course_already_added(self, course_channels, course_key_formatted):
+        return any(
             channel.name.upper() == course_key_formatted for channel in course_channels
-        ):
-            log.info("User has already added this course.")
-            return False, "User has already added this course."
-        else:
-            return True, None
+        )
 
     async def _get_course_faculty(self, course_key_formatted):
         """
         Returns the faculty of the course.
         """
         course_code = course_key_formatted.split("-")[0]
-        faculty = next(
+        return next(
             (
                 faculty
                 for faculty, courses in FACULTIES.items()
@@ -626,9 +624,6 @@ class CourseManager(commands.Cog):
             ),
             None,
         )
-        if faculty is None:
-            log.info(f"Faculty not found for course {course_code}")
-        return faculty
 
     async def _create_course_channel(self, ctx, course_key_formatted):
         """
@@ -645,14 +640,20 @@ class CourseManager(commands.Cog):
                 ),
             }
             category = discord.utils.get(ctx.guild.categories, name=faculty)
-            print(f"Creating channel {course_key_formatted} with category {category}")
+            log.info(
+                f"Creating channel {course_key_formatted} with category {category}"
+            )
             await ctx.guild.create_text_channel(
                 course_key_formatted, category=category, overwrites=overwrites
             )
-        else:
-            print(f"Faculty not found for course {course_key_formatted}")
+            await self._update_course_info(ctx, course_key_formatted)
 
-    async def _update_user_channel_perms(self, ctx, course_channel, user, add=True):
+        else:
+            log.info(f"Faculty not found for course {course_key_formatted}")
+
+    async def _update_user_channel_permissions(
+        self, ctx, course_channel, user, add=True
+    ):
         """
         Updates the user's permissions for the course channel.
         """
@@ -662,40 +663,65 @@ class CourseManager(commands.Cog):
             perms = discord.PermissionOverwrite(
                 read_messages=False, send_messages=False
             )
-        await course_channel.set_permissions(user, overwrite=perms)
-        log.info(f"{user} has been granted access to {course_channel}")
+        if course_channel is not None:
+            current_perms = course_channel.permissions_for(user)
+        if (
+            current_perms.read_messages != perms.read_messages
+            or current_perms.send_messages != perms.send_messages
+        ):
+            await course_channel.set_permissions(user, overwrite=perms)
+            log.info(f"{user} has been granted access to {course_channel}")
+            await self._update_course_info(ctx, course_key_formatted)
 
+        else:
+            log.error(f"Course channel {course_channel} not found")
 
-#    @course.command()
-#    @commands.cooldown(1, 10, commands.BucketType.user)
-#    async def join(self, ctx, *, course_code: str):
-#        """Join a course channel."""
-#        print(f"Debug: join() - course_code: {course_code}")
-# Format the course code
-#        result = await self.format_course_code(course_code)
-#        if not result:
-#            await ctx.send(f"Error: The course code {course_code} is not valid. Please enter a valid course code.")
-#            return
+    async def _remove_user_from_course_channel(self, ctx, course_key_formatted):
+        """Removes a user from a course channel."""
+        user = ctx.message.author
+        course_channel = discord.utils.get(
+            ctx.guild.text_channels, name=course_key_formatted
+        )
+        await self._update_user_channel_permissions(
+            ctx, course_channel, user, add=False
+        )
+        await self._update_course_info(ctx, course_key_formatted)
+        log.info(f"Removing user from channel {course_channel}")
 
-#        dept, code = result
+    async def get_course_channels(self, ctx, user=None):
+        """
+        Returns a list of course channels. If user is not None, returns only the course channels the user has access to.
+        """
+        if user:
+            return [
+                channel
+                for channel in user.guild.channels
+                if channel.overwrites_for(user).view_channel
+                and channel.overwrites_for(user).send_messages
+            ]
+        course_channels = []
+        for category_name in FACULTIES.keys():
+            if category := discord.utils.get(ctx.guild.categories, name=category_name):
+                course_channels.extend(category.channels)
+        log.debug(f"List of course channels: {course_channels}")
+        return course_channels
 
-#        if len(self.get_user_courses(ctx, ctx.guild)) >= self.max_courses:
-#            await ctx.send(f"Error: You have reached the maximum limit of {self.max_courses} courses. Please leave a course before joining another.")
-#            return
+    async def _update_course_info(self, ctx, course_key_formatted):
+        if course_channel := discord.utils.get(
+            ctx.guild.text_channels, name=course_key_formatted
+        ):
+            channel_info = {
+                "faculty_name": course_channel.category.name,
+                "creation_date": course_channel.created_at.isoformat(),
+                "last_message_date": course_channel.last_message.created_at.isoformat(),
+                "member_list": [
+                    member.id
+                    for member in course_channel.members
+                    if not member.bot and member.id != ctx.guild.owner.id
+                ],
+                "channel_id": course_channel.id,
+            }
+            log.debug(f"Channel info: {channel_info}")
 
-#        channel_name = f"{dept}-{code}"
-#        existing_channel = discord.utils.get(
-#            ctx.guild.channels, name=channel_name.lower())
-
-#        if existing_channel is None:
-#            existing_channel = await self.create_course_channel(ctx.guild, dept, code, ctx.author)
-
-#        user_permissions = existing_channel.overwrites_for(ctx.author)
-# use view_channel and send_messages permissions
-#        user_permissions.update(view_channel=True, send_messages=True)
-#        await existing_channel.set_permissions(ctx.author, overwrite=user_permissions)
-
-#        await ctx.send(f"You have successfully joined {dept} {code}.")
-#        if self.logging_channel:
-# use mention to ping user
-#            await self.logging_channel.send(f"{ctx.author.mention} has joined {dept} {code}.")
+            async with self.config.guild(ctx.guild).channels() as channels:
+                channels[course_key_formatted] = channel_info
