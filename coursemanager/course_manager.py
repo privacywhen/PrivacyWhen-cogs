@@ -521,7 +521,7 @@ class CourseChannel:
         self.bot = bot
         self.config = config
         self.course_data_proxy = course_data_proxy
-        self.course = course_manager
+        self.course_manager = course_manager
 
     async def add_user_to_channel(self, ctx, course_keys_raw):
         tasks = self._create_tasks(ctx, course_keys_raw)
