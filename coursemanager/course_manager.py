@@ -514,10 +514,11 @@ class CourseManager(commands.Cog):
 
 
 class CourseChannel:
-    def __init__(self, bot, config, course_data_proxy):
+    def __init__(self, bot, config, course_manager, course_data_proxy):
         self.bot = bot
         self.config = config
         self.course_data_proxy = course_data_proxy
+        self.course = course_manager
 
     async def add_user_to_channel(self, ctx, course_keys_raw):
         tasks = self._create_tasks(ctx, course_keys_raw)
@@ -538,7 +539,9 @@ class CourseChannel:
         user = ctx.message.author
         course_channels = self._get_allowed_channels(user)
         for course_key_raw in course_keys_raw:
-            course_key_formatted = self._format_course_key(course_key_raw)
+            course_key_formatted = self.course_manager._format_course_key(
+                course_key_raw
+            )
 
             if len(course_channels) >= 10:
                 allowed_to_join, join_error_message = (
