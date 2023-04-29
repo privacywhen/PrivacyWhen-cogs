@@ -329,7 +329,7 @@ class CourseManager(commands.Cog):
             self.bot, identifier=3720194665, force_registration=True
         )
         self.config.register_global(term_codes={}, courses={})
-        self.config.register_guild(channels={})
+        self.config.register_guild(channels={}, course_info={})
         self.course_data_proxy = CourseDataProxy(self.config)
         self.course_channel = CourseChannel(
             self.bot, self.config, self, self.course_data_proxy
