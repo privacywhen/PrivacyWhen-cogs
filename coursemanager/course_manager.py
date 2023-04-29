@@ -331,7 +331,9 @@ class CourseManager(commands.Cog):
         self.config.register_global(term_codes={}, courses={})
         self.config.register_guild(channels={})
         self.course_data_proxy = CourseDataProxy(self.config)
-        self.course_channel = CourseChannel(self.config, self.course_data_proxy)
+        self.course_channel = CourseChannel(
+            self.bot, self.config, self.course_data_proxy
+        )
         self.bot.loop.create_task(self.maintain_freshness_task())
 
     async def maintain_freshness_task(self):
