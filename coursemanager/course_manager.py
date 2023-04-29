@@ -183,34 +183,30 @@ class CourseDataProxy:
                                 f"{original_error_message} matches {match_result[10:]}"
                             )
                             break  # Break the retry loop to try the next term
-                        elif match_result == "no_term_match":
+                        if (
+                            match_result != "unmatched_error"
+                            or retry_count == max_retries - 1
+                        ):
+                            log.error(original_error_message)
                             return None, original_error_message
-                        elif match_result == "time_error":
-                            log.error(
-                                "Time and timezone error. Please check your PC time and timezone."
-                            )
-                            return None, original_error_message
-                        elif match_result == "auth_error":
-                            log.error(
-                                "Error 7133: Not Authorized. Check encryption key and time key."
-                            )
-                            return None, original_error_message
-                        elif retry_count != max_retries - 1:
-                            await asyncio.sleep(retry_delay)
-                except (ClientResponseError, ClientConnectionError) as error:
+                        await asyncio.sleep(retry_delay)
+                except (
+                    ClientResponseError,
+                    ClientConnectionError,
+                    asyncio.TimeoutError,
+                ) as error:
                     log.error(f"Error fetching course data: {error}")
-                    error_message = (
-                        "Error: An issue occurred while fetching the course data."
-                    )
-                except asyncio.TimeoutError:
-                    log.error(f"Timeout error while fetching course data from {url}")
-                    error_message = "Error: Timeout while fetching the course data."
+                    if retry_count == max_retries - 1:
+                        error_message = (
+                            "Error: An issue occurred while fetching the course data."
+                        )
+                        return None, error_message
+                    await asyncio.sleep(retry_delay)
 
         log.error(
             f"Reached max retries ({max_retries}) while fetching course data from {url}"
         )
         error_message = "Error: Max retries reached while fetching the course data."
-
         return None, error_message
 
     async def _fetch_course_online(
@@ -346,8 +342,7 @@ class CourseManager(commands.Cog):
 
     ### Helper Functions
     def _split_course_key_raw(self, course_key_raw) -> Tuple[str, str]:
-        course_key_raw = re.sub(r"[-_]", " ", course_key_raw.upper())
-        course_parts = re.split(r"\s+", course_key_raw.strip())
+        course_parts = re.sub(r"[-_]", " ", course_key_raw).upper().split()
         course_code, course_number = course_parts[0], " ".join(course_parts[1:])
         return course_code, course_number
 
@@ -532,26 +527,52 @@ class CourseChannel:
         await self._process_results(ctx, course_keys_raw, results)
 
     def _create_tasks(self, ctx, course_keys_raw):
+        async def channel_and_course_data_task(course_key_formatted):
+            channel_exists = await self._is_channel_found(ctx, course_key_formatted)
+            course_data = (
+                None
+                if channel_exists
+                else await self.course_data_proxy.get_course_data(course_key_formatted)
+            )
+            return channel_exists, course_data
+
         tasks = []
+        user = ctx.message.author
+        course_channels = self._get_allowed_channels(user)
         for course_key_raw in course_keys_raw:
             course_key_formatted = self._format_course_key(course_key_raw)
-            channel_exists_task = self._is_channel_found(ctx, course_key_formatted)
-            allowed_to_join_task = self._is_user_allowed_to_join(
-                ctx, course_key_formatted
+
+            if len(course_channels) >= 10:
+                allowed_to_join, join_error_message = (
+                    False,
+                    "User attempting to add more than allowed courses.",
+                )
+            elif any(
+                channel.name.upper() == course_key_formatted
+                for channel in course_channels
+            ):
+                allowed_to_join, join_error_message = (
+                    False,
+                    "User has already added this course.",
+                )
+            else:
+                allowed_to_join, join_error_message = True, None
+
+            tasks.extend(
+                [
+                    channel_and_course_data_task(course_key_formatted),
+                    (allowed_to_join, join_error_message),
+                ]
             )
-            course_data_task = self.course_data_proxy.get_course_data(
-                course_key_formatted
-            )
-            tasks.extend([channel_exists_task, allowed_to_join_task, course_data_task])
         return tasks
 
     async def _process_results(self, ctx, course_keys_raw, results):
         for i in range(len(course_keys_raw)):
-            channel_exists, (allowed_to_join, join_error_message), course_data = (
-                results[i * 3],
-                results[i * 3 + 1],
-                results[i * 3 + 2],
+            (channel_exists, course_data), allowed_to_join_tuple = (
+                results[i * 2],
+                results[i * 2 + 1],
             )
+            allowed_to_join, join_error_message = allowed_to_join_tuple
             course_key_formatted = course_keys_raw[i]
 
             valid_course = course_data is not None
@@ -573,45 +594,17 @@ class CourseChannel:
             ctx.guild.text_channels, name=course_key_formatted
         )
 
-    async def _is_user_allowed_to_join(self, ctx, course_key_formatted):
-        """
-        Checks if the user is allowed to join the course.
-        """
-        user = ctx.message.author
-        course_channels = self._get_allowed_channels(user)
-
-        if self._is_course_limit_reached(course_channels):
-            log.info("User attempting to add more than allowed courses.")
-            return False, "User attempting to add more than allowed courses."
-        elif self._is_course_already_added(course_channels, course_key_formatted):
-            log.info("User has already added this course.")
-            return False, "User has already added this course."
-        else:
-            return True, None
-
     def _get_allowed_channels(self, user):
-        user_allowed_channels = [
-            channel
-            for channel in user.guild.channels
-            if channel.overwrites_for(user).view_channel
-            and channel.overwrites_for(user).send_messages
-        ]
+        valid_courses = {course for courses in FACULTIES.values() for course in courses}
         return [
             channel
-            for channel in user_allowed_channels
-            if channel.name.upper()
-            in {course for courses in FACULTIES.values() for course in courses}
+            for channel in user.guild.channels
+            if (perms := channel.overwrites_for(user)).view_channel
+            and perms.send_messages
+            and channel.name.upper() in valid_courses
         ]
 
-    def _is_course_limit_reached(self, course_channels):
-        return len(course_channels) >= 10
-
-    def _is_course_already_added(self, course_channels, course_key_formatted):
-        return any(
-            channel.name.upper() == course_key_formatted for channel in course_channels
-        )
-
-    async def _get_course_faculty(self, course_key_formatted):
+    def _get_course_faculty(self, course_key_formatted):
         """
         Returns the faculty of the course.
         """
@@ -671,7 +664,7 @@ class CourseChannel:
         ):
             await course_channel.set_permissions(user, overwrite=perms)
             log.info(f"{user} has been granted access to {course_channel}")
-            await self._update_course_info(ctx, course_key_formatted)
+            await self._update_course_info(ctx)
 
         else:
             log.error(f"Course channel {course_channel} not found")
@@ -683,26 +676,33 @@ class CourseChannel:
             ctx.guild.text_channels, name=course_key_formatted
         )
         await self._update_user_channel_permissions(
-            ctx, course_channel, user, add=False
+            ctx, course_channel, user, course_key_formatted, add=False
         )
         await self._update_course_info(ctx, course_key_formatted)
         log.info(f"Removing user from channel {course_channel}")
 
-    async def get_course_channels(self, ctx, user=None):
+    def _channel_accessible_by_user(self, channel, user):
+        if user is None:
+            return True
+        return (
+            channel.overwrites_for(user).view_channel
+            and channel.overwrites_for(user).send_messages
+        )
+
+    def get_course_channels(self, ctx, user=None):
         """
         Returns a list of course channels. If user is not None, returns only the course channels the user has access to.
         """
-        if user:
-            return [
-                channel
-                for channel in user.guild.channels
-                if channel.overwrites_for(user).view_channel
-                and channel.overwrites_for(user).send_messages
-            ]
-        course_channels = []
-        for category_name in FACULTIES.keys():
-            if category := discord.utils.get(ctx.guild.categories, name=category_name):
-                course_channels.extend(category.channels)
+        if ctx.guild.categories is None:
+            log.debug("No categories found in guild.")
+            return []
+        course_channels = [
+            channel
+            for category_name in FACULTIES.keys()
+            if (category := discord.utils.get(ctx.guild.categories, name=category_name))
+            for channel in category.channels
+            if self._channel_accessible_by_user(channel, user)
+        ]
         log.debug(f"List of course channels: {course_channels}")
         return course_channels
 
