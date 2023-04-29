@@ -492,7 +492,7 @@ class CourseManager(commands.Cog):
         await self.config.courses.set({})
         print(await self.config.courses())
 
-    @course.command(name="managecoursechannels", alias="mc")
+    @course.command(name="managecoursechannels", aliases="mc")
     async def manage_course_channels(
         self, ctx, subcommand: str, *, course_keys_raw: str
     ):
@@ -512,8 +512,6 @@ class CourseManager(commands.Cog):
         else:
             await ctx.send("Invalid subcommand. Use 'add', 'remove', or 'list'")
 
-        await asyncio.sleep(5)
-
 
 class CourseChannel:
     def __init__(self, bot, config, course_data_proxy):
@@ -521,9 +519,9 @@ class CourseChannel:
         self.config = config
         self.course_data_proxy = course_data_proxy
 
-    async def add_user_to_channel(self, ctx, *, course_keys_raw):
+    async def add_user_to_channel(self, ctx, course_keys_raw):
         tasks = self._create_tasks(ctx, course_keys_raw)
-        results = await bounded_gather(*tasks, limit=4)
+        results = await bounded_gather(*tasks, limit=5)
         await self._process_results(ctx, course_keys_raw, results)
 
     def _create_tasks(self, ctx, course_keys_raw):
@@ -689,7 +687,7 @@ class CourseChannel:
             and channel.overwrites_for(user).send_messages
         )
 
-    def get_course_channels(self, ctx, user=None):
+    async def get_course_channels(self, ctx, user=None):
         """
         Returns a list of course channels. If user is not None, returns only the course channels the user has access to.
         """
