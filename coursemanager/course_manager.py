@@ -526,9 +526,9 @@ class CourseChannel:
         self.course_manager = course_manager
 
     async def add_user_to_channel(self, ctx, course_keys_raw):
-        tasks = self._create_tasks(ctx, course_keys_raw)
+        tasks, allowed_to_join_list = self._create_tasks(ctx, course_keys_raw)
         results = await bounded_gather(*tasks, limit=5)
-        await self._process_results(ctx, course_keys_raw, results)
+        await self._process_results(ctx, course_keys_raw, results, allowed_to_join_list)
 
     def _create_tasks(self, ctx, course_keys_raw):
         async def channel_and_course_data_task(course_key_formatted):
@@ -564,21 +564,15 @@ class CourseChannel:
             else:
                 allowed_to_join, join_error_message = True, None
 
-            tasks.extend(
-                [
-                    channel_and_course_data_task(course_key_formatted),
-                    (allowed_to_join, join_error_message),
-                ]
-            )
-        return tasks
+            tasks.append(channel_and_course_data_task(course_key_formatted))
+        return tasks, [(allowed_to_join, join_error_message) for _ in course_keys_raw]
 
-    async def _process_results(self, ctx, course_keys_raw, results):
+    async def _process_results(
+        self, ctx, course_keys_raw, results, allowed_to_join_list
+    ):
         for i in range(len(course_keys_raw)):
-            (channel_exists, course_data), allowed_to_join_tuple = (
-                results[i * 2],
-                results[i * 2 + 1],
-            )
-            allowed_to_join, join_error_message = allowed_to_join_tuple
+            (channel_exists, course_data) = results[i]
+            allowed_to_join, join_error_message = allowed_to_join_list[i]
             course_key_formatted = course_keys_raw[i]
 
             valid_course = course_data is not None
