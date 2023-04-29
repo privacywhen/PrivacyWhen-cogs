@@ -505,7 +505,9 @@ class CourseManager(commands.Cog):
             await ctx.send("You can only add up to 5 courses at a time.")
             return
 
-        course_channel = CourseChannel(self.bot, self.config, self.course_data_proxy)
+        course_channel = CourseChannel(
+            self.bot, self.config, self, self.course_data_proxy
+        )
         if subcommand.lower() == "add":
             await course_channel.add_user_to_channel(ctx, course_keys_raw)
         elif subcommand.lower() == "remove":
