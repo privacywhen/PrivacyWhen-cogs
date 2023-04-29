@@ -492,7 +492,7 @@ class CourseManager(commands.Cog):
         await self.config.courses.set({})
         print(await self.config.courses())
 
-    @course.command(name="managecoursechannels", aliases="mc")
+    @course.command(name="managecoursechannels", aliases=["mc"])
     async def manage_course_channels(
         self, ctx, subcommand: str, *, course_keys_raw: str
     ):
