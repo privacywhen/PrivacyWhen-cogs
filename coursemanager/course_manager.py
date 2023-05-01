@@ -15,7 +15,10 @@ from aiohttp import (
 from bs4 import BeautifulSoup, Tag
 from time import time
 from redbot.core import Config, commands, checks
-from redbot.core.utils import bounded_gather
+from discord.ext import commands as discord_commands
+from redbot.core.utils import bounded_gather, AsyncIter
+from redbot.core.utils.menus import DEFAULT_CONTROLS, menu
+from redbot.core.utils.chat_formatting import humanize_list
 from .error_handler import ErrorHandler
 from .faculty_dictionary import FACULTIES
 
@@ -371,17 +374,16 @@ class CourseManager(commands.Cog):
         return f"{validated_course_key[0]}-{validated_course_key[1]}"
 
     async def send_long_message(self, ctx, content, max_length=2000):
+        """The Menu class paginates long messages for easier reading and the example shows how to create a paginated message with a timeout and navigation controls."""
         if len(content) <= max_length:
             await ctx.send(content)
         else:
-            while content:
-                message_chunk = content[:max_length]
-                try:
-                    await ctx.send(message_chunk)
-                except Exception as e:
-                    log.error(f"Error sending message: {e}")
-                    break
-                content = content[max_length:]
+            pages = []
+            for i in range(0, len(content), max_length):
+                page = discord.Embed(description=content[i : i + max_length])
+                pages.append(page)
+
+            await menu(ctx, pages, DEFAULT_CONTROLS, timeout=60)
 
     def create_course_embed(self, course_data):
         if course_data == "Not Found":
@@ -433,8 +435,10 @@ class CourseManager(commands.Cog):
 
     ### User Command Section
 
-    @commands.group(invoke_without_command=True)
+    @commands.group(invoke_without_command=True, help="Cog for managing course data.")
     @commands.cooldown(1, 5, commands.BucketType.user)
+    @commands.max_concurrency(1, commands.BucketType.user)
+    @commands.guild_only()
     async def course(self, ctx):
         await ctx.send_help(self.course)
 
@@ -499,23 +503,15 @@ class CourseManager(commands.Cog):
     async def manage_course_channels(
         self, ctx, subcommand: str, *, course_keys_raw: str
     ):
-        """Manage course channels"""
-        course_keys_raw = [course.strip() for course in course_keys_raw.split(";")]
-        if len(course_keys_raw) > 5:
-            await ctx.send("You can only add up to 5 courses at a time.")
+        """
+        Takes user input and passes it to the decision tree
+        """
+        valid_subcommands = {"join", "leave", "list"}
+        if subcommand.lower() not in valid_subcommands:
+            await ctx.send("Invalid subcommand. Use 'join', 'leave', or 'list'")
             return
 
-        course_channel = CourseChannel(
-            self.bot, self.config, self, self.course_data_proxy
-        )
-        if subcommand.lower() == "add":
-            await course_channel.add_user_to_channel(ctx, course_keys_raw)
-        elif subcommand.lower() == "remove":
-            await course_channel.remove_course(ctx, course_keys_raw)
-        elif subcommand.lower() == "list":
-            await course_channel.get_course_channels(ctx)
-        else:
-            await ctx.send("Invalid subcommand. Use 'add', 'remove', or 'list'")
+        await self.decision_tree(ctx, subcommand, course_keys_raw)
 
 
 class CourseChannel:
@@ -525,12 +521,25 @@ class CourseChannel:
         self.course_data_proxy = course_data_proxy
         self.course_manager = course_manager
 
-    async def add_user_to_channel(self, ctx, course_keys_raw):
+    async def decision_tree(self, ctx, subcommand, course_keys_raw):
+        author = ctx.message.author
         tasks, allowed_to_join_list = self._create_tasks(ctx, course_keys_raw)
         results = await bounded_gather(*tasks, limit=5)
-        await self._process_results(ctx, course_keys_raw, results, allowed_to_join_list)
+        subcommand = subcommand.lower()
 
-    def _create_tasks(self, ctx, course_keys_raw):
+        if subcommand == "join":
+            await self._process_results(
+                ctx, course_keys_raw, results, allowed_to_join_list
+            )
+            if results == allowed_to_join_list:
+                await self._update_user_channel_permissions(ctx, course_keys_raw, True)
+        elif subcommand == "leave":
+            if await self._get_course_channels(author) == course_keys_raw:
+                await self._update_user_channel_permissions(ctx, course_keys_raw, False)
+        elif subcommand == "list":
+            await ctx.send(humanize_list(self._get_course_channels(author)))
+
+    async def _create_tasks(self, ctx, course_keys_raw):
         async def channel_and_course_data_task(course_key_formatted):
             channel_exists = await self._is_channel_found(ctx, course_key_formatted)
             course_data = (
@@ -540,10 +549,9 @@ class CourseChannel:
             )
             return channel_exists, course_data
 
-        tasks = []
-        user = ctx.message.author
-        course_channels = self._get_allowed_channels(user)
-        for course_key_raw in course_keys_raw:
+        course_channels = self._get_allowed_channels(ctx.message.author)
+
+        async def process_course_key(course_key_raw):
             course_key_formatted = self.course_manager._format_course_key(
                 course_key_raw
             )
@@ -564,8 +572,16 @@ class CourseChannel:
             else:
                 allowed_to_join, join_error_message = True, None
 
-            tasks.append(channel_and_course_data_task(course_key_formatted))
-        return tasks, [(allowed_to_join, join_error_message) for _ in course_keys_raw]
+            return await channel_and_course_data_task(course_key_formatted), (
+                allowed_to_join,
+                join_error_message,
+            )
+
+        tasks = await AsyncIter(course_keys_raw, process_course_key).flatten()
+        return tasks, [
+            (allowed_to_join, join_error_message)
+            for _, (allowed_to_join, join_error_message) in tasks
+        ]
 
     async def _process_results(
         self, ctx, course_keys_raw, results, allowed_to_join_list
@@ -576,14 +592,19 @@ class CourseChannel:
             course_key_formatted = course_keys_raw[i]
 
             valid_course = course_data is not None
-            await self.handle_course_action(
-                ctx,
-                course_key_formatted,
-                channel_exists,
-                allowed_to_join,
-                join_error_message,
-                valid_course,
-            )
+            if not valid_course:
+                await ctx.send(
+                    f"Course {course_key_formatted} does not exist. Please check your spelling and try again."
+                )
+                continue
+
+            if not channel_exists:
+                await self._create_course_channel(
+                    ctx, course_key_formatted, course_data
+                ).send(f"Course {course_key_formatted} has been added to the server.")
+
+            if not allowed_to_join:
+                await ctx.send(join_error_message)
 
     async def _is_channel_found(self, ctx, course_key_formatted) -> bool:
         """
@@ -594,12 +615,12 @@ class CourseChannel:
             ctx.guild.text_channels, name=course_key_formatted
         )
 
-    def _get_allowed_channels(self, user):
+    def _get_allowed_channels(self, author):
         valid_courses = {course for courses in FACULTIES.values() for course in courses}
         return [
             channel
-            for channel in user.guild.channels
-            if (perms := channel.overwrites_for(user)).view_channel
+            for channel in author.guild.channels
+            if (perms := channel.overwrites_for(author)).view_channel
             and perms.send_messages
             and channel.name.upper() in valid_courses
         ]
@@ -616,6 +637,33 @@ class CourseChannel:
                 if course_code in courses
             ),
             None,
+        )
+
+    async def _get_course_channels(self, ctx, user=None):
+        """
+        Returns a list of course channels,
+        calls _channel_accessible_by_user to check if the user has access to the channel.
+        """
+        if ctx.guild.categories is None:
+            log.debug("No categories found in guild.")
+            return []
+        course_channels = [
+            channel
+            for category_name in FACULTIES.keys()
+            if (category := discord.utils.get(ctx.guild.categories, name=category_name))
+            for channel in category.channels
+            if self._channel_accessible_by_user(channel, user)
+        ]
+        log.debug(f"List of course channels: {course_channels}")
+        return course_channels
+
+    def _channel_accessible_by_user(self, channel, user):
+        """is the channel accessible by the user?"""
+        if user is None:
+            return True
+        return (
+            channel.overwrites_for(user).view_channel
+            and channel.overwrites_for(user).send_messages
         )
 
     async def _create_course_channel(self, ctx, course_key_formatted):
@@ -644,6 +692,26 @@ class CourseChannel:
         else:
             log.info(f"Faculty not found for course {course_key_formatted}")
 
+    async def _update_course_info(self, ctx, course_key_formatted):
+        if course_channel := discord.utils.get(
+            ctx.guild.text_channels, name=course_key_formatted
+        ):
+            channel_info = {
+                "faculty_name": course_channel.category.name,
+                "creation_date": course_channel.created_at.isoformat(),
+                "last_message_date": course_channel.last_message.created_at.isoformat(),
+                "member_list": [
+                    member.id
+                    for member in course_channel.members
+                    if not member.bot and member.id != ctx.guild.owner.id
+                ],
+                "channel_id": course_channel.id,
+            }
+            log.debug(f"Channel info: {channel_info}")
+
+            async with self.config.guild(ctx.guild).channels() as channels:
+                channels[course_key_formatted] = channel_info
+
     async def _update_user_channel_permissions(
         self, ctx, course_channel, user, add=True
     ):
@@ -669,59 +737,30 @@ class CourseChannel:
         else:
             log.error(f"Course channel {course_channel} not found")
 
-    async def _remove_user_from_course_channel(self, ctx, course_key_formatted):
-        """Removes a user from a course channel."""
-        user = ctx.message.author
-        course_channel = discord.utils.get(
-            ctx.guild.text_channels, name=course_key_formatted
-        )
-        await self._update_user_channel_permissions(
-            ctx, course_channel, user, course_key_formatted, add=False
-        )
-        await self._update_course_info(ctx, course_key_formatted)
-        log.info(f"Removing user from channel {course_channel}")
 
-    def _channel_accessible_by_user(self, channel, user):
-        if user is None:
-            return True
-        return (
-            channel.overwrites_for(user).view_channel
-            and channel.overwrites_for(user).send_messages
-        )
+### EXAMPLE OF REDBOT MENU ###
+"""
+import discord
+from redbot.core.utils.menus import menu, close_menu, next_page, prev_page, start_adding_reactions
 
-    async def get_course_channels(self, ctx, user=None):
-        """
-        Returns a list of course channels. If user is not None, returns only the course channels the user has access to.
-        """
-        if ctx.guild.categories is None:
-            log.debug("No categories found in guild.")
-            return []
-        course_channels = [
-            channel
-            for category_name in FACULTIES.keys()
-            if (category := discord.utils.get(ctx.guild.categories, name=category_name))
-            for channel in category.channels
-            if self._channel_accessible_by_user(channel, user)
-        ]
-        log.debug(f"List of course channels: {course_channels}")
-        return course_channels
+async def my_handler(ctx, page_num, emoji):
+    await ctx.send(f"You selected page {page_num} with {emoji}")
 
-    async def _update_course_info(self, ctx, course_key_formatted):
-        if course_channel := discord.utils.get(
-            ctx.guild.text_channels, name=course_key_formatted
-        ):
-            channel_info = {
-                "faculty_name": course_channel.category.name,
-                "creation_date": course_channel.created_at.isoformat(),
-                "last_message_date": course_channel.last_message.created_at.isoformat(),
-                "member_list": [
-                    member.id
-                    for member in course_channel.members
-                    if not member.bot and member.id != ctx.guild.owner.id
-                ],
-                "channel_id": course_channel.id,
-            }
-            log.debug(f"Channel info: {channel_info}")
+async def my_menu(ctx):
+    pages = ["Page 1", "Page 2", "Page 3"]
+    controls = {"⬅️": prev_page, "❌": close_menu, "➡️": next_page, "🔢": lambda ctx, pages, controls, message, page, timeout, emoji: my_handler(ctx, int(emoji), emoji)}
+    await menu(ctx, pages, controls=controls)
 
-            async with self.config.guild(ctx.guild).channels() as channels:
-                channels[course_key_formatted] = channel_info
+@commands.command()
+async def show_menu(self, ctx):
+    await my_menu(ctx)
+"""
+"""
+Reasons to incorporate redbot functions:
+
+The @commands.group(invoke_without_command=True, help="Cog for managing course data.") decorator simplifies the course command by removing the need to manually send the help message. By setting invoke_without_command=True, the help message will automatically be sent when no subcommands are provided by the user. This makes the code cleaner and easier to manage.
+
+The @commands.max_concurrency(1, commands.BucketType.user) decorator is useful for controlling the maximum number of concurrent invocations of a command. By limiting the number of concurrent invocations, you can prevent potential issues in your bot caused by users invoking the command simultaneously. This is especially important for tasks that involve fetching data, as it could lead to rate limiting or other issues.
+
+The send_long_message function can be improved by using Redbot's built-in Menu class. The Menu class allows you to paginate long messages, making them easier for users to read. The example provided demonstrates how to use the Menu class to create a paginated message with a timeout and default controls for navigation.
+"""
