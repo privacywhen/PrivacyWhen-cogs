@@ -1,4 +1,4 @@
 from .account import Account
 
-def setup(bot):
-    bot.add_cog(Account(bot))
+async def setup(bot):
+    await bot.add_cog(Account(bot))
