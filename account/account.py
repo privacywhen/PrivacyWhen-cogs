@@ -125,13 +125,13 @@ class Account(commands.Cog):
                     fields = [data.add_field(name=k, value=v, inline=k not in newlinefields) for k,v in userdata.items() if k.lower() in fieldfilter and v and k not in hiddenfields]
 
                 name = userdata["Name"]
-                if user.avatar_url and not pic:
+                if user.avatar.url and not pic:
                     # name = str(user)
                     # name = " ~ ".join((name, user.nick)) if user.nick else name
-                    data.set_author(name=name, url=user.avatar_url)
-                    data.set_thumbnail(url=user.avatar_url)
+                    data.set_author(name=name, url=user.avatar.url)
+                    data.set_thumbnail(url=user.avatar.url)
                 elif pic:
-                    data.set_author(name=name, url=user.avatar_url)
+                    data.set_author(name=name, url=user.avatar.url)
                     data.set_thumbnail(url=pic)
                 else:
                     data.set_author(name=name)
