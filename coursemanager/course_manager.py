@@ -105,17 +105,21 @@ class CourseDataProxy:
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
         """Fetch the data with a single attempt."""
         timeout = ClientTimeout(total=15)
-        async with ClientSession(timeout=timeout) as session:
-            async with session.get(url) as response:
-                log.debug(f"Fetching course data from {url}")
-                if response.status != 200:
-                    return None, None
-                content = await response.text()
-                soup = BeautifulSoup(content, "xml")
-                if not (error_tag := soup.find("error")):
-                    return soup, None
-                error_message = error_tag.text.strip()
-                return None, error_message or None
+        try:
+            async with ClientSession(timeout=timeout) as session:
+                async with session.get(url) as response:
+                    log.debug(f"Fetching course data from {url}")
+                    if response.status != 200:
+                        return None, None
+                    content = await response.text()
+                    soup = BeautifulSoup(content, "xml")
+                    if not (error_tag := soup.find("error")):
+                        return soup, None
+                    error_message = error_tag.text.strip()
+                    return None, error_message or None
+        except Exception as e:
+            log.error(f"An error occurred while fetching data from {url}: {e}")
+            return None, str(e)
 
     def _check_error_message_for_matches(self, error_message: str) -> Tuple[str, str]:
         """Check the error message for matches with term names or other provided strings."""
@@ -586,10 +590,12 @@ class CourseChannel:
     async def _process_results(
         self, ctx, course_keys_raw, results, allowed_to_join_list
     ):
-        for i in range(len(course_keys_raw)):
+        for i, course_key_raw in enumerate(course_keys_raw):
             (channel_exists, course_data) = results[i]
             allowed_to_join, join_error_message = allowed_to_join_list[i]
-            course_key_formatted = course_keys_raw[i]
+            course_key_formatted = self.course_manager._format_course_key(
+                course_key_raw
+            )
 
             valid_course = course_data is not None
             if not valid_course:
