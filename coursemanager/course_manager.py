@@ -40,6 +40,7 @@ class CourseDataProxy:
     async def _maintain_freshness(self):
         """Maintain the freshness of the data in the proxy."""
         course_key_formatted = None
+        data_age_days = None
         courses = await self.config.courses()
         for course_key_formatted, course_data in courses.items():
             data_age_days = (
