@@ -550,13 +550,23 @@ class CourseManager(commands.Cog):
         )
         course_data = await self.course_data_proxy.get_course_data(course_key_formatted)
 
+        # Debug log to print course_data
+        log.debug(f"Fetched course_data: {course_data}")
+
         if not course_data:
             log.debug("Before API call: await ctx.send with Course not found message")
             await ctx.send(f"Course not found: {course_key_formatted}")
             return
 
+        # Debug log to print details before creating embed
+        log.debug(
+            "Before creating embed: Course data exists, proceeding to create embed."
+        )
+
         embed = self.create_course_embed(course_data)
-        log.debug(f"Embed object: {embed}")
+
+        # Debug log to print the embed object
+        log.debug(f"Created embed object: {embed}")
 
         log.debug("Before API call: await ctx.send(embed=embed)")
         await ctx.send(embed=embed)
