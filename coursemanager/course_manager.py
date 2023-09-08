@@ -389,7 +389,7 @@ class CourseManager(commands.Cog):
     """Cog for managing course data."""
 
     def __init__(self, bot):
-        log.debug("Entered __init__")
+        log.debug(f"Entered __init__ for CourseManager with ID: {id(self)}")
         """Initialize the CourseManager class."""
         self.bot = bot
         self.config = Config.get_conf(
@@ -404,7 +404,10 @@ class CourseManager(commands.Cog):
         self.bot.loop.create_task(self.maintain_freshness_task())
 
     async def maintain_freshness_task(self):
-        log.debug("Entered maintain_freshness_task")
+        await self.bot.wait_until_ready()
+        log.debug(
+            f"Entered maintain_freshness_task for CourseManager with ID: {id(self)}"
+        )
         """A coroutine to wrap maintain_freshness function."""
         while True:
             log.debug("DEBUG: Starting maintain_freshness loop")
