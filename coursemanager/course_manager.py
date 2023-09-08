@@ -216,7 +216,7 @@ class CourseDataProxy:
         self, term_order: List[str], course_key_formatted: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
         """Fetch the data with retries."""
-        max_retries = 3
+        max_retries = 1
         retry_delay = 5
         url = None
 
