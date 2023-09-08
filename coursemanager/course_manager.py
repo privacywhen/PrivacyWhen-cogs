@@ -73,22 +73,35 @@ class CourseDataProxy:
         Returns:
             dict: The course data or an empty dictionary if the course is not found.
         """
+        log.debug("Entered get_course_data")
+
         courses = await self.config.courses()
-        log.debug("Before API call: courses = await self.config.courses()")
+        log.debug(
+            f"Before API call: courses = await self.config.courses(), Fetched courses: {courses}"
+        )
+
         course_data = courses.get(course_key_formatted)
+        log.debug(f"Fetched course_data from courses: {course_data}")
 
         # Initialize variables
         soup = None
         error = None
+        log.debug("Initialized soup and error to None")
 
         if not course_data or not course_data.get("is_fresh", False):
+            log.debug(
+                "Entering _fetch_course_online because course_data is either missing or not fresh."
+            )
             soup, error = await self._fetch_course_online(course_key_formatted)
             log.debug(
-                "After API call: soup, error = await self._fetch_course_online(course_key_formatted)"
+                f"After API call: soup, error = await self._fetch_course_online(course_key_formatted), soup: {soup}, error: {error}"
             )
 
         if soup:
+            log.debug("Soup exists, proceeding to process and update course data.")
             course_data_processed = self._process_soup_content(soup)
+            log.debug(f"Processed course_data: {course_data_processed}")
+
             await self.config.courses.set_raw(
                 course_key_formatted,
                 value={
@@ -98,11 +111,15 @@ class CourseDataProxy:
                 },
             )
             log.debug("After API call: await self.config.courses.set_raw()")
+
             courses = await self.config.courses()
-            log.debug("After API call: courses = await self.config.courses()")
+            log.debug(
+                f"After API call: courses = await self.config.courses(), Updated courses: {courses}"
+            )
         elif error:
             log.error(f"Error fetching course data for {course_key_formatted}: {error}")
             return {}
+
         log.debug(f"Returning: {course_data}")
 
         return course_data if course_data else {}
