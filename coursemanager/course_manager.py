@@ -664,7 +664,7 @@ class CourseChannel:
         log.debug(f"Tasks created in decision_tree: {tasks}")
 
         log.debug("Executing bounded_gather")
-        results = await bounded_gather(*tasks, limit=5)
+        results = await bounded_gather(*tasks, limit=1)
         log.debug(f"Results after bounded_gather: {results}")
 
         subcommand = subcommand.lower()
