@@ -656,10 +656,17 @@ class CourseChannel:
         self.course_manager = course_manager
 
     async def decision_tree(self, ctx, subcommand, course_keys_raw):
-        log.debug("Before API call: results = await bounded_gather(*tasks, limit=5)")
+        log.debug(
+            f"Entered decision_tree with subcommand: {subcommand}, course_keys_raw: {course_keys_raw}"
+        )
         author = ctx.message.author
         tasks, allowed_to_join_list = self._create_tasks(ctx, course_keys_raw)
+        log.debug(f"Tasks created in decision_tree: {tasks}")
+
+        log.debug("Executing bounded_gather")
         results = await bounded_gather(*tasks, limit=5)
+        log.debug(f"Results after bounded_gather: {results}")
+
         subcommand = subcommand.lower()
 
         if subcommand == "join":
@@ -688,29 +695,31 @@ class CourseChannel:
             await ctx.send(humanize_list(self._get_course_channels(author)))
 
     async def _create_tasks(self, ctx, course_keys_raw):
+        log.debug(f"Entered _create_tasks with course_keys_raw: {course_keys_raw}")
+
         async def channel_and_course_data_task(course_key_formatted):
-            channel_exists = await self._is_channel_found(ctx, course_key_formatted)
             log.debug(
-                "Before API call: channel_exists = await self._is_channel_found(ctx, course_key_formatted)"
+                f"Entered channel_and_course_data_task with course_key_formatted: {course_key_formatted}"
             )
+            channel_exists = await self._is_channel_found(ctx, course_key_formatted)
+            log.debug(f"Channel exists: {channel_exists}")
             course_data = (
                 None
                 if channel_exists
                 else await self.course_data_proxy.get_course_data(course_key_formatted)
             )
-            log.debug(
-                "Before API call: else await self.course_data_proxy.get_course_data(course_key_formatted)"
-            )
+            log.debug(f"Course data fetched: {course_data}")
             return channel_exists, course_data
 
-        log.debug("Returning: channel_exists, course_data")
-
         course_channels = self._get_allowed_channels(ctx.message.author)
+        log.debug(f"Allowed channels for user: {course_channels}")
 
         async def process_course_key(course_key_raw):
+            log.debug(f"Processing course key: {course_key_raw}")
             course_key_formatted = self.course_manager._format_course_key(
                 course_key_raw
             )
+            log.debug(f"Formatted course key: {course_key_formatted}")
 
             if len(course_channels) >= 10:
                 allowed_to_join, join_error_message = (
@@ -731,28 +740,17 @@ class CourseChannel:
             channel_and_course_data = await channel_and_course_data_task(
                 course_key_formatted
             )
-            log.debug(
-                "Before API call: return await channel_and_course_data_task(course_key_formatted), ("
-            )
-            return channel_and_course_data, (
-                allowed_to_join,
-                join_error_message,
-            )
-
-        log.debug(
-            "Returning: await channel_and_course_data_task(course_key_formatted), ("
-        )
+            log.debug(f"Channel and course data: {channel_and_course_data}")
+            return channel_and_course_data, (allowed_to_join, join_error_message)
 
         tasks = await AsyncIter(course_keys_raw, process_course_key).flatten()
-        log.debug(
-            "Before API call: tasks = await AsyncIter(course_keys_raw, process_course_key).flatten()"
-        )
+        log.debug(f"Total number of tasks created: {len(tasks)}")
+        log.debug(f"Tasks details: {tasks}")
+        log.debug("Returning: tasks, [")
         return tasks, [
             (allowed_to_join, join_error_message)
             for _, (allowed_to_join, join_error_message) in tasks
         ]
-
-    log.debug("Returning: tasks, [")
 
     async def _process_results(
         self, ctx, course_keys_raw, results, allowed_to_join_list
