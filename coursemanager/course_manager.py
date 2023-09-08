@@ -19,7 +19,8 @@ from discord.ext import commands as discord_commands
 from redbot.core.utils import bounded_gather, AsyncIter
 from redbot.core.utils.menus import DEFAULT_CONTROLS, menu
 from redbot.core.utils.chat_formatting import humanize_list
-from .error_handler import ErrorHandler
+
+# from .error_handler import ErrorHandler
 from .faculty_dictionary import FACULTIES
 
 log = logging.getLogger("red.course_manager")
@@ -169,6 +170,7 @@ class CourseDataProxy:
         """Fetch the data with retries."""
         max_retries = 3
         retry_delay = 5
+        url = None
 
         for term_name in term_order:
             term_id = await self._get_term_id(term_name)
