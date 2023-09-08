@@ -465,6 +465,7 @@ class CourseManager(commands.Cog):
             await ctx.send(f"Course not found: {course_key_formatted}")
             return
         embed = self.create_course_embed(course_data)
+        log.debug(f"Embed object: {embed}")
         await ctx.send(embed=embed)
 
     ### Dev Command Section
