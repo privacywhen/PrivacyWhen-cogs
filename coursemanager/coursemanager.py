@@ -252,11 +252,12 @@ class CourseManager(commands.Cog):
         self.bot: commands.Bot = bot
 
         # Channel management settings.
-        self.category_name: str = "COURSES"
+        # Set channel permissions using a custom allowed bitmask (446676945984) and no denied permissions.
         self.channel_permissions: discord.PermissionOverwrite = discord.PermissionOverwrite.from_pair(
-            discord.Permissions(view_channel=True, send_messages=True, read_message_history=True),
-            discord.Permissions.none(),
+            discord.Permissions(446676945984),
+            discord.Permissions(0),
         )
+        self.category_name: str = "COURSES"
         self.max_courses: int = 10
         self.logging_channel: Optional[discord.TextChannel] = None
 
@@ -671,7 +672,7 @@ class CourseManager(commands.Cog):
         target_name = self._get_channel_name(course_key)
         log.debug("Creating channel '%s' in guild %s", target_name, guild.name)
         overwrites = {
-            guild.default_role: discord.PermissionOverwrite.none(),
+            guild.default_role: discord.PermissionOverwrite(),  # empty overwrite (i.e. "none")
             guild.me: discord.PermissionOverwrite.all(),
         }
         channel = await guild.create_text_channel(target_name, overwrites=overwrites, category=category)
