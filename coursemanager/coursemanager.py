@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Tuple, Any
 
 import discord
 from discord.ext import commands
-from redbot.core import checks, Config
+from redbot.core import Config
 from redbot.core.utils import bounded_gather
 from redbot.core.utils.chat_formatting import error, info, success, warning, box, pagify
 from redbot.core.utils.menus import menu, DEFAULT_CONTROLS
@@ -428,7 +428,7 @@ class CourseManager(commands.Cog):
         if self.logging_channel:
             await self.logging_channel.send(f"{ctx.author} has left {formatted}.")
 
-    @checks.admin()
+    @commands.admin()
     @course.command()
     async def delete(self, ctx: commands.Context, channel: discord.TextChannel) -> None:
         """
@@ -446,7 +446,7 @@ class CourseManager(commands.Cog):
         if self.logging_channel:
             await self.logging_channel.send(f"{channel.name} has been deleted.")
 
-    @checks.admin()
+    @commands.admin()
     @course.command(name="setlogging")
     async def set_logging(self, ctx: commands.Context, channel: discord.TextChannel) -> None:
         """
@@ -630,7 +630,7 @@ class CourseManager(commands.Cog):
     #####################################################
     # Developer Commands (Owner-only)
     #####################################################
-    @checks.is_owner()
+    @commands.is_owner()
     @commands.group(name="dc", invoke_without_command=True)
     async def dev_course(self, ctx: commands.Context) -> None:
         """Developer commands for managing config data for the course cog."""
