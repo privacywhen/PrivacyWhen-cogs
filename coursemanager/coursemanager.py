@@ -7,8 +7,8 @@ from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any
 
 import discord
-from discord.ext import commands
-from redbot.core import Config
+#from discord.ext import commands
+from redbot.core import commands, Config
 from redbot.core.utils import bounded_gather
 from redbot.core.utils.chat_formatting import error, info, success, warning, box, pagify
 from redbot.core.utils.menus import menu, DEFAULT_CONTROLS
@@ -78,7 +78,7 @@ class CourseDataProxy:
         Determine a prioritized list of term names based on the current month.
         """
         now = date.today()
-        current_term_index = (now.month - 1) // 4  # Rough division of months into 3 blocks.
+        current_term_index = (now.month - 1) // 4  # Roughly dividing months into 3 blocks.
         return self._TERM_NAMES[current_term_index:] + self._TERM_NAMES[:current_term_index]
 
     async def _fetch_data_with_retries(
@@ -119,7 +119,9 @@ class CourseDataProxy:
         return None, "Error: Max retries reached while fetching course data."
 
     async def _get_term_id(self, term_name: str) -> Optional[int]:
-        """Retrieve the term code from config."""
+        """
+        Retrieve the term code from config.
+        """
         return await self.config.term_codes.get_raw(term_name, default=None)
 
     def _build_url(self, term_id: int, course_key_formatted: str) -> str:
@@ -553,7 +555,7 @@ class CourseManager(commands.Cog):
             for channel in category.channels
             if isinstance(channel, discord.TextChannel) and channel.permissions_for(user).read_messages
         ]
-    
+
     #####################################################
     # Developer Commands (Owner-only)
     #####################################################
