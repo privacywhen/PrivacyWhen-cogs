@@ -40,18 +40,13 @@ class CourseDataProxy:
     )
 
     def __init__(self, config: Config) -> None:
-        """
-        Initialize the proxy with the bot's Config instance.
-        """
+        """Initialize the proxy with the bot's Config instance."""
         self.config: Config = config
 
     async def get_course_data(self, course_key_formatted: str) -> Dict[str, Any]:
         """
         Retrieve course data from config if available and fresh.
         Otherwise, fetch from the remote API, cache it, and return the new data.
-        
-        :param course_key_formatted: Standardized course key (e.g., "MATH-1A03")
-        :return: A dictionary containing course details.
         """
         course_data = await self.config.courses.get_raw(course_key_formatted, default=None)
         if not course_data or not course_data.get("is_fresh", False):
@@ -73,9 +68,6 @@ class CourseDataProxy:
     async def _fetch_course_online(self, course_key_formatted: str) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
         """
         Attempt to fetch course data from the external endpoint.
-        
-        :param course_key_formatted: Standardized course key.
-        :return: Tuple of (BeautifulSoup object or None, error message if any)
         """
         term_order = self._determine_term_order()
         soup, error_message = await self._fetch_data_with_retries(term_order, course_key_formatted)
@@ -84,11 +76,9 @@ class CourseDataProxy:
     def _determine_term_order(self) -> List[str]:
         """
         Determine a prioritized list of term names based on the current month.
-        
-        :return: Ordered list of term names.
         """
         now = date.today()
-        current_term_index = (now.month - 1) // 4  # Roughly dividing months into 3 blocks.
+        current_term_index = (now.month - 1) // 4  # Rough division of months into 3 blocks.
         return self._TERM_NAMES[current_term_index:] + self._TERM_NAMES[:current_term_index]
 
     async def _fetch_data_with_retries(
@@ -96,10 +86,6 @@ class CourseDataProxy:
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
         """
         Try to fetch data across multiple terms with a retry mechanism.
-        
-        :param term_order: List of term names to try.
-        :param course_key_formatted: Standardized course key.
-        :return: Tuple (soup, None) on success or (None, error message) on failure.
         """
         max_retries = 1
         retry_delay = 5
@@ -133,21 +119,12 @@ class CourseDataProxy:
         return None, "Error: Max retries reached while fetching course data."
 
     async def _get_term_id(self, term_name: str) -> Optional[int]:
-        """
-        Retrieve the term code from config.
-        
-        :param term_name: Name of the term.
-        :return: Term code as int or None.
-        """
+        """Retrieve the term code from config."""
         return await self.config.term_codes.get_raw(term_name, default=None)
 
     def _build_url(self, term_id: int, course_key_formatted: str) -> str:
         """
         Construct the URL for querying the course data.
-        
-        :param term_id: Term identifier.
-        :param course_key_formatted: Standardized course key.
-        :return: Formatted URL string.
         """
         t, e = self._generate_time_code()
         return self._URL_BASE.format(term=term_id, course_key_formatted=course_key_formatted, t=t, e=e)
@@ -155,8 +132,6 @@ class CourseDataProxy:
     def _generate_time_code(self) -> Tuple[int, int]:
         """
         Generate a time-based code for the remote API.
-        
-        :return: Tuple (t, e) as integers.
         """
         t = floor(time() / 60) % 1000
         e = t % 3 + t % 39 + t % 42
@@ -165,9 +140,6 @@ class CourseDataProxy:
     async def _fetch_single_attempt(self, url: str) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
         """
         Perform a single HTTP request to fetch course data.
-        
-        :param url: URL to fetch.
-        :return: Tuple of (BeautifulSoup object or None, error message if any)
         """
         timeout = ClientTimeout(total=15)
         try:
@@ -188,27 +160,17 @@ class CourseDataProxy:
     def _process_soup_content(self, soup: BeautifulSoup) -> List[Dict]:
         """
         Parse the BeautifulSoup object to extract relevant course data.
-        
-        :param soup: BeautifulSoup instance containing the XML data.
-        :return: List of dictionaries with course details.
         """
-        course_data = []
-        for course in soup.find_all("course"):
-            offering = course.find("offering")
-            term_elem = course.find("term")
-            block = course.find("block")
-            offering_title = offering["title"] if (offering and "title" in offering.attrs) else ""
-            term_found = term_elem.get("v") if term_elem else ""
-            teacher = block.get("teacher", "") if block else ""
-            extracted_details = {
-                "title": offering_title,
-                "term_found": term_found,
-                "teacher": teacher,
+        return [
+            {
+                "title": (course.find("offering")["title"] if course.find("offering") and "title" in course.find("offering").attrs else ""),
+                "term_found": (course.find("term").get("v") if course.find("term") else ""),
+                "teacher": (course.find("block").get("teacher", "") if course.find("block") else ""),
                 "course_code": course.get("code", ""),
                 "course_number": course.get("number", ""),
             }
-            course_data.append(extracted_details)
-        return course_data
+            for course in soup.find_all("course")
+        ]
 
 
 ###############################################################################
@@ -219,17 +181,16 @@ class CourseManager(commands.Cog):
     Cog for managing course channels and course details.
 
     Channel Management:
-      • Allows users to join or leave course channels under the "COURSES" category.
+      • Users can join or leave course channels under the "COURSES" category.
       • Admins can delete channels and set a logging channel for notifications.
-      • Auto-prunes channels within the "COURSES" category if inactive for more than 120 days.
-      • Users can list their enrolled courses.
-      • Prevents duplicate joins.
-      • Only creates channels if course details are found.
+      • Channels inactive for more than 120 days are auto-pruned.
+      • Users can list their enrolled courses (duplicate joins are prevented).
+      • Channels are only created if valid course details are found.
 
     Course Details:
-      • Retrieves and caches course details via an external API.
-      • Displays details for one or multiple courses.
-      • Includes commands for refreshing course data.
+      • Course data is retrieved and cached via an external API.
+      • Details for one or multiple courses can be displayed.
+      • Commands exist to refresh course data.
 
     Developer Commands (Owner-only):
       • Manage term codes, clear stale config entries, and trigger manual pruning.
@@ -266,7 +227,6 @@ class CourseManager(commands.Cog):
     async def _auto_prune_task(self) -> None:
         """
         Background task that auto-prunes inactive course channels.
-        
         A channel is pruned if its most recent non-bot message is older than 120 days.
         Only channels within the "COURSES" category are considered.
         """
@@ -301,16 +261,7 @@ class CourseManager(commands.Cog):
     async def course(self, ctx: commands.Context) -> None:
         """
         Main command group for course functionalities.
-        
-        Subcommands:
-          • join [course_code]       - Join a course channel.
-          • leave [course_code]      - Leave a course channel.
-          • list                     - List your enrolled courses.
-          • refresh [course_code]    - Refresh course data from the API.
-          • delete [channel]         - Delete a course channel (admin-only).
-          • setlogging [#channel]    - Set the logging channel (admin-only).
-          • details [course_code]    - Show course details.
-          • multidetails [codes...]  - Show details for multiple courses.
+        Use help to see available subcommands.
         """
         await ctx.send_help(self.course)
 
@@ -319,9 +270,7 @@ class CourseManager(commands.Cog):
     #####################################################
     @course.command(name="list")
     async def list_enrollments(self, ctx: commands.Context) -> None:
-        """
-        List all course channels you are currently enrolled in.
-        """
+        """List all course channels you are currently enrolled in."""
         courses = self.get_user_courses(ctx.author, ctx.guild)
         if courses:
             await ctx.send("You are enrolled in the following courses:\n" + "\n".join(courses))
@@ -343,7 +292,8 @@ class CourseManager(commands.Cog):
             return
         # Mark the data as stale.
         await self.config.courses.set_raw(formatted, value={"is_fresh": False})
-        data = await self.course_data_proxy.get_course_data(formatted)
+        async with ctx.typing():
+            data = await self.course_data_proxy.get_course_data(formatted)
         if data and data.get("course_data"):
             await ctx.send(success(f"Course data for {formatted} refreshed successfully."))
         else:
@@ -356,18 +306,16 @@ class CourseManager(commands.Cog):
     async def join(self, ctx: commands.Context, course_code: str) -> None:
         """
         Join a course channel.
-        
-        Validates the course code using the external API, checks if the user has not exceeded their course limit,
-        and grants access by setting per–user permission overwrites.
-        Prevents duplicate enrollment.
+        Validates the course code, checks enrollment limits and duplicate joins, and sets per-user permissions.
         """
         formatted: Optional[str] = self._format_course_key(course_code)
         if not formatted:
             await ctx.send(error(f"Invalid course code: {course_code}."))
             return
 
-        # Check if course details can be found.
-        data: Dict[str, Any] = await self.course_data_proxy.get_course_data(formatted)
+        async with ctx.typing():
+            # Check if course details can be found.
+            data: Dict[str, Any] = await self.course_data_proxy.get_course_data(formatted)
         if not data or not data.get("course_data"):
             await ctx.send(error(f"Error: No valid course data found for {formatted}."))
             return
@@ -428,12 +376,13 @@ class CourseManager(commands.Cog):
         if self.logging_channel:
             await self.logging_channel.send(f"{ctx.author} has left {formatted}.")
 
+    #####################################################
+    # Admin Commands: Delete and Set Logging
+    #####################################################
     @commands.admin()
     @course.command()
     async def delete(self, ctx: commands.Context, channel: discord.TextChannel) -> None:
-        """
-        Delete a course channel (admin-only).
-        """
+        """Delete a course channel (admin-only)."""
         if not channel.category or channel.category.name != self.category_name:
             await ctx.send(error(f"{channel.mention} is not a course channel."))
             return
@@ -449,9 +398,7 @@ class CourseManager(commands.Cog):
     @commands.admin()
     @course.command(name="setlogging")
     async def set_logging(self, ctx: commands.Context, channel: discord.TextChannel) -> None:
-        """
-        Set the logging channel for join/leave notifications (admin-only).
-        """
+        """Set the logging channel for join/leave notifications (admin-only)."""
         self.logging_channel = channel
         await ctx.send(success(f"Logging channel set to {channel.mention}."))
 
@@ -547,10 +494,6 @@ class CourseManager(commands.Cog):
     def _create_course_embed(self, course_key: str, course_data: Dict[str, Any]) -> discord.Embed:
         """
         Build a Discord embed to display course details.
-        
-        :param course_key: Standardized course key.
-        :param course_data: Dictionary with course data.
-        :return: Configured discord.Embed object.
         """
         embed = discord.Embed(title=f"Course Details: {course_key}", color=discord.Color.green())
         data_item = course_data.get("course_data", [{}])[0]
@@ -570,9 +513,6 @@ class CourseManager(commands.Cog):
     def get_category(self, guild: discord.Guild) -> Optional[discord.CategoryChannel]:
         """
         Find the category named self.category_name in the given guild.
-        
-        :param guild: The Discord guild.
-        :return: The category if found, else None.
         """
         for category in guild.categories:
             if category.name == self.category_name:
@@ -582,10 +522,6 @@ class CourseManager(commands.Cog):
     def get_course_channel(self, guild: discord.Guild, course_key: str) -> Optional[discord.TextChannel]:
         """
         Retrieve a course channel by its standardized course key.
-        
-        :param guild: The Discord guild.
-        :param course_key: Standardized course key.
-        :return: The corresponding TextChannel if it exists.
         """
         category = self.get_category(guild)
         if not category:
@@ -598,11 +534,6 @@ class CourseManager(commands.Cog):
     async def create_course_channel(self, guild: discord.Guild, category: discord.CategoryChannel, course_key: str) -> discord.TextChannel:
         """
         Create a new course channel under the courses category.
-        
-        :param guild: The Discord guild.
-        :param category: The courses category.
-        :param course_key: Standardized course key.
-        :return: The newly created TextChannel.
         """
         overwrites = {
             guild.default_role: discord.PermissionOverwrite.none(),
@@ -613,20 +544,16 @@ class CourseManager(commands.Cog):
     def get_user_courses(self, user: discord.Member, guild: discord.Guild) -> List[str]:
         """
         List the course channels the user currently has access to in the guild.
-        
-        :param user: The Discord member.
-        :param guild: The Discord guild.
-        :return: List of course channel names (uppercased).
         """
-        courses: List[str] = []
         category = self.get_category(guild)
         if not category:
-            return courses
-        for channel in category.channels:
-            if isinstance(channel, discord.TextChannel) and channel.permissions_for(user).read_messages:
-                courses.append(channel.name.upper())
-        return courses
-
+            return []
+        return [
+            channel.name.upper()
+            for channel in category.channels
+            if isinstance(channel, discord.TextChannel) and channel.permissions_for(user).read_messages
+        ]
+    
     #####################################################
     # Developer Commands (Owner-only)
     #####################################################
