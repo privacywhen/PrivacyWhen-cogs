@@ -404,7 +404,7 @@ class CourseManager(commands.Cog):
             await ctx.send("You are not enrolled in any courses.")
 
     @course.command()
-    async def refresh(self, ctx: commands.Context, course_code: str) -> None:
+    async def refresh(self, ctx: commands.Context, *, course_code: str) -> None:
         """
         Force refresh the course data for a specified course.
         Example: `!course refresh MATH 1A03`
@@ -480,7 +480,7 @@ class CourseManager(commands.Cog):
             await self.logging_channel.send(f"{ctx.author} has joined {variant}.")
 
     @course.command()
-    async def leave(self, ctx: commands.Context, course_code: str) -> None:
+    async def leave(self, ctx: commands.Context, *, course_code: str) -> None:
         """Leave a course channel by removing your permission override."""
         formatted = self._format_course_key(course_code)
         log.debug("%s attempting to leave course: %s", ctx.author, formatted)
@@ -506,7 +506,7 @@ class CourseManager(commands.Cog):
 
     @commands.admin()
     @course.command()
-    async def delete(self, ctx: commands.Context, channel: discord.TextChannel) -> None:
+    async def delete(self, ctx: commands.Context, *, channel: discord.TextChannel) -> None:
         """Delete a course channel (admin-only)."""
         log.debug("Admin %s attempting to delete channel %s", ctx.author, channel.name)
         if not channel.category or channel.category.name != self.category_name:
