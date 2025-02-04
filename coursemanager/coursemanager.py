@@ -426,7 +426,7 @@ class CourseManager(commands.Cog):
             await ctx.send(error(f"Failed to refresh course data for {variant}."))
 
     @course.command()
-    async def join(self, ctx: commands.Context, course_code: str) -> None:
+    async def join(self, ctx: commands.Context, *, course_code: str) -> None:
         """
         Join a course channel.
         Validates the course code, checks enrollment limits, and sets permissions.
