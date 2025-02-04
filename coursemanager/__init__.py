@@ -1,5 +1,5 @@
-from .course_manager import CourseManager
+from .coursemanager import CourseManager
 
 
 async def setup(bot):
-    await bot.add_cog(CourseManage(bot))
+    await bot.add_cog(CourseManager(bot))
