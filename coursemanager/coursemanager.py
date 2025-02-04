@@ -192,24 +192,57 @@ class CourseDataProxy:
 
     def _process_soup_content(self, soup: BeautifulSoup) -> List[Dict]:
         """
-        Parse the BeautifulSoup object to extract relevant course data.
+        Parse the BeautifulSoup object to extract relevant course data,
+        including title, term, credits, description, prerequisites, and antirequisites.
         """
         courses = soup.find_all("course")
         log.debug("Processing soup content. Found %s courses.", len(courses))
-        return [
-            {
-                "title": (
-                    course.find("offering")["title"]
-                    if course.find("offering") and "title" in course.find("offering").attrs
-                    else ""
-                ),
-                "term_found": (course.find("term").get("v") if course.find("term") else ""),
-                "teacher": (course.find("block").get("teacher", "") if course.find("block") else ""),
+        processed_courses = []
+        for course in courses:
+            offering = course.find("offering")
+            title = offering.get("title", "") if offering else ""
+            desc_attr = offering.get("desc", "") if offering else ""
+            # Initialize description fields.
+            description = ""
+            prerequisites = ""
+            antirequisites = ""
+            if desc_attr:
+                # Split on <br/> tags (handling <br> or <br />)
+                desc_parts = re.split(r"<br\s*/?>", desc_attr)
+                # Remove any extra whitespace and empty parts.
+                desc_parts = [part.strip() for part in desc_parts if part.strip()]
+                if desc_parts:
+                    # Assume the first line is the main description.
+                    description = desc_parts[0]
+                # Search through parts for prerequisites and antirequisites.
+                for part in desc_parts:
+                    lower = part.lower()
+                    if lower.startswith("prerequisite"):
+                        # Split on the colon and strip out the label.
+                        prerequisites = part.split(":", 1)[1].strip() if ":" in part else ""
+                    elif lower.startswith("antirequisite"):
+                        antirequisites = part.split(":", 1)[1].strip() if ":" in part else ""
+            # Get credits from the first selection element if available.
+            selection = course.find("selection")
+            credits = selection.get("credits", "") if selection else ""
+            term_found = course.find("term").get("v", "") if course.find("term") else ""
+            teacher = ""
+            block = course.find("block")
+            if block:
+                teacher = block.get("teacher", "")
+            processed_courses.append({
+                "title": title,
+                "term_found": term_found,
+                "teacher": teacher,
                 "course_code": course.get("code", ""),
                 "course_number": course.get("number", ""),
-            }
-            for course in courses
-        ]
+                "credits": credits,
+                "description": description,
+                "prerequisites": prerequisites,
+                "antirequisites": antirequisites,
+            })
+        return processed_courses
+
 
 
 ###############################################################################
@@ -556,7 +589,7 @@ class CourseManager(commands.Cog):
 
     def _create_course_embed(self, course_key: str, course_data: Dict[str, Any]) -> discord.Embed:
         """
-        Build a Discord embed to display course details.
+        Build a Discord embed to display comprehensive course details.
         """
         log.debug("Creating course embed for %s", course_key)
         embed = discord.Embed(title=f"Course Details: {course_key}", color=discord.Color.green())
@@ -566,17 +599,29 @@ class CourseManager(commands.Cog):
         footer_icon = "🟢" if is_fresh else "🔴"
         embed.set_footer(text=f"{footer_icon} Last updated: {date_added}")
 
-        for key, label in (
-            ("title", "Title"),
-            ("term_found", "Term"),
-            ("teacher", "Instructor"),
-            ("course_code", "Code"),
-            ("course_number", "Number"),
-        ):
-            value = data_item.get(key)
+        # Basic fields
+        basic_fields = [
+            ("Title", data_item.get("title", "")),
+            ("Term", data_item.get("term_found", "")),
+            ("Instructor", data_item.get("teacher", "")),
+            ("Code", data_item.get("course_code", "")),
+            ("Number", data_item.get("course_number", "")),
+            ("Credits", data_item.get("credits", "")),
+        ]
+        for name, value in basic_fields:
             if value:
-                embed.add_field(name=label, value=value, inline=True)
+                embed.add_field(name=name, value=value, inline=True)
+
+        # Longer text fields: description, prerequisites, antirequisites
+        if data_item.get("description"):
+            embed.add_field(name="Description", value=data_item.get("description"), inline=False)
+        if data_item.get("prerequisites"):
+            embed.add_field(name="Prerequisite(s)", value=data_item.get("prerequisites"), inline=True)
+        if data_item.get("antirequisites"):
+            embed.add_field(name="Antirequisite(s)", value=data_item.get("antirequisites"), inline=True)
+
         return embed
+
 
     def get_category(self, guild: discord.Guild) -> Optional[discord.CategoryChannel]:
         """
