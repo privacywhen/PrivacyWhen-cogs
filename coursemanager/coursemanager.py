@@ -35,7 +35,7 @@ class CourseDataProxy:
     _CACHE_EXPIRY_DAYS: int = 240
     _TERM_NAMES: List[str] = ["winter", "spring", "fall"]
     _URL_BASE: str = (
-        "https://mytimetable.mcmaster.ca/getclassdata.jsp?"
+        "https://mytimetable.mcmaster.ca/api/class-data?"
         "term={term}&course_0_0={course_key_formatted}&t={t}&e={e}"
     )
 
