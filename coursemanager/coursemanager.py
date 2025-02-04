@@ -252,7 +252,7 @@ class CourseManager(commands.Cog):
         self.bot: commands.Bot = bot
 
         # Channel management settings.
-        # Set channel permissions using a custom allowed bitmask (446676945984) and no denied permissions.
+        # Allowed permissions for users are defined by the bitmask (446676945984) and no denied permissions.
         self.channel_permissions: discord.PermissionOverwrite = discord.PermissionOverwrite.from_pair(
             discord.Permissions(446676945984),
             discord.Permissions(0),
@@ -667,13 +667,16 @@ class CourseManager(commands.Cog):
     ) -> discord.TextChannel:
         """
         Create a new course channel under the designated category.
-        The channel name is derived from the base course code.
+        The channel is created with no permissions for @everyone (hidden by default).
+        Only the bot is given full permissions until a user joins via the join command.
         """
         target_name = self._get_channel_name(course_key)
         log.debug("Creating channel '%s' in guild %s", target_name, guild.name)
+        # Deny view_channel for @everyone.
+        # For the bot, we grant full permissions by setting administrator=True.
         overwrites = {
-            guild.default_role: discord.PermissionOverwrite(),  # empty overwrite (i.e. "none")
-            guild.me: discord.PermissionOverwrite.all(),
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            guild.me: discord.PermissionOverwrite(administrator=True),
         }
         channel = await guild.create_text_channel(target_name, overwrites=overwrites, category=category)
         log.debug("Created channel '%s' in guild %s", channel.name, guild.name)
