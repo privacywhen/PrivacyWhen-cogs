@@ -714,10 +714,3 @@ class CourseManager(commands.Cog):
         """
         await self.config.courses.set({})
         await ctx.send(warning("All courses have been cleared from the config."))
-
-
-###############################################################################
-# Cog Setup
-###############################################################################
-def setup(bot: commands.Bot) -> None:
-    bot.add_cog(CourseManager(bot))
