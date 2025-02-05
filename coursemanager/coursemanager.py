@@ -9,6 +9,7 @@ from redbot.core import commands, Config
 from redbot.core.utils.chat_formatting import box, error, info, success, warning, pagify
 from redbot.core.utils.menus import menu, DEFAULT_CONTROLS
 from .coursedata import CourseDataProxy
+import difflib
 
 
 # Configure logging
@@ -647,11 +648,14 @@ class CourseManager(commands.Cog):
     async def list_all_courses(self, ctx: commands.Context) -> None:
         """Lists all courses"""
         cfg = await self.config.course_listings.all()
-        courses = cfg["courses"]
-        dtm = cfg["date_updated"]
-        # log.debug("Current config: %s", cfg)
-        serialized_courses = "\n".join(list(courses.keys()))
-        await ctx.send(f"{len(cfg['courses'])} courses cached on {dtm}\n{serialized_courses}" )
+        if "courses" in cfg:
+            courses = cfg["courses"]
+            dtm = cfg["date_updated"]
+            # log.debug("Current config: %s", cfg)
+            serialized_courses = "\n".join(list(courses.keys()))
+            await ctx.send(f"{len(cfg['courses'])} courses cached on {dtm}\n{serialized_courses}" )
+        else:
+            await ctx.send("Course list not found. Run populate command first.")
 
     @dev_course.command(name="populate")
     async def fetch_prefixes(self, ctx: commands.Context) -> None:
@@ -661,3 +665,22 @@ class CourseManager(commands.Cog):
             await ctx.send(info(f"Fetched and cached {course_count} courses"))
         else:
             await ctx.send(warning("0 courses fetched. Check console log"))
+
+    @dev_course.command(name="populate")
+    async def fuzzy_search(self, ctx: commands.Context, search_code: str) -> None:
+        """
+        Returns the course name for the given course code. If not found,
+        returns a list of the closest matching course codes.
+        """
+        search_code = search_code.upper()
+        cfg = self.config.course_listings.all()
+        if "courses" in cfg:
+            courses = cfg["courses"]
+            if search_code in courses:
+                await ctx.send(f"Course Name: {courses[search_code]}")
+            else:                  # Perform fuzzy search for the closest matches
+                closest_matches = difflib.get_close_matches(se                    search_code, courses.keys(), n=4, cutoff=0.6)
+                if closest_matches:
+                    await ctx.send(f"{search_code} not found. Did you mean: {', '.join(closest_matches)}?")
+                else:
+                    await ctx.send(f"{search_code} not found and no similar matches available.")

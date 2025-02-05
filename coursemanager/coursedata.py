@@ -319,7 +319,7 @@ class CourseDataProxy:
             "Processing soup: found %s course listing entries.", len(courses))
         courses_dict = {}
         for course in courses:
-            course_code = course.text
+            course_code = course.text.upper()
             course_name = course.get("info")
             courses_dict[course_code] = course_name
         return courses_dict
