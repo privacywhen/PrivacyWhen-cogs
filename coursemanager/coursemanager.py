@@ -690,7 +690,7 @@ class CourseManager(commands.Cog):
         returns a list of the closest matching course codes.
         """
         search_code = search_code.upper()
-        cfg = self.config.course_listings.all()
+        cfg = await self.config.course_listings.all()
         if "courses" in cfg:
             courses = cfg["courses"]
             if search_code in courses:
