@@ -551,56 +551,6 @@ class CourseManager(commands.Cog):
         embed = self._create_course_embed(variant, data)
         await ctx.send(embed=embed)
 
-    @course.command(name="multidetails")
-    @commands.cooldown(1, 10, commands.BucketType.user)
-    async def multi_course_details(self, ctx: commands.Context, *course_codes: str) -> None:
-        """
-        Fetch details for multiple courses concurrently.
-        Example: `!course multidetails MATH 1A03 PHYSICS 1B03`
-        Fallback lookup is performed for each code.
-        """
-        log.debug("Multi-details invoked by %s with codes: %s", ctx.author, course_codes)
-        if not course_codes:
-            await ctx.send(info("You must specify at least one course code."))
-            return
-
-        valid_courses: List[str] = []
-        for code in course_codes:
-            formatted = self._format_course_key(code)
-            if formatted:
-                valid_courses.append(formatted)
-            else:
-                await ctx.send(warning(f"Skipping invalid code: {code}"))
-
-        log.debug("Valid courses for multidetails: %s", valid_courses)
-        tasks = [self._lookup_course_data(vc) for vc in valid_courses]
-        results = await bounded_gather(*tasks, limit=3)
-
-        output_lines: List[str] = []
-        for idx, (resolved_code, res) in enumerate(results):
-            if not resolved_code or not (res and res.get("course_data")):
-                output_lines.append(error(f"No data found for {valid_courses[idx]}."))
-                continue
-
-            data_item = res["course_data"][0]
-            updated = res.get("date_added", "Unknown")
-            freshness_icon = "🟢" if res.get("is_fresh", False) else "🔴"
-            text_block = (
-                f"{freshness_icon} **{resolved_code}**\n"
-                f"  Title: {data_item.get('title', '')}\n"
-                f"  Instructor: {data_item.get('teacher', '')}\n"
-                f"  Term: {data_item.get('term_found', '')}\n"
-                f"  Last Updated: {updated}\n"
-            )
-            output_lines.append(box(text_block, lang="md"))
-
-        final_text = "\n".join(output_lines)
-        pages = list(pagify(final_text, page_length=2000))
-        if len(pages) == 1:
-            await ctx.send(pages[0])
-        else:
-            await menu(ctx, pages, DEFAULT_CONTROLS)
-
     #####################################################
     # Utility Functions
     #####################################################
