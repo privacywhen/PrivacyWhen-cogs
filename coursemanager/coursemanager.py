@@ -451,12 +451,14 @@ class CourseManager(commands.Cog):
     # Command Group: course
     #####################################################
     @commands.group(invoke_without_command=True)
+    @commands.cooldown(1, 5, commands.BucketType.user)
     async def course(self, ctx: commands.Context) -> None:
         """Main command group for course functionalities."""
         log.debug("Course command group invoked by %s", ctx.author)
         await ctx.send_help(self.course)
 
     @course.command(name="list")
+    @commands.cooldown(1, 600, commands.BucketType.user)
     async def list_enrollments(self, ctx: commands.Context) -> None:
         """List all course channels you are currently enrolled in."""
         log.debug("Listing courses for user %s in guild %s", ctx.author, ctx.guild.name)
@@ -468,6 +470,7 @@ class CourseManager(commands.Cog):
             await ctx.send("You are not enrolled in any courses.")
 
     @course.command()
+    @commands.cooldown(1, 86400, commands.BucketType.user)
     async def refresh(self, ctx: commands.Context, *, course_code: str) -> None:
         """
         Force refresh the course data for a specified course.
@@ -493,6 +496,7 @@ class CourseManager(commands.Cog):
             await ctx.send(error(f"Failed to refresh course data for {variant}."))
 
     @course.command()
+    @commands.cooldown(5, 28800, commands.BucketType.user)
     async def join(self, ctx: commands.Context, *, course_code: str) -> None:
         """
         Join a course channel.
@@ -560,6 +564,7 @@ class CourseManager(commands.Cog):
             await self.logging_channel.send(f"{ctx.author} has joined {variant}.")
 
     @course.command()
+    @commands.cooldown(5, 28800, commands.BucketType.user)
     async def leave(self, ctx: commands.Context, *, course_code: str) -> None:
         """Leave a course channel by removing your permission override."""
         formatted = self._format_course_key(course_code)
@@ -621,8 +626,7 @@ class CourseManager(commands.Cog):
         await ctx.send(success(f"Logging channel set to {channel.mention}."))
 
     @course.command(name="details")
-    @commands.cooldown(1, 5, commands.BucketType.user)
-    @commands.cooldown(5, 90, commands.BucketType.guild)
+    @commands.cooldown(10, 600, commands.BucketType.guild)
     async def course_details(
         self, ctx: commands.Context, *, course_key_raw: str
     ) -> None:
