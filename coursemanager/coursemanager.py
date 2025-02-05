@@ -634,3 +634,11 @@ class CourseManager(commands.Cog):
         await self.config.courses.set({})
         log.debug("All course data cleared by %s", ctx.author)
         await ctx.send(warning("All courses have been cleared from the config."))
+
+    @dev_course.command(name="list")
+    async def print_config(self, ctx: commands.Context) -> None:
+        """Lists cached courses."""
+        cfg = await self.config.courses.all()
+        # log.debug("Current config: %s", cfg)
+        serialized = "\n".join([f"{k}: {cfg[k]}" for k in cfg])
+        await ctx.send(serialized)
