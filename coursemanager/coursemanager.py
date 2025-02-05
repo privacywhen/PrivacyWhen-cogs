@@ -696,7 +696,7 @@ class CourseManager(commands.Cog):
             if search_code in courses:
                 await ctx.send(f"Course Name: {courses[search_code]}")
             else:                  # Perform fuzzy search for the closest matches
-                closest_matches = difflib.get_close_matches(se                    search_code, courses.keys(), n=4, cutoff=0.6)
+                closest_matches = difflib.get_close_matches(search_code, courses.keys(), n=4, cutoff=0.6)
                 if closest_matches:
                     await ctx.send(f"{search_code} not found. Did you mean: {', '.join(closest_matches)}?")
                 else:
