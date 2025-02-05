@@ -54,7 +54,7 @@ class CourseManager(commands.Cog):
         self.logging_channel: Optional[discord.TextChannel] = None
 
         # Global defaults for config.
-        default_global: Dict[str, Any] = {"term_codes": {}, "courses": {}}
+        default_global: Dict[str, Any] = {"term_codes": {}, "courses": {}, "course_listings": {}}
         self.config: Config = Config.get_conf(
             self, identifier=3720194665, force_registration=True
         )
@@ -637,8 +637,27 @@ class CourseManager(commands.Cog):
 
     @dev_course.command(name="list")
     async def list_courses(self, ctx: commands.Context) -> None:
-        """Lists cached courses."""
+        """Lists courses with cached details."""
         cfg = await self.config.courses.all()
         # log.debug("Current config: %s", cfg)
         serialized = "\n".join([k for k in cfg])
         await ctx.send(serialized)
+
+    @dev_course.command(name="listall")
+    async def list_all_courses(self, ctx: commands.Context) -> None:
+        """Lists all courses"""
+        cfg = await self.config.course_listings.all()
+        courses = cfg["courses"]
+        dtm = cfg["date_updated"]
+        # log.debug("Current config: %s", cfg)
+        serialized_courses = "\n".join(list(courses.keys()))
+        await ctx.send(f"{len(cfg["courses"])} courses cached on {dtm}\n{serialized_courses}" )
+
+    @dev_course.command(name="populate")
+    async def fetch_prefixes(self, ctx: commands.Context) -> None:
+        """Force refresh cached course code and names"""
+        course_count = await self.course_data_proxy.update_course_listing()
+        if course_count > 0:
+            await ctx.send(info(f"Fetched and cached {course_count} courses"))
+        else:
+            await ctx.send(warning("0 courses fetched. Check console log"))

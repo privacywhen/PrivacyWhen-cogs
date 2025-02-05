@@ -32,6 +32,7 @@ class CourseDataProxy:
         "https://mytimetable.mcmaster.ca/api/class-data?"
         "term={term}&course_0_0={course_key_formatted}&t={t}&e={e}"
     )
+    _LISTING_URL = "https://mytimetable.mcmaster.ca/api/courses/suggestions?cams=MCMSTiMCMST_MCMSTiSNPOL_MCMSTiMHK_MCMSTiCON_MCMSTiOFF&course_add=*&page_num=-1"
 
     def __init__(self, config: Config, log: Logger) -> None:
         """Initialize the proxy with the bot's Config instance."""
@@ -55,7 +56,7 @@ class CourseDataProxy:
             )
             soup, error_msg = await self._fetch_course_online(course_key_formatted)
             if soup:
-                processed_data = self._process_soup_content(soup)
+                processed_data = self._process_course_data(soup)
                 new_data = {
                     "course_data": processed_data,
                     "date_added": date.today().isoformat(),
@@ -180,7 +181,7 @@ class CourseDataProxy:
         return t, e
 
     async def _fetch_single_attempt(
-        self, url: str
+        self, url: str, content_type: str = "xml"
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
         """Perform a single HTTP GET request to fetch course data."""
         self.log.debug("HTTP GET: %s", url)
@@ -193,7 +194,7 @@ class CourseDataProxy:
                     if response.status != 200:
                         return None, f"Error: HTTP {response.status}"
                     content = await response.text()
-                    soup = BeautifulSoup(content, "xml")
+                    soup = BeautifulSoup(content, content_type)
                     if not (error_tag := soup.find("error")):
                         self.log.debug("No error tag in response for %s", url)
                         return soup, None
@@ -204,7 +205,7 @@ class CourseDataProxy:
             self.log.error("Exception during HTTP GET from %s: %s", url, e)
             return None, str(e)
 
-    def _process_soup_content(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
+    def _process_course_data(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
         """
         Parse the BeautifulSoup object to extract course data including title, term,
         credits, description, prerequisites, and antirequisites.
@@ -263,3 +264,62 @@ class CourseDataProxy:
                 }
             )
         return processed_courses
+
+    async def update_course_listing(self) -> Optional[str]:
+        """
+        Retrieve and overwrite full course listings, returns number of courses found
+        """
+        self.log.debug("Retrieving full course listings")
+
+        soup, error_msg = await self._fetch_course_listings()
+        if soup:
+            processed_listing = self._process_course_listing(soup)
+            new_data = {
+                "courses": processed_listing,
+                "date_updated": date.today().isoformat(),
+            }
+            await self.config.course_listings.set(new_data)
+            self.log.debug(
+                f"Fetched and cached {len(processed_listing)} courses")
+            return len(processed_listing)
+        elif error_msg:
+            self.log.error(f"Error fetching course list: {error_msg}")
+            return 0
+
+    async def _fetch_course_listings(
+        self,
+    ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
+        """
+        Try to fetch data using multiple term IDs with a retry mechanism.
+        """
+        url = self._LISTING_URL
+        try:
+            soup, error_message = await self._fetch_single_attempt(url)
+            if soup:
+                self.log.debug(
+                    "Successfully fetched listing data from %s", url)
+                return soup, None
+            elif error_message:
+                self.log.debug("Received error: %s", error_message)
+                return None, error_message
+        except (
+            ClientResponseError,
+            ClientConnectionError,
+        ) as error:
+            self.log.error(
+                "Exception during fetch from %s: %s", url, error)
+            return None, "Error: Issue occurred while fetching course data."
+
+    def _process_course_listing(self, soup: BeautifulSoup) -> Dict[str, str]:
+        """
+        Parses full course listing (id, name)
+        """
+        courses = soup.find_all("rs")
+        self.log.debug(
+            "Processing soup: found %s course listing entries.", len(courses))
+        courses_dict = {}
+        for course in courses:
+            course_code = course.text
+            course_name = course.get("info")
+            courses_dict[course_code] = course_name
+        return courses_dict
