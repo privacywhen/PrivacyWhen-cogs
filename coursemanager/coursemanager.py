@@ -54,13 +54,16 @@ class CourseManager(commands.Cog):
         self.logging_channel: Optional[discord.TextChannel] = None
 
         # Global defaults for config.
-        default_global: Dict[str, Any] = {"term_codes": {}, "courses": {}, "course_listings": {}}
+        default_global: Dict[str, Any] = {
+            "term_codes": {},
+            "courses": {},
+            "course_listings": {},
+        }
         self.config: Config = Config.get_conf(
             self, identifier=3720194665, force_registration=True
         )
         self.config.register_global(**default_global)
-        self.course_data_proxy: CourseDataProxy = CourseDataProxy(
-            self.config, log)
+        self.course_data_proxy: CourseDataProxy = CourseDataProxy(self.config, log)
 
         # Start the background auto-prune task.
         self._prune_task: asyncio.Task = self.bot.loop.create_task(
@@ -75,7 +78,9 @@ class CourseManager(commands.Cog):
 
     async def _auto_prune_task(self) -> None:
         """
-        Background task to auto-prune inactive course channels (no non-bot messages in 120 days).
+        Background task to auto-prune inactive course channels.
+        Iterates through all guilds and channels in the "COURSES" category,
+        using the unified _prune_channel helper.
         """
         PRUNE_INTERVAL = 3600  # every hour
         PRUNE_THRESHOLD = timedelta(days=120)
@@ -92,34 +97,9 @@ class CourseManager(commands.Cog):
                     )
                     continue
                 for channel in category.channels:
-                    if not isinstance(channel, discord.TextChannel):
-                        continue
-                    try:
-                        last_user_message = None
-                        async for msg in channel.history(limit=10):
-                            if not msg.author.bot:
-                                last_user_message = msg
-                                break
-                        if not last_user_message:
-                            log.debug("No user messages in channel %s", channel.name)
-                        elif (
-                            datetime.now(timezone.utc) - last_user_message.created_at
-                            > PRUNE_THRESHOLD
-                        ):
-                            log.info(
-                                "Auto-pruning channel '%s' in '%s'",
-                                channel.name,
-                                guild.name,
-                            )
-                            await channel.delete(
-                                reason="Auto-pruned due to inactivity."
-                            )
-                    except Exception as e:
-                        log.error(
-                            "Error pruning channel '%s' in '%s': %s",
-                            channel.name,
-                            guild.name,
-                            e,
+                    if isinstance(channel, discord.TextChannel):
+                        await self._prune_channel(
+                            channel, PRUNE_THRESHOLD, "Auto-pruned due to inactivity."
                         )
             await asyncio.sleep(PRUNE_INTERVAL)
 
@@ -200,6 +180,47 @@ class CourseManager(commands.Cog):
                 return variant, data
         log.debug("No course data found for variants of %s", formatted)
         return None, None
+
+    async def _prune_channel(
+        self, channel: discord.TextChannel, threshold: timedelta, reason: str
+    ) -> bool:
+        """
+        Check whether a channel is inactive and delete it if needed.
+
+        Returns:
+        True if the channel was pruned (deleted); otherwise, False.
+        """
+        try:
+            last_user_message: Optional[discord.Message] = None
+            async for msg in channel.history(limit=10):
+                if not msg.author.bot:
+                    last_user_message = msg
+                    break
+
+            # Use the most recent non-bot message timestamp, or fallback to channel creation time.
+            last_activity = (
+                last_user_message.created_at
+                if last_user_message
+                else channel.created_at
+            )
+
+            if datetime.now(timezone.utc) - last_activity > threshold:
+                log.info(
+                    "Pruning channel '%s' in guild '%s' (last activity at %s)",
+                    channel.name,
+                    channel.guild.name,
+                    last_activity,
+                )
+                await channel.delete(reason=reason)
+                return True
+        except Exception as e:
+            log.error(
+                "Error pruning channel '%s' in guild '%s': %s",
+                channel.name,
+                channel.guild.name,
+                e,
+            )
+        return False
 
     #####################################################
     # Command Group: course
@@ -580,7 +601,10 @@ class CourseManager(commands.Cog):
 
     @dev_course.command(name="prune")
     async def manual_prune(self, ctx: commands.Context) -> None:
-        """Manually trigger the auto-prune process for inactive course channels."""
+        """
+        Manually trigger the prune process for inactive course channels.
+        Uses the unified _prune_channel helper.
+        """
         log.debug("Manual prune triggered by %s", ctx.author)
         pruned_channels = []
         PRUNE_THRESHOLD = timedelta(days=120)
@@ -589,33 +613,12 @@ class CourseManager(commands.Cog):
             if not category:
                 continue
             for channel in category.channels:
-                if not isinstance(channel, discord.TextChannel):
-                    continue
-                try:
-                    last_user_message = None
-                    async for msg in channel.history(limit=10):
-                        if not msg.author.bot:
-                            last_user_message = msg
-                            break
-                    if (
-                        not last_user_message
-                        or datetime.now(timezone.utc) - last_user_message.created_at
-                        > PRUNE_THRESHOLD
-                    ):
-                        pruned_channels.append(f"{guild.name} - {channel.name}")
-                        log.debug(
-                            "Pruning channel %s in guild %s", channel.name, guild.name
-                        )
-                        await channel.delete(
-                            reason="Manually pruned due to inactivity."
-                        )
-                except Exception as e:
-                    log.error(
-                        "Error pruning channel '%s' in '%s': %s",
-                        channel.name,
-                        guild.name,
-                        e,
+                if isinstance(channel, discord.TextChannel):
+                    pruned = await self._prune_channel(
+                        channel, PRUNE_THRESHOLD, "Manually pruned due to inactivity."
                     )
+                    if pruned:
+                        pruned_channels.append(f"{guild.name} - {channel.name}")
         if pruned_channels:
             await ctx.send(success("Pruned channels:\n" + "\n".join(pruned_channels)))
         else:
@@ -651,7 +654,9 @@ class CourseManager(commands.Cog):
         dtm = cfg["date_updated"]
         # log.debug("Current config: %s", cfg)
         serialized_courses = "\n".join(list(courses.keys()))
-        await ctx.send(f"{len(cfg['courses'])} courses cached on {dtm}\n{serialized_courses}" )
+        await ctx.send(
+            f"{len(cfg['courses'])} courses cached on {dtm}\n{serialized_courses}"
+        )
 
     @dev_course.command(name="populate")
     async def fetch_prefixes(self, ctx: commands.Context) -> None:
