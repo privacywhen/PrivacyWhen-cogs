@@ -432,13 +432,13 @@ class CourseManager(commands.Cog):
             )
             return
 
-        embed = self._get_course_embed(formatted)
+        embed = await self._get_course_details(formatted)
         if embed is None:
             await ctx.send(error(f"Course not found: {formatted}"))
         else:
             await ctx.send(embed=embed)
 
-    async def _get_course_embed(self, course_code):
+    async def _get_course_details(self, course_code):
         variant, data = await self._lookup_course_data(course_code)
         if not variant or not (data and data.get("course_data")):
             return None
@@ -704,7 +704,7 @@ class CourseManager(commands.Cog):
 
         # exact match, no need for fuzzy search
         if search_code in courses:
-            embed = self._get_course_embed(search_code)
+            embed = await self._get_course_details(search_code)
             await ctx.send(embed=embed)
             return
                         
@@ -735,7 +735,7 @@ class CourseManager(commands.Cog):
             selected_course = closest_matches[selected_index]
 
             await msg.clear_reactions()
-            embed = self._get_course_embed(selected_course)
+            embed = await self._get_course_details(selected_course)
             await msg.edit(embed=embed)
         
         except asyncio.TimeoutError:
