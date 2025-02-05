@@ -670,7 +670,7 @@ class CourseManager(commands.Cog):
             dtm = cfg["date_updated"]
             # log.debug("Current config: %s", cfg)
             serialized_courses = "\n".join(list(courses.keys()))
-            await ctx.send(f"{len(cfg['courses'])} courses cached on {dtm}\n{serialized_courses[:3000] + '...' if len(serialized_courses) > 3000 else ''}")
+            await ctx.send(f"{len(cfg['courses'])} courses cached on {dtm}\n{serialized_courses[:1500] + '...' if len(serialized_courses) > 1500 else ''}")
         else:
             await ctx.send("Course list not found. Run populate command first.")
 
@@ -695,8 +695,9 @@ class CourseManager(commands.Cog):
             courses = cfg["courses"]
             if search_code in courses:
                 await ctx.send(f"Course Name: {courses[search_code]}")
-            else:                  # Perform fuzzy search for the closest matches
-                closest_matches = difflib.get_close_matches(search_code, courses.keys(), n=4, cutoff=0.6)
+            else:                  
+                # Perform fuzzy search for the closest matches
+                closest_matches = difflib.get_close_matches(search_code, courses.keys(), n=3, cutoff=0.75)
                 if closest_matches:
                     await ctx.send(f"{search_code} not found. Did you mean: {', '.join(closest_matches)}?")
                 else:
