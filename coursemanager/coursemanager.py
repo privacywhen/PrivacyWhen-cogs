@@ -1,6 +1,7 @@
 import asyncio
 import re
 import logging
+from datetime import timezone
 from math import floor
 from time import time
 from datetime import date, datetime, timedelta
@@ -10,7 +11,12 @@ import discord
 from redbot.core import commands, Config
 from redbot.core.utils.chat_formatting import box, error, info, success, warning, pagify
 from redbot.core.utils.menus import menu, DEFAULT_CONTROLS
-from aiohttp import ClientConnectionError, ClientResponseError, ClientSession, ClientTimeout
+from aiohttp import (
+    ClientConnectionError,
+    ClientResponseError,
+    ClientSession,
+    ClientTimeout,
+)
 from bs4 import BeautifulSoup
 
 # Configure logging
@@ -53,9 +59,14 @@ class CourseDataProxy:
         Otherwise, fetch it from the remote API, cache it, and return the new data.
         """
         log.debug("Retrieving course data for %s", course_key_formatted)
-        course_data = await self.config.courses.get_raw(course_key_formatted, default=None)
+        course_data = await self.config.courses.get_raw(
+            course_key_formatted, default=None
+        )
         if not course_data or not course_data.get("is_fresh", False):
-            log.debug("Course data missing/stale for %s; fetching online.", course_key_formatted)
+            log.debug(
+                "Course data missing/stale for %s; fetching online.",
+                course_key_formatted,
+            )
             soup, error_msg = await self._fetch_course_online(course_key_formatted)
             if soup:
                 processed_data = self._process_soup_content(soup)
@@ -65,10 +76,16 @@ class CourseDataProxy:
                     "is_fresh": True,
                 }
                 await self.config.courses.set_raw(course_key_formatted, value=new_data)
-                log.debug("Fetched and cached data for %s: %s", course_key_formatted, new_data)
-                course_data = await self.config.courses.get_raw(course_key_formatted, default=None)
+                log.debug(
+                    "Fetched and cached data for %s: %s", course_key_formatted, new_data
+                )
+                course_data = await self.config.courses.get_raw(
+                    course_key_formatted, default=None
+                )
             elif error_msg:
-                log.error("Error fetching data for %s: %s", course_key_formatted, error_msg)
+                log.error(
+                    "Error fetching data for %s: %s", course_key_formatted, error_msg
+                )
                 return {}
         else:
             log.debug("Using cached data for %s", course_key_formatted)
@@ -81,7 +98,9 @@ class CourseDataProxy:
         log.debug("Fetching online data for %s", course_key_formatted)
         term_order = self._determine_term_order()
         log.debug("Term order: %s", term_order)
-        soup, error_message = await self._fetch_data_with_retries(term_order, course_key_formatted)
+        soup, error_message = await self._fetch_data_with_retries(
+            term_order, course_key_formatted
+        )
         return (soup, None) if soup else (None, error_message)
 
     def _determine_term_order(self) -> List[str]:
@@ -91,7 +110,10 @@ class CourseDataProxy:
         """
         now = date.today()
         current_term_index = (now.month - 1) // 4
-        term_order = self._TERM_NAMES[current_term_index:] + self._TERM_NAMES[:current_term_index]
+        term_order = (
+            self._TERM_NAMES[current_term_index:]
+            + self._TERM_NAMES[:current_term_index]
+        )
         log.debug("Date: %s, term order: %s", now, term_order)
         return term_order
 
@@ -130,7 +152,11 @@ class CourseDataProxy:
                             return None, error_message
                         log.debug("Retrying in %s seconds...", retry_delay)
                         await asyncio.sleep(retry_delay)
-                except (ClientResponseError, ClientConnectionError, asyncio.TimeoutError) as error:
+                except (
+                    ClientResponseError,
+                    ClientConnectionError,
+                    asyncio.TimeoutError,
+                ) as error:
                     log.error("Exception during fetch from %s: %s", url, error)
                     if retry_count == max_retries - 1:
                         return None, "Error: Issue occurred while fetching course data."
@@ -150,7 +176,9 @@ class CourseDataProxy:
     def _build_url(self, term_id: int, course_key_formatted: str) -> str:
         """Construct the URL for the course data query."""
         t, e = self._generate_time_code()
-        url = self._URL_BASE.format(term=term_id, course_key_formatted=course_key_formatted, t=t, e=e)
+        url = self._URL_BASE.format(
+            term=term_id, course_key_formatted=course_key_formatted, t=t, e=e
+        )
         log.debug("Generated URL with t=%s, e=%s: %s", t, e, url)
         return url
 
@@ -161,7 +189,9 @@ class CourseDataProxy:
         log.debug("Generated time codes: t=%s, e=%s", t, e)
         return t, e
 
-    async def _fetch_single_attempt(self, url: str) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
+    async def _fetch_single_attempt(
+        self, url: str
+    ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
         """Perform a single HTTP GET request to fetch course data."""
         log.debug("HTTP GET: %s", url)
         timeout = ClientTimeout(total=15)
@@ -200,15 +230,23 @@ class CourseDataProxy:
             antirequisites = ""
             if desc_attr:
                 # Split description using <br> tags (handles various formats)
-                desc_parts = [part.strip() for part in re.split(r"<br\s*/?>", desc_attr) if part.strip()]
+                desc_parts = [
+                    part.strip()
+                    for part in re.split(r"<br\s*/?>", desc_attr)
+                    if part.strip()
+                ]
                 if desc_parts:
                     description = desc_parts[0]
                 for part in desc_parts:
                     lower = part.lower()
                     if lower.startswith("prerequisite"):
-                        prerequisites = part.split(":", 1)[1].strip() if ":" in part else ""
+                        prerequisites = (
+                            part.split(":", 1)[1].strip() if ":" in part else ""
+                        )
                     elif lower.startswith("antirequisite"):
-                        antirequisites = part.split(":", 1)[1].strip() if ":" in part else ""
+                        antirequisites = (
+                            part.split(":", 1)[1].strip() if ":" in part else ""
+                        )
             selection = course.find("selection")
             credits = selection.get("credits", "") if selection else ""
             term_found = course.find("term").get("v", "") if course.find("term") else ""
@@ -252,9 +290,11 @@ class CourseManager(commands.Cog):
 
         # Channel management settings.
         # Allowed permissions for users are defined by the bitmask (446676945984) and no denied permissions.
-        self.channel_permissions: discord.PermissionOverwrite = discord.PermissionOverwrite.from_pair(
-            discord.Permissions(446676945984),
-            discord.Permissions(0),
+        self.channel_permissions: discord.PermissionOverwrite = (
+            discord.PermissionOverwrite.from_pair(
+                discord.Permissions(446676945984),
+                discord.Permissions(0),
+            )
         )
         self.category_name: str = "COURSES"
         self.max_courses: int = 10
@@ -262,12 +302,16 @@ class CourseManager(commands.Cog):
 
         # Global defaults for config.
         default_global: Dict[str, Any] = {"term_codes": {}, "courses": {}}
-        self.config: Config = Config.get_conf(self, identifier=3720194665, force_registration=True)
+        self.config: Config = Config.get_conf(
+            self, identifier=3720194665, force_registration=True
+        )
         self.config.register_global(**default_global)
         self.course_data_proxy: CourseDataProxy = CourseDataProxy(self.config)
 
         # Start the background auto-prune task.
-        self._prune_task: asyncio.Task = self.bot.loop.create_task(self._auto_prune_task())
+        self._prune_task: asyncio.Task = self.bot.loop.create_task(
+            self._auto_prune_task()
+        )
         log.debug("CourseManager initialized with max_courses=%s", self.max_courses)
 
     def cog_unload(self) -> None:
@@ -287,7 +331,11 @@ class CourseManager(commands.Cog):
             for guild in self.bot.guilds:
                 category = self.get_category(guild)
                 if not category:
-                    log.debug("Category '%s' not found in guild %s", self.category_name, guild.name)
+                    log.debug(
+                        "Category '%s' not found in guild %s",
+                        self.category_name,
+                        guild.name,
+                    )
                     continue
                 for channel in category.channels:
                     if not isinstance(channel, discord.TextChannel):
@@ -300,11 +348,25 @@ class CourseManager(commands.Cog):
                                 break
                         if not last_user_message:
                             log.debug("No user messages in channel %s", channel.name)
-                        elif datetime.utcnow() - last_user_message.created_at > PRUNE_THRESHOLD:
-                            log.info("Auto-pruning channel '%s' in '%s'", channel.name, guild.name)
-                            await channel.delete(reason="Auto-pruned due to inactivity.")
+                        elif (
+                            datetime.now(timezone.utc) - last_user_message.created_at
+                            > PRUNE_THRESHOLD
+                        ):
+                            log.info(
+                                "Auto-pruning channel '%s' in '%s'",
+                                channel.name,
+                                guild.name,
+                            )
+                            await channel.delete(
+                                reason="Auto-pruned due to inactivity."
+                            )
                     except Exception as e:
-                        log.error("Error pruning channel '%s' in '%s': %s", channel.name, guild.name, e)
+                        log.error(
+                            "Error pruning channel '%s' in '%s': %s",
+                            channel.name,
+                            guild.name,
+                            e,
+                        )
             await asyncio.sleep(PRUNE_INTERVAL)
 
     #####################################################
@@ -314,7 +376,7 @@ class CourseManager(commands.Cog):
         """
         Normalize an input course string into a standardized format.
         Accepts various separators (hyphen, underscore, space) and an optional suffix.
-        
+
         Examples:
           - "socwork-2a06" or "SOCWORK2A06"  -> "SOCWORK-2A06"
           - "SocWork-2A06A"                  -> "SOCWORK-2A06A"
@@ -322,7 +384,9 @@ class CourseManager(commands.Cog):
         log.debug("Formatting course key: %s", course_key_raw)
         match = COURSE_KEY_PATTERN.match(course_key_raw)
         if not match:
-            log.debug("Input '%s' does not match expected course pattern.", course_key_raw)
+            log.debug(
+                "Input '%s' does not match expected course pattern.", course_key_raw
+            )
             return None
         subject, number, suffix = match.groups()
         subject = subject.upper()
@@ -335,7 +399,7 @@ class CourseManager(commands.Cog):
         """
         Return a Discord channel name from a standardized course code by removing any trailing suffix
         and converting it to lowercase.
-        
+
         Examples:
           - "SOCWORK-2A06A" or "SOCWORK-2A06B"  -> "socwork-2a06"
           - "SOCWORK-2A06"                       -> "socwork-2a06"
@@ -349,7 +413,7 @@ class CourseManager(commands.Cog):
     def _get_course_variants(self, formatted: str) -> List[str]:
         """
         Given a standardized course key (with or without suffix), return variants for lookup.
-        
+
         If no suffix is present:
           Returns [base, base+"A", base+"B"].
         If a suffix is present:
@@ -361,7 +425,7 @@ class CourseManager(commands.Cog):
             fallback = "B" if suffix == "A" else "A"
             variants = [formatted, base + fallback]
         else:
-            variants = [formatted, formatted + "A", formatted + "B"]
+            variants = [formatted, f"{formatted}A", f"{formatted}B"]
         log.debug("Lookup variants for '%s': %s", formatted, variants)
         return variants
 
@@ -396,9 +460,10 @@ class CourseManager(commands.Cog):
     async def list_enrollments(self, ctx: commands.Context) -> None:
         """List all course channels you are currently enrolled in."""
         log.debug("Listing courses for user %s in guild %s", ctx.author, ctx.guild.name)
-        courses = self.get_user_courses(ctx.author, ctx.guild)
-        if courses:
-            await ctx.send("You are enrolled in the following courses:\n" + "\n".join(courses))
+        if courses := self.get_user_courses(ctx.author, ctx.guild):
+            await ctx.send(
+                "You are enrolled in the following courses:\n" + "\n".join(courses)
+            )
         else:
             await ctx.send("You are not enrolled in any courses.")
 
@@ -421,7 +486,9 @@ class CourseManager(commands.Cog):
         async with ctx.typing():
             data = await self.course_data_proxy.get_course_data(variant)
         if data and data.get("course_data"):
-            await ctx.send(success(f"Course data for {variant} refreshed successfully."))
+            await ctx.send(
+                success(f"Course data for {variant} refreshed successfully.")
+            )
         else:
             await ctx.send(error(f"Failed to refresh course data for {variant}."))
 
@@ -449,7 +516,9 @@ class CourseManager(commands.Cog):
 
         if len(self.get_user_courses(ctx.author, ctx.guild)) >= self.max_courses:
             await ctx.send(
-                error(f"You have reached the maximum limit of {self.max_courses} courses. Leave one to join another.")
+                error(
+                    f"You have reached the maximum limit of {self.max_courses} courses. Leave one to join another."
+                )
             )
             return
 
@@ -457,9 +526,15 @@ class CourseManager(commands.Cog):
         if category is None:
             try:
                 category = await ctx.guild.create_category(self.category_name)
-                log.debug("Created category '%s' in guild %s", self.category_name, ctx.guild.name)
+                log.debug(
+                    "Created category '%s' in guild %s",
+                    self.category_name,
+                    ctx.guild.name,
+                )
             except discord.Forbidden:
-                await ctx.send(error("I don't have permission to create the courses category."))
+                await ctx.send(
+                    error("I don't have permission to create the courses category.")
+                )
                 return
 
         channel = self.get_course_channel(ctx.guild, variant)
@@ -468,13 +543,19 @@ class CourseManager(commands.Cog):
             channel = await self.create_course_channel(ctx.guild, category, variant)
 
         try:
-            await channel.set_permissions(ctx.author, overwrite=self.channel_permissions)
+            await channel.set_permissions(
+                ctx.author, overwrite=self.channel_permissions
+            )
             log.debug("Permissions set for %s on channel %s", ctx.author, channel.name)
         except discord.Forbidden:
-            await ctx.send(error("I don't have permission to manage channel permissions."))
+            await ctx.send(
+                error("I don't have permission to manage channel permissions.")
+            )
             return
 
-        await ctx.send(success(f"You have successfully joined {variant}."), delete_after=120)
+        await ctx.send(
+            success(f"You have successfully joined {variant}."), delete_after=120
+        )
         if self.logging_channel:
             await self.logging_channel.send(f"{ctx.author} has joined {variant}.")
 
@@ -494,18 +575,26 @@ class CourseManager(commands.Cog):
 
         try:
             await channel.set_permissions(ctx.author, overwrite=None)
-            log.debug("Removed permissions for %s on channel %s", ctx.author, channel.name)
+            log.debug(
+                "Removed permissions for %s on channel %s", ctx.author, channel.name
+            )
         except discord.Forbidden:
-            await ctx.send(error("I don't have permission to manage channel permissions."))
+            await ctx.send(
+                error("I don't have permission to manage channel permissions.")
+            )
             return
 
-        await ctx.send(success(f"You have successfully left {formatted}."), delete_after=120)
+        await ctx.send(
+            success(f"You have successfully left {formatted}."), delete_after=120
+        )
         if self.logging_channel:
             await self.logging_channel.send(f"{ctx.author} has left {formatted}.")
 
     @commands.admin()
     @course.command()
-    async def delete(self, ctx: commands.Context, *, channel: discord.TextChannel) -> None:
+    async def delete(
+        self, ctx: commands.Context, *, channel: discord.TextChannel
+    ) -> None:
         """Delete a course channel (admin-only)."""
         log.debug("Admin %s attempting to delete channel %s", ctx.author, channel.name)
         if not channel.category or channel.category.name != self.category_name:
@@ -523,7 +612,9 @@ class CourseManager(commands.Cog):
 
     @commands.admin()
     @course.command(name="setlogging")
-    async def set_logging(self, ctx: commands.Context, channel: discord.TextChannel) -> None:
+    async def set_logging(
+        self, ctx: commands.Context, channel: discord.TextChannel
+    ) -> None:
         """Set the logging channel for join/leave notifications (admin-only)."""
         self.logging_channel = channel
         log.debug("Logging channel set to %s by admin %s", channel.name, ctx.author)
@@ -531,15 +622,23 @@ class CourseManager(commands.Cog):
 
     @course.command(name="details")
     @commands.cooldown(1, 5, commands.BucketType.user)
-    async def course_details(self, ctx: commands.Context, *, course_key_raw: str) -> None:
+    async def course_details(
+        self, ctx: commands.Context, *, course_key_raw: str
+    ) -> None:
         """
         Display details for a specified course.
         Example: `!course details MATH 1A03`
         """
         formatted = self._format_course_key(course_key_raw)
-        log.debug("Fetching details for '%s' (formatted: %s)", course_key_raw, formatted)
+        log.debug(
+            "Fetching details for '%s' (formatted: %s)", course_key_raw, formatted
+        )
         if not formatted:
-            await ctx.send(error(f"Invalid course code: {course_key_raw}. Use a format like 'MATH 1A03'."))
+            await ctx.send(
+                error(
+                    f"Invalid course code: {course_key_raw}. Use a format like 'MATH 1A03'."
+                )
+            )
             return
 
         variant, data = await self._lookup_course_data(formatted)
@@ -553,10 +652,14 @@ class CourseManager(commands.Cog):
     #####################################################
     # Utility Functions
     #####################################################
-    def _create_course_embed(self, course_key: str, course_data: Dict[str, Any]) -> discord.Embed:
+    def _create_course_embed(
+        self, course_key: str, course_data: Dict[str, Any]
+    ) -> discord.Embed:
         """Build a Discord embed with comprehensive course details."""
         log.debug("Creating embed for course: %s", course_key)
-        embed = discord.Embed(title=f"Course Details: {course_key}", color=discord.Color.green())
+        embed = discord.Embed(
+            title=f"Course Details: {course_key}", color=discord.Color.green()
+        )
         data_item = course_data.get("course_data", [{}])[0]
         is_fresh = course_data.get("is_fresh", False)
         date_added = course_data.get("date_added", "Unknown")
@@ -575,11 +678,21 @@ class CourseManager(commands.Cog):
                 embed.add_field(name=name, value=value, inline=True)
 
         if data_item.get("description"):
-            embed.add_field(name="Description", value=data_item.get("description"), inline=False)
+            embed.add_field(
+                name="Description", value=data_item.get("description"), inline=False
+            )
         if data_item.get("prerequisites"):
-            embed.add_field(name="Prerequisite(s)", value=data_item.get("prerequisites"), inline=True)
+            embed.add_field(
+                name="Prerequisite(s)",
+                value=data_item.get("prerequisites"),
+                inline=True,
+            )
         if data_item.get("antirequisites"):
-            embed.add_field(name="Antirequisite(s)", value=data_item.get("antirequisites"), inline=True)
+            embed.add_field(
+                name="Antirequisite(s)",
+                value=data_item.get("antirequisites"),
+                inline=True,
+            )
 
         return embed
 
@@ -587,26 +700,36 @@ class CourseManager(commands.Cog):
         """
         Find and return the category matching self.category_name in the guild.
         """
-        log.debug("Searching for category '%s' in guild %s", self.category_name, guild.name)
+        log.debug(
+            "Searching for category '%s' in guild %s", self.category_name, guild.name
+        )
         for category in guild.categories:
             if category.name == self.category_name:
-                log.debug("Found category '%s' in guild %s", self.category_name, guild.name)
+                log.debug(
+                    "Found category '%s' in guild %s", self.category_name, guild.name
+                )
                 return category
         log.debug("Category '%s' not found in guild %s", self.category_name, guild.name)
         return None
 
-    def get_course_channel(self, guild: discord.Guild, course_key: str) -> Optional[discord.TextChannel]:
+    def get_course_channel(
+        self, guild: discord.Guild, course_key: str
+    ) -> Optional[discord.TextChannel]:
         """
         Retrieve the course channel by its base (formatted) course key.
         """
         category = self.get_category(guild)
         if not category:
-            log.debug("No category in guild %s for course key %s", guild.name, course_key)
+            log.debug(
+                "No category in guild %s for course key %s", guild.name, course_key
+            )
             return None
         target_name = self._get_channel_name(course_key)
         for channel in category.channels:
             if channel.name == target_name:
-                log.debug("Found course channel '%s' in guild %s", channel.name, guild.name)
+                log.debug(
+                    "Found course channel '%s' in guild %s", channel.name, guild.name
+                )
                 return channel
         log.debug("Course channel '%s' not found in guild %s", target_name, guild.name)
         return None
@@ -627,7 +750,9 @@ class CourseManager(commands.Cog):
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
             guild.me: discord.PermissionOverwrite(administrator=True),
         }
-        channel = await guild.create_text_channel(target_name, overwrites=overwrites, category=category)
+        channel = await guild.create_text_channel(
+            target_name, overwrites=overwrites, category=category
+        )
         log.debug("Created channel '%s' in guild %s", channel.name, guild.name)
         return channel
 
@@ -642,7 +767,8 @@ class CourseManager(commands.Cog):
         courses = [
             channel.name.upper()
             for channel in category.channels
-            if isinstance(channel, discord.TextChannel) and channel.permissions_for(user).read_messages
+            if isinstance(channel, discord.TextChannel)
+            and channel.permissions_for(user).read_messages
         ]
         log.debug("User %s has access to courses: %s", user, courses)
         return courses
@@ -658,7 +784,9 @@ class CourseManager(commands.Cog):
         await ctx.send_help(self.dev_course)
 
     @dev_course.command(name="term")
-    async def set_term_codes(self, ctx: commands.Context, term_name: str, term_id: int) -> None:
+    async def set_term_codes(
+        self, ctx: commands.Context, term_name: str, term_id: int
+    ) -> None:
         """
         Set the term code for a specified term.
         Example: `!dc term winter 2241`
@@ -666,7 +794,9 @@ class CourseManager(commands.Cog):
         async with self.config.term_codes() as term_codes:
             term_codes[term_name.lower()] = term_id
         log.debug("Set term code for %s to %s", term_name, term_id)
-        await ctx.send(success(f"Term code for {term_name.capitalize()} set to: {term_id}"))
+        await ctx.send(
+            success(f"Term code for {term_name.capitalize()} set to: {term_id}")
+        )
 
     @dev_course.command(name="clearstale")
     async def clear_stale_config(self, ctx: commands.Context) -> None:
@@ -674,9 +804,13 @@ class CourseManager(commands.Cog):
         log.debug("Clearing stale config entries.")
         stale = []
         courses = await self.config.courses.all()
-        for course_key in courses.keys():
-            if not any(self.get_course_channel(guild, course_key) for guild in self.bot.guilds):
-                stale.append(course_key)
+        stale.extend(
+            course_key
+            for course_key in courses.keys()
+            if not any(
+                self.get_course_channel(guild, course_key) for guild in self.bot.guilds
+            )
+        )
         for course_key in stale:
             await self.config.courses.clear_raw(course_key)
             log.debug("Cleared stale entry for course %s", course_key)
@@ -704,12 +838,25 @@ class CourseManager(commands.Cog):
                         if not msg.author.bot:
                             last_user_message = msg
                             break
-                    if not last_user_message or (datetime.utcnow() - last_user_message.created_at > PRUNE_THRESHOLD):
+                    if (
+                        not last_user_message
+                        or datetime.now(timezone.utc) - last_user_message.created_at
+                        > PRUNE_THRESHOLD
+                    ):
                         pruned_channels.append(f"{guild.name} - {channel.name}")
-                        log.debug("Pruning channel %s in guild %s", channel.name, guild.name)
-                        await channel.delete(reason="Manually pruned due to inactivity.")
+                        log.debug(
+                            "Pruning channel %s in guild %s", channel.name, guild.name
+                        )
+                        await channel.delete(
+                            reason="Manually pruned due to inactivity."
+                        )
                 except Exception as e:
-                    log.error("Error pruning channel '%s' in '%s': %s", channel.name, guild.name, e)
+                    log.error(
+                        "Error pruning channel '%s' in '%s': %s",
+                        channel.name,
+                        guild.name,
+                        e,
+                    )
         if pruned_channels:
             await ctx.send(success("Pruned channels:\n" + "\n".join(pruned_channels)))
         else:
