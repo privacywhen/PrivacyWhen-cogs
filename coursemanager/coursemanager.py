@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import discord
 from redbot.core import commands, Config
-from redbot.core.utils import bounded_gather
 from redbot.core.utils.chat_formatting import box, error, info, success, warning, pagify
 from redbot.core.utils.menus import menu, DEFAULT_CONTROLS
 from aiohttp import ClientConnectionError, ClientResponseError, ClientSession, ClientTimeout
