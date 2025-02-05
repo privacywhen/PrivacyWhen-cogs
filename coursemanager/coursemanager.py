@@ -651,7 +651,7 @@ class CourseManager(commands.Cog):
         dtm = cfg["date_updated"]
         # log.debug("Current config: %s", cfg)
         serialized_courses = "\n".join(list(courses.keys()))
-        await ctx.send(f"{len(cfg["courses"])} courses cached on {dtm}\n{serialized_courses}" )
+        await ctx.send(f"{len(cfg['courses'])} courses cached on {dtm}\n{serialized_courses}" )
 
     @dev_course.command(name="populate")
     async def fetch_prefixes(self, ctx: commands.Context) -> None:
