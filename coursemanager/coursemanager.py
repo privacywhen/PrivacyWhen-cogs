@@ -734,9 +734,9 @@ class CourseManager(commands.Cog):
             selected_index = emoji_list.index(str(reaction.emoji))
             selected_course = closest_matches[selected_index]
 
-            await msg.clear_reactions()
             embed = await self._get_course_details(selected_course)
-            await msg.edit(content="", embed=embed)
+            await msg.clear_reactions()
+            await msg.edit(content=None, embed=embed)
         
         except asyncio.TimeoutError:
             # Remove reactions and append timeout message

@@ -320,7 +320,6 @@ class CourseDataProxy:
         courses_dict = {}
         for course in courses:
             course_code = course.text.upper()
-            course_name: str = course.get("info")
-            course_name.replace("<br/>", " ")
+            course_name = course.get("info").replace("<br/>", " ")
             courses_dict[course_code] = course_name
         return courses_dict
