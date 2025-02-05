@@ -670,7 +670,7 @@ class CourseManager(commands.Cog):
             dtm = cfg["date_updated"]
             # log.debug("Current config: %s", cfg)
             serialized_courses = "\n".join(list(courses.keys()))
-            await ctx.send(f"{len(cfg['courses'])} courses cached on {dtm}\n{serialized_courses}")
+            await ctx.send(f"{len(cfg['courses'])} courses cached on {dtm}\n{serialized_courses[:3000] + '...' if len(serialized_courses) > 3000 else ''}")
         else:
             await ctx.send("Course list not found. Run populate command first.")
 
