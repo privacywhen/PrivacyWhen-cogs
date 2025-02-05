@@ -622,6 +622,7 @@ class CourseManager(commands.Cog):
 
     @course.command(name="details")
     @commands.cooldown(1, 5, commands.BucketType.user)
+    @commands.cooldown(5, 90, commands.BucketType.guild)
     async def course_details(
         self, ctx: commands.Context, *, course_key_raw: str
     ) -> None:
