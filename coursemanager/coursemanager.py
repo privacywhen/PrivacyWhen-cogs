@@ -715,7 +715,7 @@ class CourseManager(commands.Cog):
             await ctx.send(f"❌ `{search_code}` not found and no similar matches available.")
             return
 
-        suggestion_msg = "**Course not found. Did you mean:**\n"
+        suggestion_msg = "Course not found. Did you mean:\n"
         emoji_list = ["1️⃣", "2️⃣", "3️⃣"]
         for i, match in enumerate(closest_matches):
             suggestion_msg += f"- {emoji_list[i]} **{match}**: {courses[match]}\n"
@@ -741,4 +741,4 @@ class CourseManager(commands.Cog):
         except asyncio.TimeoutError:
             # Remove reactions and append timeout message
             await msg.clear_reactions()
-            await msg.edit(content=suggestion_msg + "\n⌛ **[Selection timed out]**")
+            await msg.edit(content=suggestion_msg + "\n[Selection timed out]")
