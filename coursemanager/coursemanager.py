@@ -55,7 +55,11 @@ class CourseManager(commands.Cog):
         self.logging_channel: Optional[discord.TextChannel] = None
 
         # Global defaults for config.
-        default_global: Dict[str, Any] = {"term_codes": {}, "courses": {}, "course_listings": {}}
+        default_global: Dict[str, Any] = {
+            "term_codes": {},
+            "courses": {},
+            "course_listings": {},
+        }
         self.config: Config = Config.get_conf(
             self, identifier=3720194665, force_registration=True
         )
@@ -67,7 +71,8 @@ class CourseManager(commands.Cog):
         self._prune_task: asyncio.Task = self.bot.loop.create_task(
             self._auto_prune_task()
         )
-        log.debug("CourseManager initialized with max_courses=%s", self.max_courses)
+        log.debug("CourseManager initialized with max_courses=%s",
+                  self.max_courses)
 
     def cog_unload(self) -> None:
         """Cancel the auto-prune task when the cog unloads."""
@@ -76,7 +81,9 @@ class CourseManager(commands.Cog):
 
     async def _auto_prune_task(self) -> None:
         """
-        Background task to auto-prune inactive course channels (no non-bot messages in 120 days).
+        Background task to auto-prune inactive course channels.
+        Iterates through all guilds and channels in the "COURSES" category,
+        using the unified _prune_channel helper.
         """
         PRUNE_INTERVAL = 3600  # every hour
         PRUNE_THRESHOLD = timedelta(days=120)
@@ -93,34 +100,9 @@ class CourseManager(commands.Cog):
                     )
                     continue
                 for channel in category.channels:
-                    if not isinstance(channel, discord.TextChannel):
-                        continue
-                    try:
-                        last_user_message = None
-                        async for msg in channel.history(limit=10):
-                            if not msg.author.bot:
-                                last_user_message = msg
-                                break
-                        if not last_user_message:
-                            log.debug("No user messages in channel %s", channel.name)
-                        elif (
-                            datetime.now(timezone.utc) - last_user_message.created_at
-                            > PRUNE_THRESHOLD
-                        ):
-                            log.info(
-                                "Auto-pruning channel '%s' in '%s'",
-                                channel.name,
-                                guild.name,
-                            )
-                            await channel.delete(
-                                reason="Auto-pruned due to inactivity."
-                            )
-                    except Exception as e:
-                        log.error(
-                            "Error pruning channel '%s' in '%s': %s",
-                            channel.name,
-                            guild.name,
-                            e,
+                    if isinstance(channel, discord.TextChannel):
+                        await self._prune_channel(
+                            channel, PRUNE_THRESHOLD, "Auto-pruned due to inactivity."
                         )
             await asyncio.sleep(PRUNE_INTERVAL)
 
@@ -202,6 +184,47 @@ class CourseManager(commands.Cog):
         log.debug("No course data found for variants of %s", formatted)
         return None, None
 
+    async def _prune_channel(
+        self, channel: discord.TextChannel, threshold: timedelta, reason: str
+    ) -> bool:
+        """
+        Check whether a channel is inactive and delete it if needed.
+
+        Returns:
+        True if the channel was pruned (deleted); otherwise, False.
+        """
+        try:
+            last_user_message: Optional[discord.Message] = None
+            async for msg in channel.history(limit=10):
+                if not msg.author.bot:
+                    last_user_message = msg
+                    break
+
+            # Use the most recent non-bot message timestamp, or fallback to channel creation time.
+            last_activity = (
+                last_user_message.created_at
+                if last_user_message
+                else channel.created_at
+            )
+
+            if datetime.now(timezone.utc) - last_activity > threshold:
+                log.info(
+                    "Pruning channel '%s' in guild '%s' (last activity at %s)",
+                    channel.name,
+                    channel.guild.name,
+                    last_activity,
+                )
+                await channel.delete(reason=reason)
+                return True
+        except Exception as e:
+            log.error(
+                "Error pruning channel '%s' in guild '%s': %s",
+                channel.name,
+                channel.guild.name,
+                e,
+            )
+        return False
+
     #####################################################
     # Command Group: course
     #####################################################
@@ -216,10 +239,12 @@ class CourseManager(commands.Cog):
     @commands.cooldown(1, 600, commands.BucketType.user)
     async def list_enrollments(self, ctx: commands.Context) -> None:
         """List all course channels you are currently enrolled in."""
-        log.debug("Listing courses for user %s in guild %s", ctx.author, ctx.guild.name)
+        log.debug("Listing courses for user %s in guild %s",
+                  ctx.author, ctx.guild.name)
         if courses := self.get_user_courses(ctx.author, ctx.guild):
             await ctx.send(
-                "You are enrolled in the following courses:\n" + "\n".join(courses)
+                "You are enrolled in the following courses:\n" +
+                "\n".join(courses)
             )
         else:
             await ctx.send("You are not enrolled in any courses.")
@@ -232,7 +257,8 @@ class CourseManager(commands.Cog):
         Example: `!course refresh MATH 1A03`
         """
         formatted = self._format_course_key(course_code)
-        log.debug("Refresh invoked for '%s' (formatted: %s)", course_code, formatted)
+        log.debug("Refresh invoked for '%s' (formatted: %s)",
+                  course_code, formatted)
         if not formatted:
             await ctx.send(error(f"Invalid course code: {course_code}."))
             return
@@ -298,14 +324,16 @@ class CourseManager(commands.Cog):
 
         channel = self.get_course_channel(ctx.guild, variant)
         if not channel:
-            log.debug("Course channel for %s not found; creating new channel.", variant)
+            log.debug(
+                "Course channel for %s not found; creating new channel.", variant)
             channel = await self.create_course_channel(ctx.guild, category, variant)
 
         try:
             await channel.set_permissions(
                 ctx.author, overwrite=self.channel_permissions
             )
-            log.debug("Permissions set for %s on channel %s", ctx.author, channel.name)
+            log.debug("Permissions set for %s on channel %s",
+                      ctx.author, channel.name)
         except discord.Forbidden:
             await ctx.send(
                 error("I don't have permission to manage channel permissions.")
@@ -356,13 +384,15 @@ class CourseManager(commands.Cog):
         self, ctx: commands.Context, *, channel: discord.TextChannel
     ) -> None:
         """Delete a course channel (admin-only)."""
-        log.debug("Admin %s attempting to delete channel %s", ctx.author, channel.name)
+        log.debug("Admin %s attempting to delete channel %s",
+                  ctx.author, channel.name)
         if not channel.category or channel.category.name != self.category_name:
             await ctx.send(error(f"{channel.mention} is not a course channel."))
             return
         try:
             await channel.delete()
-            log.debug("Channel %s deleted by admin %s", channel.name, ctx.author)
+            log.debug("Channel %s deleted by admin %s",
+                      channel.name, ctx.author)
         except discord.Forbidden:
             await ctx.send(error("I don't have permission to delete that channel."))
             return
@@ -377,7 +407,8 @@ class CourseManager(commands.Cog):
     ) -> None:
         """Set the logging channel for join/leave notifications (admin-only)."""
         self.logging_channel = channel
-        log.debug("Logging channel set to %s by admin %s", channel.name, ctx.author)
+        log.debug("Logging channel set to %s by admin %s",
+                  channel.name, ctx.author)
         await ctx.send(success(f"Logging channel set to {channel.mention}."))
 
     @course.command(name="details")
@@ -469,7 +500,8 @@ class CourseManager(commands.Cog):
                     "Found category '%s' in guild %s", self.category_name, guild.name
                 )
                 return category
-        log.debug("Category '%s' not found in guild %s", self.category_name, guild.name)
+        log.debug("Category '%s' not found in guild %s",
+                  self.category_name, guild.name)
         return None
 
     def get_course_channel(
@@ -491,7 +523,8 @@ class CourseManager(commands.Cog):
                     "Found course channel '%s' in guild %s", channel.name, guild.name
                 )
                 return channel
-        log.debug("Course channel '%s' not found in guild %s", target_name, guild.name)
+        log.debug("Course channel '%s' not found in guild %s",
+                  target_name, guild.name)
         return None
 
     async def create_course_channel(
@@ -555,7 +588,8 @@ class CourseManager(commands.Cog):
             term_codes[term_name.lower()] = term_id
         log.debug("Set term code for %s to %s", term_name, term_id)
         await ctx.send(
-            success(f"Term code for {term_name.capitalize()} set to: {term_id}")
+            success(
+                f"Term code for {term_name.capitalize()} set to: {term_id}")
         )
 
     @dev_course.command(name="clearstale")
@@ -581,7 +615,10 @@ class CourseManager(commands.Cog):
 
     @dev_course.command(name="prune")
     async def manual_prune(self, ctx: commands.Context) -> None:
-        """Manually trigger the auto-prune process for inactive course channels."""
+        """
+        Manually trigger the prune process for inactive course channels.
+        Uses the unified _prune_channel helper.
+        """
         log.debug("Manual prune triggered by %s", ctx.author)
         pruned_channels = []
         PRUNE_THRESHOLD = timedelta(days=120)
@@ -590,33 +627,13 @@ class CourseManager(commands.Cog):
             if not category:
                 continue
             for channel in category.channels:
-                if not isinstance(channel, discord.TextChannel):
-                    continue
-                try:
-                    last_user_message = None
-                    async for msg in channel.history(limit=10):
-                        if not msg.author.bot:
-                            last_user_message = msg
-                            break
-                    if (
-                        not last_user_message
-                        or datetime.now(timezone.utc) - last_user_message.created_at
-                        > PRUNE_THRESHOLD
-                    ):
-                        pruned_channels.append(f"{guild.name} - {channel.name}")
-                        log.debug(
-                            "Pruning channel %s in guild %s", channel.name, guild.name
-                        )
-                        await channel.delete(
-                            reason="Manually pruned due to inactivity."
-                        )
-                except Exception as e:
-                    log.error(
-                        "Error pruning channel '%s' in '%s': %s",
-                        channel.name,
-                        guild.name,
-                        e,
+                if isinstance(channel, discord.TextChannel):
+                    pruned = await self._prune_channel(
+                        channel, PRUNE_THRESHOLD, "Manually pruned due to inactivity."
                     )
+                    if pruned:
+                        pruned_channels.append(
+                            f"{guild.name} - {channel.name}")
         if pruned_channels:
             await ctx.send(success("Pruned channels:\n" + "\n".join(pruned_channels)))
         else:
@@ -653,7 +670,7 @@ class CourseManager(commands.Cog):
             dtm = cfg["date_updated"]
             # log.debug("Current config: %s", cfg)
             serialized_courses = "\n".join(list(courses.keys()))
-            await ctx.send(f"{len(cfg['courses'])} courses cached on {dtm}\n{serialized_courses}" )
+            await ctx.send(f"{len(cfg['courses'])} courses cached on {dtm}\n{serialized_courses}")
         else:
             await ctx.send("Course list not found. Run populate command first.")
 
@@ -666,7 +683,7 @@ class CourseManager(commands.Cog):
         else:
             await ctx.send(warning("0 courses fetched. Check console log"))
 
-    @dev_course.command(name="populate")
+    @dev_course.command(name="search")
     async def fuzzy_search(self, ctx: commands.Context, search_code: str) -> None:
         """
         Returns the course name for the given course code. If not found,
