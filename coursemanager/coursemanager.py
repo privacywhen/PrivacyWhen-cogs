@@ -684,7 +684,7 @@ class CourseManager(commands.Cog):
             await ctx.send(warning("0 courses fetched. Check console log"))
 
     @dev_course.command(name="search")
-    async def fuzzy_search(self, ctx: commands.Context, search_code: str) -> None:
+    async def fuzzy_search(self, ctx: commands.Context, *, search_code: str) -> None:
         """
         Returns the course name for the given course code. If not found,
         returns a list of the closest matching course codes.
