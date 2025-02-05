@@ -636,7 +636,7 @@ class CourseManager(commands.Cog):
         await ctx.send(warning("All courses have been cleared from the config."))
 
     @dev_course.command(name="list")
-    async def print_config(self, ctx: commands.Context) -> None:
+    async def list_courses(self, ctx: commands.Context) -> None:
         """Lists cached courses."""
         cfg = await self.config.courses.all()
         # log.debug("Current config: %s", cfg)
