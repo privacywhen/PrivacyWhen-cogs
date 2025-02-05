@@ -640,5 +640,5 @@ class CourseManager(commands.Cog):
         """Lists cached courses."""
         cfg = await self.config.courses.all()
         # log.debug("Current config: %s", cfg)
-        serialized = "\n".join([f"{k}: {cfg[k]}" for k in cfg])
+        serialized = "\n".join([k for k in cfg])
         await ctx.send(serialized)
