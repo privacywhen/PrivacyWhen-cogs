@@ -432,13 +432,18 @@ class CourseManager(commands.Cog):
             )
             return
 
-        variant, data = await self._lookup_course_data(formatted)
-        if not variant or not (data and data.get("course_data")):
+        embed = self._get_course_embed(formatted)
+        if embed is None:
             await ctx.send(error(f"Course not found: {formatted}"))
-            return
+        else:
+            await ctx.send(embed=embed)
 
+    async def _get_course_embed(self, course_code):
+        variant, data = await self._lookup_course_data(course_code)
+        if not variant or not (data and data.get("course_data")):
+            return None
         embed = self._create_course_embed(variant, data)
-        await ctx.send(embed=embed)
+        return embed
 
     #####################################################
     # Utility Functions
@@ -691,14 +696,49 @@ class CourseManager(commands.Cog):
         """
         search_code = search_code.upper()
         cfg = await self.config.course_listings.all()
-        if "courses" in cfg:
-            courses = cfg["courses"]
-            if search_code in courses:
-                await ctx.send(f"Course Name: {courses[search_code]}")
-            else:                  
-                # Perform fuzzy search for the closest matches
-                closest_matches = difflib.get_close_matches(search_code, courses.keys(), n=3, cutoff=0.75)
-                if closest_matches:
-                    await ctx.send(f"{search_code} not found. Did you mean: {', '.join(closest_matches)}?")
-                else:
-                    await ctx.send(f"{search_code} not found and no similar matches available.")
+        if "courses" not in cfg:
+            await ctx.send("No course listings available.")
+            return
+    
+        courses = cfg["courses"]
+
+        # exact match, no need for fuzzy search
+        if search_code in courses:
+            embed = self._get_course_embed(search_code)
+            await ctx.send(embed=embed)
+            return
+                        
+        # Perform fuzzy search for the closest matches
+        closest_matches = difflib.get_close_matches(search_code, courses.keys(), n=3, cutoff=0.75)
+
+        if not closest_matches:
+            await ctx.send(f"❌ `{search_code}` not found and no similar matches available.")
+            return
+
+        suggestion_msg = "**Course not found. Did you mean:**\n"
+        emoji_list = ["1️⃣", "2️⃣", "3️⃣"]
+        for i, match in enumerate(closest_matches):
+            suggestion_msg += f"{emoji_list[i]} **{match}**: {courses[match]}\n"
+        msg = await ctx.send(suggestion_msg)
+
+        # Add reaction buttons
+        for emoji in emoji_list[:len(closest_matches)]:
+            await msg.add_reaction(emoji)
+
+        # Wait for user reaction
+        def check(reaction, user):
+            return user == ctx.author and str(reaction.emoji) in emoji_list and reaction.message.id == msg.id
+            
+        try:
+            reaction, _ = await self.bot.wait_for("reaction_add", timeout=30.0, check=check)
+            selected_index = emoji_list.index(str(reaction.emoji))
+            selected_course = closest_matches[selected_index]
+
+            await msg.clear_reactions()
+            embed = self._get_course_embed(selected_course)
+            await msg.edit(embed=embed)
+        
+        except asyncio.TimeoutError:
+            # Remove reactions and append timeout message
+            await msg.clear_reactions()
+            await msg.edit(content=suggestion_msg + "\n⌛ **[Selection timed out]**")
