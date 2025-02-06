@@ -720,7 +720,7 @@ class CourseManager(commands.Cog):
         suggestion_msg = "Course not found. Did you mean:\n"
         emoji_list = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣"]
         for i, match in enumerate(closest_matches):
-            suggestion_msg += f"- {emoji_list[i]} **{match}**: {courses[match]}\n"
+            suggestion_msg += f"- {emoji_list[i]} **{match}**: {courses[match[0]]}\n"
         msg = await ctx.send(suggestion_msg)
 
         # Add reaction buttons
