@@ -10,6 +10,7 @@ from redbot.core.utils.chat_formatting import box, error, info, success, warning
 from redbot.core.utils.menus import menu, DEFAULT_CONTROLS
 from .coursedata import CourseDataProxy
 import difflib
+from rapidfuzz import process
 
 
 # Configure logging
@@ -709,14 +710,15 @@ class CourseManager(commands.Cog):
             return
                         
         # Perform fuzzy search for the closest matches
-        closest_matches = difflib.get_close_matches(search_code, courses.keys(), n=3, cutoff=0.75)
+        # closest_matches = difflib.get_close_matches(search_code, courses.keys(), n=3, cutoff=0.75)
+        closest_matches = process.extract(search_code, courses.keys(), limit=5, score_cutoff=70)
 
         if not closest_matches:
             await ctx.send(f"❌ `{search_code}` not found and no similar matches available.")
             return
 
         suggestion_msg = "Course not found. Did you mean:\n"
-        emoji_list = ["1️⃣", "2️⃣", "3️⃣"]
+        emoji_list = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣"]
         for i, match in enumerate(closest_matches):
             suggestion_msg += f"- {emoji_list[i]} **{match}**: {courses[match]}\n"
         msg = await ctx.send(suggestion_msg)
