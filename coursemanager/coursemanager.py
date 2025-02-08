@@ -120,7 +120,6 @@ class CourseManager(commands.Cog):
                             )
             await asyncio.sleep(PRUNE_INTERVAL)
 
-    # --- New Enable/Disable Commands ---
     @commands.group(name="course", invoke_without_command=True)
     @commands.cooldown(1, 5, commands.BucketType.user)
     async def course(self, ctx: commands.Context) -> None:
@@ -291,27 +290,31 @@ class CourseManager(commands.Cog):
         listings: Dict[str, str] = (await self.config.course_listings()).get(
             "courses", {}
         )
+
+        # 1. Check for an exact listing match
         if formatted in listings:
             data = await self.course_data_proxy.get_course_data(formatted)
             if data and data.get("course_data"):
                 return formatted, data
-            else:
-                log.error("Failed to fetch fresh data for perfect match: %s", formatted)
-                return formatted, None
+            log.error("Failed to fetch fresh data for perfect match: %s", formatted)
+            return formatted, None
+
+        # 2. If the code doesn't end with a letter, look for variants (e.g. "SOCWORK-2A06A" vs "SOCWORK-2A06B")
         if not formatted[-1].isalpha():
-            variants = self._find_variant_matches(formatted, listings)
-            if variants:
+            if variants := self._find_variant_matches(formatted, listings):
+                # Single variant found
                 if len(variants) == 1:
                     candidate = variants[0]
                     data = await self.course_data_proxy.get_course_data(candidate)
                     if data and data.get("course_data"):
                         return candidate, data
                 else:
+                    # Multiple variants -> prompt user to choose
                     candidate, data = await self._prompt_variant_selection(
                         ctx, variants, listings
                     )
-                    if candidate:
-                        return candidate, data
+                    return (candidate, data) if candidate else (None, None)
+        # 3. If no exact/variant match, fall back to fuzzy lookup
         candidate, data = await self._fallback_fuzzy_lookup(ctx, formatted)
         return candidate, data
 
