@@ -1,7 +1,7 @@
 """Course Manager Cog for Redbot.
 
 This cog allows users to join/leave course channels, refresh course data,
-and view course details. It depends on the CourseDataProxy defined in coursedata.py.
+and view course details. It depends on CourseDataProxy from coursedata.py.
 """
 
 import asyncio
@@ -24,9 +24,9 @@ if not log.handlers:
 
 # Regular expression for course key normalization.
 COURSE_KEY_PATTERN = re.compile(
-    r"^\s*([A-Za-z]+)[\s\-_]*(\d+(?:[A-Za-z]+\d+)?)([ABab])?\s*$"
+    r"^\s*([A-Za-z]+)[\s\-_]*(\d+(?:[A-Za-z]+\d+)?)([A-Za-z])?\s*$"
 )
-# Reaction options for interactive fuzzy lookup.
+# Reaction options for interactive prompts.
 REACTION_OPTIONS: List[str] = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "❌"]  # Last is cancel
 
 
@@ -34,12 +34,13 @@ class CourseManager(commands.Cog):
     """
     Manages course channels and details.
 
-    Features:
-      • Users can join/leave course channels (under the "COURSES" category)
-      • Auto-prunes inactive channels
-      • Retrieves and caches course data via an external API
-      • Refreshes and displays course details
-      • Developer commands to manage term codes and stale config
+    - Users can join/leave course channels under the "COURSES" category.
+    - Auto-prunes inactive channels.
+    - Retrieves and caches course data from an external API.
+    - Supports a layered lookup:
+      • If a perfect match is found in the course listing, use it.
+      • If only variants (differing by suffix) are found, prompt the user.
+      • Otherwise, fall back to fuzzy lookup with up to 5 suggestions.
     """
 
     def __init__(self, bot: commands.Bot) -> None:
@@ -97,10 +98,16 @@ class CourseManager(commands.Cog):
                         )
             await asyncio.sleep(PRUNE_INTERVAL)
 
-    # --- Helper Methods for Course Key & Channel Retrieval ---
+    # === Course Key and Channel Helpers ===
 
     def _format_course_key(self, course_key_raw: str) -> Optional[str]:
-        """Normalize an input course string to a standardized format."""
+        """
+        Normalize an input course string to a standardized format.
+
+        Examples:
+          "socwork-2a06" or "SOCWORK2A06" -> "SOCWORK-2A06"
+          "SocWork-2A06A"                 -> "SOCWORK-2A06A"
+        """
         log.debug("Formatting course key: %s", course_key_raw)
         match = COURSE_KEY_PATTERN.match(course_key_raw)
         if not match:
@@ -116,16 +123,21 @@ class CourseManager(commands.Cog):
     def _get_channel_name(self, course_key: str) -> str:
         """
         Return a Discord channel name based on the course key.
-        Removes a trailing 'A' or 'B' (if present) and converts to lowercase.
+        Removes a trailing letter (if one exists) and converts to lowercase.
         """
-        if course_key and course_key[-1] in ("A", "B"):
-            course_key = course_key[:-1]
-        channel_name = course_key.lower()
+        if course_key and course_key[-1].isalpha() and len(course_key) > 0:
+            # If the last character is an alphabet letter, assume it's a suffix.
+            base = course_key[:-1]
+        else:
+            base = course_key
+        channel_name = base.lower()
         log.debug("Derived channel name: %s", channel_name)
         return channel_name
 
     def get_category(self, guild: discord.Guild) -> Optional[discord.CategoryChannel]:
-        """Return the category in the guild matching self.category_name."""
+        """
+        Return the category in the guild matching self.category_name.
+        """
         log.debug(
             "Searching for category '%s' in guild %s", self.category_name, guild.name
         )
@@ -141,7 +153,9 @@ class CourseManager(commands.Cog):
     def get_course_channel(
         self, guild: discord.Guild, course_key: str
     ) -> Optional[discord.TextChannel]:
-        """Return the course channel (by name) if it exists in the guild."""
+        """
+        Return the course channel (by name) if it exists in the guild.
+        """
         category = self.get_category(guild)
         if not category:
             log.debug(
@@ -161,7 +175,10 @@ class CourseManager(commands.Cog):
     async def create_course_channel(
         self, guild: discord.Guild, category: discord.CategoryChannel, course_key: str
     ) -> discord.TextChannel:
-        """Create a new course channel in the specified category."""
+        """
+        Create a new course channel in the specified category.
+        The channel is created hidden (by denying view_channel) until a user joins.
+        """
         target_name = self._get_channel_name(course_key)
         log.debug("Creating channel '%s' in guild %s", target_name, guild.name)
         overwrites = {
@@ -175,7 +192,9 @@ class CourseManager(commands.Cog):
         return channel
 
     def get_user_courses(self, user: discord.Member, guild: discord.Guild) -> List[str]:
-        """Return a list of course channel names accessible to the user."""
+        """
+        Return a list of course channel names (uppercased) that the user can access.
+        """
         category = self.get_category(guild)
         if not category:
             log.debug("No category in guild %s for user %s", guild.name, user)
@@ -189,26 +208,92 @@ class CourseManager(commands.Cog):
         log.debug("User %s has access to courses: %s", user, courses)
         return courses
 
-    # --- Course Data Lookup & Fallback ---
+    # === Course Data Lookup Logic ===
+
+    def _find_variant_matches(self, base: str, listings: Dict[str, str]) -> List[str]:
+        """
+        Return a list of keys in listings that start with the given base.
+        For example, if base is 'SOCWORK-2CC3', it might return
+        ['SOCWORK-2CC3A', 'SOCWORK-2CC3B', 'SOCWORK-2CC3S'].
+        """
+        return [key for key in listings if key.startswith(base)]
+
+    async def _prompt_variant_selection(
+        self, ctx: commands.Context, variants: List[str], listings: Dict[str, str]
+    ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+        """
+        Prompt the user to choose among multiple variant keys.
+        Uses reaction options.
+        """
+        prompt = "Multiple course variants found. Please choose one:\n"
+        for i, key in enumerate(variants):
+            prompt += f"{REACTION_OPTIONS[i]} **{key}**: {listings.get(key, '')}\n"
+        prompt += f"{REACTION_OPTIONS[-1]} Cancel"
+        msg = await ctx.send(prompt)
+        for emoji in REACTION_OPTIONS[: len(variants)]:
+            await msg.add_reaction(emoji)
+        await msg.add_reaction(REACTION_OPTIONS[-1])
+        reaction = await self._wait_for_reaction(ctx, msg, REACTION_OPTIONS)
+        if reaction is None or str(reaction.emoji) == REACTION_OPTIONS[-1]:
+            try:
+                await msg.clear_reactions()
+            except Exception:
+                pass
+            return None, None
+        selected_index = REACTION_OPTIONS.index(str(reaction.emoji))
+        selected = variants[selected_index]
+        data = await self.course_data_proxy.get_course_data(selected)
+        try:
+            await msg.clear_reactions()
+        except Exception:
+            pass
+        return selected, data if data and data.get("course_data") else (None, None)
 
     async def _lookup_course_data(
         self, ctx: commands.Context, formatted: str
     ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """
-        Attempt a direct lookup for course data; if unsuccessful,
-        fall back to an interactive fuzzy lookup.
+        Perform a layered lookup for course data:
+         1. If an exact match exists in the course listing, use it.
+         2. If no exact match and the input lacks a suffix, look for variants.
+         3. If variants are found, if only one exists, use it; otherwise, prompt the user.
+         4. Otherwise, use fuzzy lookup to offer up to 5 suggestions.
         """
-        data = await self.course_data_proxy.get_course_data(formatted)
-        if data and data.get("course_data"):
-            return formatted, data
-        return await self._fallback_fuzzy_lookup(ctx, formatted)
+        listings: Dict[str, str] = (await self.config.course_listings()).get(
+            "courses", {}
+        )
+        # If the exact key is in the listing, try it.
+        if formatted in listings:
+            data = await self.course_data_proxy.get_course_data(formatted)
+            if data and data.get("course_data"):
+                return formatted, data
+
+        # If the user did not provide a suffix (assume last char not alphabetic)
+        if not formatted[-1].isalpha():
+            variants = self._find_variant_matches(formatted, listings)
+            if variants:
+                if len(variants) == 1:
+                    candidate = variants[0]
+                    data = await self.course_data_proxy.get_course_data(candidate)
+                    if data and data.get("course_data"):
+                        return candidate, data
+                else:
+                    candidate, data = await self._prompt_variant_selection(
+                        ctx, variants, listings
+                    )
+                    if candidate:
+                        return candidate, data
+
+        # Fall back to fuzzy lookup.
+        candidate, data = await self._fallback_fuzzy_lookup(ctx, formatted)
+        return candidate, data
 
     async def _fallback_fuzzy_lookup(
         self, ctx: commands.Context, formatted: str
     ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """
-        Perform a fuzzy lookup using the full course listing.
-        Present up to five matches plus a cancel option via reactions.
+        Perform fuzzy lookup using the full course listing.
+        Present up to 5 matches (plus a cancel option) for user selection.
         """
         listings: Dict[str, str] = (await self.config.course_listings()).get(
             "courses", {}
@@ -221,22 +306,17 @@ class CourseManager(commands.Cog):
         if not matches:
             return None, None
 
-        suggestion_msg = (
-            "Course not found. Please choose one of the following options:\n"
-        )
+        prompt = "Course not found. Did you mean:\n"
         options: List[str] = []
         for i, match in enumerate(matches):
-            course_key = match[0]
-            course_name = listings.get(course_key, "")
-            suggestion_msg += f"{REACTION_OPTIONS[i]} **{course_key}**: {course_name}\n"
-            options.append(course_key)
-        suggestion_msg += f"{REACTION_OPTIONS[-1]} Cancel"
-
-        msg = await ctx.send(suggestion_msg)
+            key = match[0]
+            prompt += f"{REACTION_OPTIONS[i]} **{key}**: {listings.get(key, '')}\n"
+            options.append(key)
+        prompt += f"{REACTION_OPTIONS[-1]} Cancel"
+        msg = await ctx.send(prompt)
         for emoji in REACTION_OPTIONS[: len(options)]:
             await msg.add_reaction(emoji)
         await msg.add_reaction(REACTION_OPTIONS[-1])
-
         reaction = await self._wait_for_reaction(ctx, msg, REACTION_OPTIONS)
         if reaction is None or str(reaction.emoji) == REACTION_OPTIONS[-1]:
             try:
@@ -244,23 +324,20 @@ class CourseManager(commands.Cog):
             except Exception:
                 pass
             return None, None
-
         selected_index = REACTION_OPTIONS.index(str(reaction.emoji))
-        selected_key = options[selected_index]
-        data = await self.course_data_proxy.get_course_data(selected_key)
+        selected = options[selected_index]
+        data = await self.course_data_proxy.get_course_data(selected)
         try:
             await msg.clear_reactions()
         except Exception:
             pass
-        if data and data.get("course_data"):
-            return selected_key, data
-        return None, None
+        return selected, data if data and data.get("course_data") else (None, None)
 
     async def _wait_for_reaction(
         self, ctx: commands.Context, message: discord.Message, valid_emojis: List[str]
     ) -> Optional[discord.Reaction]:
         """
-        Wait for a valid reaction from the author on the given message.
+        Wait for a valid reaction from the command author on the given message.
         Returns the reaction if received, or None on timeout.
         """
 
@@ -284,20 +361,20 @@ class CourseManager(commands.Cog):
         self, ctx: commands.Context, course_code: str
     ) -> Optional[discord.Embed]:
         """
-        Retrieve course details as an embed.
-        Returns None if the course is not found.
+        Retrieve course details as a Discord embed.
+        Returns None if no course data is found.
         """
-        variant, data = await self._lookup_course_data(ctx, course_code)
-        if not variant or not (data and data.get("course_data")):
+        candidate, data = await self._lookup_course_data(ctx, course_code)
+        if not candidate or not (data and data.get("course_data")):
             return None
-        embed = self._create_course_embed(variant, data)
+        embed = self._create_course_embed(candidate, data)
         return embed
 
     async def _prune_channel(
         self, channel: discord.TextChannel, threshold: timedelta, reason: str
     ) -> bool:
         """
-        Delete the channel if it has been inactive beyond the threshold.
+        Delete the channel if its last activity exceeds the threshold.
         """
         try:
             last_user_message: Optional[discord.Message] = None
@@ -332,7 +409,7 @@ class CourseManager(commands.Cog):
         self, course_key: str, course_data: Dict[str, Any]
     ) -> discord.Embed:
         """
-        Build and return a Discord embed containing course details.
+        Build and return a Discord embed with course details.
         """
         log.debug("Creating embed for course: %s", course_key)
         embed = discord.Embed(
@@ -343,7 +420,6 @@ class CourseManager(commands.Cog):
         date_added = course_data.get("date_added", "Unknown")
         footer_icon = "🟢" if is_fresh else "🔴"
         embed.set_footer(text=f"{footer_icon} Last updated: {date_added}")
-
         fields = [
             ("Title", data_item.get("title", "")),
             ("Term", data_item.get("term_found", "")),
@@ -373,7 +449,7 @@ class CourseManager(commands.Cog):
             )
         return embed
 
-    # --- Commands ---
+    # === Commands ===
 
     @commands.group(invoke_without_command=True)
     @commands.cooldown(1, 5, commands.BucketType.user)
@@ -407,20 +483,20 @@ class CourseManager(commands.Cog):
         if not formatted:
             await ctx.send(error(f"Invalid course code: {course_code}."))
             return
-        variant, data = await self._lookup_course_data(ctx, formatted)
-        if not variant or not (data and data.get("course_data")):
+        candidate, data = await self._lookup_course_data(ctx, formatted)
+        if not candidate or not (data and data.get("course_data")):
             await ctx.send(error(f"Failed to refresh data for {formatted}."))
             return
         async with self.config.courses() as courses:
-            courses[variant] = {"is_fresh": False}
+            courses[candidate] = {"is_fresh": False}
         async with ctx.typing():
-            data = await self.course_data_proxy.get_course_data(variant)
+            data = await self.course_data_proxy.get_course_data(candidate)
         if data and data.get("course_data"):
             await ctx.send(
-                success(f"Course data for {variant} refreshed successfully.")
+                success(f"Course data for {candidate} refreshed successfully.")
             )
         else:
-            await ctx.send(error(f"Failed to refresh course data for {variant}."))
+            await ctx.send(error(f"Failed to refresh course data for {candidate}."))
 
     @course.command()
     @commands.cooldown(5, 28800, commands.BucketType.user)
@@ -435,12 +511,12 @@ class CourseManager(commands.Cog):
             await ctx.send(error(f"Invalid course code: {course_code}."))
             return
         async with ctx.typing():
-            variant, data = await self._lookup_course_data(ctx, formatted)
-        if not variant or not (data and data.get("course_data")):
+            candidate, data = await self._lookup_course_data(ctx, formatted)
+        if not candidate or not (data and data.get("course_data")):
             await ctx.send(error(f"No valid course data found for {formatted}."))
             return
-        if variant.upper() in self.get_user_courses(ctx.author, ctx.guild):
-            await ctx.send(info(f"You are already enrolled in {variant}."))
+        if candidate.upper() in self.get_user_courses(ctx.author, ctx.guild):
+            await ctx.send(info(f"You are already enrolled in {candidate}."))
             return
         if len(self.get_user_courses(ctx.author, ctx.guild)) >= self.max_courses:
             await ctx.send(
@@ -463,10 +539,12 @@ class CourseManager(commands.Cog):
                     error("I don't have permission to create the courses category.")
                 )
                 return
-        channel = self.get_course_channel(ctx.guild, variant)
+        channel = self.get_course_channel(ctx.guild, candidate)
         if not channel:
-            log.debug("Course channel for %s not found; creating new channel.", variant)
-            channel = await self.create_course_channel(ctx.guild, category, variant)
+            log.debug(
+                "Course channel for %s not found; creating new channel.", candidate
+            )
+            channel = await self.create_course_channel(ctx.guild, category, candidate)
         try:
             await channel.set_permissions(
                 ctx.author, overwrite=self.channel_permissions
@@ -478,10 +556,10 @@ class CourseManager(commands.Cog):
             )
             return
         await ctx.send(
-            success(f"You have successfully joined {variant}."), delete_after=120
+            success(f"You have successfully joined {candidate}."), delete_after=120
         )
         if self.logging_channel:
-            await self.logging_channel.send(f"{ctx.author} has joined {variant}.")
+            await self.logging_channel.send(f"{ctx.author} has joined {candidate}.")
 
     @course.command()
     @commands.cooldown(5, 28800, commands.BucketType.user)

@@ -50,7 +50,7 @@ class CourseDataProxy:
     async def get_course_data(self, course_key_formatted: str) -> Dict[str, Any]:
         """
         Retrieve course data from config if available and fresh.
-        Otherwise, fetch it from the remote API, cache it, and return the new data.
+        Otherwise, fetch it from the external API, cache it, and return the data.
         """
         self.log.debug("Retrieving course data for %s", course_key_formatted)
         courses: Dict[str, Any] = await self.config.courses()
@@ -113,9 +113,6 @@ class CourseDataProxy:
     async def _fetch_data_with_retries(
         self, term_order: List[str], course_key_formatted: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
-        """
-        Try to fetch data using multiple term IDs with a retry mechanism.
-        """
         max_retries = 1
         retry_delay = 5
         url: Optional[str] = None
@@ -210,7 +207,7 @@ class CourseDataProxy:
         """
         courses = soup.find_all("course")
         self.log.debug("Processing soup: found %s course entries.", len(courses))
-        processed_courses = []
+        processed_courses: List[Dict[str, Any]] = []
         for course in courses:
             offering = course.find("offering")
             title = offering.get("title", "") if offering else ""
@@ -260,7 +257,7 @@ class CourseDataProxy:
 
     async def update_course_listing(self) -> Optional[str]:
         """
-        Retrieve and overwrite the full course listings.
+        Retrieve and overwrite the full course listing.
         Returns the number of courses found as a string.
         """
         self.log.debug("Retrieving full course listings")
@@ -304,7 +301,7 @@ class CourseDataProxy:
         self.log.debug(
             "Processing soup: found %s course listing entries.", len(courses)
         )
-        courses_dict = {}
+        courses_dict: Dict[str, str] = {}
         for course in courses:
             course_code = course.text.upper()
             course_name = course.get("info").replace("<br/>", " ")
