@@ -165,6 +165,10 @@ class CourseDataProxy:
         return term_id
 
     def _build_url(self, term_id: int, course_key_formatted: str) -> str:
+        """
+        Build the URL for the course data API request.
+        Assumes that course_key_formatted has been normalized.
+        """
         t, e = self._generate_time_code()
         url = self._URL_BASE.format(
             term=term_id, course_key_formatted=course_key_formatted, t=t, e=e

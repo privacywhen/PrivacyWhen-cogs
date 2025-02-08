@@ -22,9 +22,10 @@ log.setLevel(logging.DEBUG)
 if not log.handlers:
     log.addHandler(logging.StreamHandler())
 
-# Regular expression for course key normalization.
+# New regex pattern: ensures subject is captured, then digits (possibly with letters in between)
+# and optionally exactly one letter as a suffix (captured in group 3) only if it follows a digit.
 COURSE_KEY_PATTERN = re.compile(
-    r"^\s*([A-Za-z]+)[\s\-_]*(\d+(?:[A-Za-z]+\d+)?)([A-Za-z])?\s*$"
+    r"^\s*([A-Za-z]+)[\s\-_]*(\d+(?:[A-Za-z\d]*\d+)?)([A-Za-z])?\s*$"
 )
 # Reaction options for interactive prompts.
 REACTION_OPTIONS: List[str] = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "❌"]  # Last is cancel
@@ -34,13 +35,13 @@ class CourseManager(commands.Cog):
     """
     Manages course channels and details.
 
-    - Users can join/leave course channels under the "COURSES" category.
-    - Auto-prunes inactive channels.
-    - Retrieves and caches course data from an external API.
-    - Supports a layered lookup:
-      • If a perfect match is found in the course listing, use it.
-      • If only variants (differing by suffix) are found, prompt the user.
-      • Otherwise, fall back to fuzzy lookup with up to 5 suggestions.
+    Lookup logic:
+      1. Normalize input (e.g. "socwork2cc3" becomes "SOCWORK-2CC3").
+      2. If an exact match exists in the course listing, use it.
+      3. Otherwise, if the input lacks a suffix, search for variant keys.
+         - If exactly one variant exists, use it.
+         - If multiple exist, prompt the user.
+      4. Otherwise, fall back to fuzzy lookup (up to 5 suggestions).
     """
 
     def __init__(self, bot: commands.Bot) -> None:
@@ -98,15 +99,17 @@ class CourseManager(commands.Cog):
                         )
             await asyncio.sleep(PRUNE_INTERVAL)
 
-    # === Course Key and Channel Helpers ===
+    # --- Course Key and Channel Helpers ---
 
     def _format_course_key(self, course_key_raw: str) -> Optional[str]:
         """
-        Normalize an input course string to a standardized format.
+        Normalize a course code.
 
-        Examples:
-          "socwork-2a06" or "SOCWORK2A06" -> "SOCWORK-2A06"
-          "SocWork-2A06A"                 -> "SOCWORK-2A06A"
+        Accepts input such as:
+            "sOcWoRk2cc3", "socwork2cc3", "socwork 2cc3", "socwork-2cc3",
+            "math 2xx3 a"
+        and returns a standardized code like:
+            "SOCWORK-2CC3" or "MATH-2XX3A"
         """
         log.debug("Formatting course key: %s", course_key_raw)
         match = COURSE_KEY_PATTERN.match(course_key_raw)
@@ -114,6 +117,7 @@ class CourseManager(commands.Cog):
             log.debug("Input '%s' does not match expected pattern.", course_key_raw)
             return None
         subject, number, suffix = match.groups()
+        # Concatenate the main number and suffix if present.
         formatted = f"{subject.upper()}-{number.upper()}" + (
             suffix.upper() if suffix else ""
         )
@@ -122,11 +126,11 @@ class CourseManager(commands.Cog):
 
     def _get_channel_name(self, course_key: str) -> str:
         """
-        Return a Discord channel name based on the course key.
-        Removes a trailing letter (if one exists) and converts to lowercase.
+        Derive a channel name from the course code.
+        Channels are lowercase and drop any suffix.
         """
-        if course_key and course_key[-1].isalpha() and len(course_key) > 0:
-            # If the last character is an alphabet letter, assume it's a suffix.
+        # Remove the last character if it's a letter (the suffix).
+        if course_key and course_key[-1].isalpha():
             base = course_key[:-1]
         else:
             base = course_key
@@ -135,9 +139,7 @@ class CourseManager(commands.Cog):
         return channel_name
 
     def get_category(self, guild: discord.Guild) -> Optional[discord.CategoryChannel]:
-        """
-        Return the category in the guild matching self.category_name.
-        """
+        """Return the category in the guild matching self.category_name."""
         log.debug(
             "Searching for category '%s' in guild %s", self.category_name, guild.name
         )
@@ -153,9 +155,7 @@ class CourseManager(commands.Cog):
     def get_course_channel(
         self, guild: discord.Guild, course_key: str
     ) -> Optional[discord.TextChannel]:
-        """
-        Return the course channel (by name) if it exists in the guild.
-        """
+        """Return the course channel (by name) if it exists in the guild."""
         category = self.get_category(guild)
         if not category:
             log.debug(
@@ -176,8 +176,8 @@ class CourseManager(commands.Cog):
         self, guild: discord.Guild, category: discord.CategoryChannel, course_key: str
     ) -> discord.TextChannel:
         """
-        Create a new course channel in the specified category.
-        The channel is created hidden (by denying view_channel) until a user joins.
+        Create a new course channel under the specified category.
+        (Channel names are lowercase.)
         """
         target_name = self._get_channel_name(course_key)
         log.debug("Creating channel '%s' in guild %s", target_name, guild.name)
@@ -208,22 +208,21 @@ class CourseManager(commands.Cog):
         log.debug("User %s has access to courses: %s", user, courses)
         return courses
 
-    # === Course Data Lookup Logic ===
+    # --- Course Data Lookup Logic ---
 
     def _find_variant_matches(self, base: str, listings: Dict[str, str]) -> List[str]:
         """
-        Return a list of keys in listings that start with the given base.
-        For example, if base is 'SOCWORK-2CC3', it might return
-        ['SOCWORK-2CC3A', 'SOCWORK-2CC3B', 'SOCWORK-2CC3S'].
+        Return a list of keys in listings that start with the base key and have an extra letter suffix.
         """
-        return [key for key in listings if key.startswith(base)]
+        return [
+            key for key in listings if key.startswith(base) and len(key) > len(base)
+        ]
 
     async def _prompt_variant_selection(
         self, ctx: commands.Context, variants: List[str], listings: Dict[str, str]
     ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """
-        Prompt the user to choose among multiple variant keys.
-        Uses reaction options.
+        Prompt the user to choose among multiple variant keys using reaction options.
         """
         prompt = "Multiple course variants found. Please choose one:\n"
         for i, key in enumerate(variants):
@@ -241,34 +240,35 @@ class CourseManager(commands.Cog):
                 pass
             return None, None
         selected_index = REACTION_OPTIONS.index(str(reaction.emoji))
-        selected = variants[selected_index]
-        data = await self.course_data_proxy.get_course_data(selected)
+        candidate = variants[selected_index]
+        data = await self.course_data_proxy.get_course_data(candidate)
         try:
             await msg.clear_reactions()
         except Exception:
             pass
-        return selected, data if data and data.get("course_data") else (None, None)
+        return candidate, data if data and data.get("course_data") else (None, None)
 
     async def _lookup_course_data(
         self, ctx: commands.Context, formatted: str
     ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """
-        Perform a layered lookup for course data:
-         1. If an exact match exists in the course listing, use it.
-         2. If no exact match and the input lacks a suffix, look for variants.
-         3. If variants are found, if only one exists, use it; otherwise, prompt the user.
-         4. Otherwise, use fuzzy lookup to offer up to 5 suggestions.
+        Layered lookup for course data:
+          1. If an exact match exists, use it.
+          2. Otherwise, if no suffix was provided, look for variants.
+             - If exactly one variant is found, use it.
+             - If multiple, prompt the user.
+          3. Otherwise, fall back to fuzzy lookup (up to 5 suggestions).
         """
         listings: Dict[str, str] = (await self.config.course_listings()).get(
             "courses", {}
         )
-        # If the exact key is in the listing, try it.
+        # Step 1: Exact match
         if formatted in listings:
             data = await self.course_data_proxy.get_course_data(formatted)
             if data and data.get("course_data"):
                 return formatted, data
 
-        # If the user did not provide a suffix (assume last char not alphabetic)
+        # Step 2: If input lacks a suffix, check for variants.
         if not formatted[-1].isalpha():
             variants = self._find_variant_matches(formatted, listings)
             if variants:
@@ -284,7 +284,7 @@ class CourseManager(commands.Cog):
                     if candidate:
                         return candidate, data
 
-        # Fall back to fuzzy lookup.
+        # Step 3: Fuzzy lookup fallback.
         candidate, data = await self._fallback_fuzzy_lookup(ctx, formatted)
         return candidate, data
 
@@ -293,7 +293,7 @@ class CourseManager(commands.Cog):
     ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """
         Perform fuzzy lookup using the full course listing.
-        Present up to 5 matches (plus a cancel option) for user selection.
+        Present up to 5 suggestions for user selection.
         """
         listings: Dict[str, str] = (await self.config.course_listings()).get(
             "courses", {}
@@ -301,11 +301,9 @@ class CourseManager(commands.Cog):
         if not listings:
             log.debug("Course listings unavailable; cannot perform fuzzy lookup.")
             return None, None
-
         matches = process.extract(formatted, listings.keys(), limit=5, score_cutoff=70)
         if not matches:
             return None, None
-
         prompt = "Course not found. Did you mean:\n"
         options: List[str] = []
         for i, match in enumerate(matches):
@@ -338,7 +336,6 @@ class CourseManager(commands.Cog):
     ) -> Optional[discord.Reaction]:
         """
         Wait for a valid reaction from the command author on the given message.
-        Returns the reaction if received, or None on timeout.
         """
 
         def check(reaction: discord.Reaction, user: discord.User) -> bool:
@@ -449,7 +446,7 @@ class CourseManager(commands.Cog):
             )
         return embed
 
-    # === Commands ===
+    # --- Commands ---
 
     @commands.group(invoke_without_command=True)
     @commands.cooldown(1, 5, commands.BucketType.user)
