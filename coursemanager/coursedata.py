@@ -191,6 +191,9 @@ class CourseDataProxy:
             async with ClientSession(timeout=timeout) as session:
                 async with session.get(url) as response:
                     self.log.debug("Response %s from URL: %s", response.status, url)
+                    # If we get a 500 error, we can consider it permanent for this course.
+                    if response.status == 500:
+                        return None, "Error: HTTP 500"
                     if response.status != 200:
                         return None, f"Error: HTTP {response.status}"
                     content = await response.text()
