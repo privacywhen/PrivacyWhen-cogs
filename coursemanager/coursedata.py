@@ -128,27 +128,23 @@ class CourseDataProxy:
                 try:
                     soup, error_message = await self._fetch_single_attempt(url)
                     if soup:
-                        self.log.debug(
-                            "Successfully fetched data from %s", url)
+                        self.log.debug("Successfully fetched data from %s", url)
                         return soup, None
                     elif error_message:
                         self.log.debug("Received error: %s", error_message)
                         if "not found" in error_message.lower():
-                            self.log.error("Course not found: %s",
-                                           course_key_formatted)
+                            self.log.error("Course not found: %s", course_key_formatted)
                             return None, error_message
                         if retry_count == max_retries - 1:
                             return None, error_message
-                        self.log.debug(
-                            "Retrying in %s seconds...", retry_delay)
+                        self.log.debug("Retrying in %s seconds...", retry_delay)
                         await asyncio.sleep(retry_delay)
                 except (
                     ClientResponseError,
                     ClientConnectionError,
                     asyncio.TimeoutError,
                 ) as error:
-                    self.log.error(
-                        "Exception during fetch from %s: %s", url, error)
+                    self.log.error("Exception during fetch from %s: %s", url, error)
                     if retry_count == max_retries - 1:
                         return None, "Error: Issue occurred while fetching course data."
                     self.log.debug("Retrying in %s seconds...", retry_delay)
@@ -189,8 +185,7 @@ class CourseDataProxy:
         try:
             async with ClientSession(timeout=timeout) as session:
                 async with session.get(url) as response:
-                    self.log.debug("Response %s from URL: %s",
-                                   response.status, url)
+                    self.log.debug("Response %s from URL: %s", response.status, url)
                     if response.status != 200:
                         return None, f"Error: HTTP {response.status}"
                     content = await response.text()
@@ -211,8 +206,7 @@ class CourseDataProxy:
         credits, description, prerequisites, and antirequisites.
         """
         courses = soup.find_all("course")
-        self.log.debug(
-            "Processing soup: found %s course entries.", len(courses))
+        self.log.debug("Processing soup: found %s course entries.", len(courses))
         processed_courses = []
         for course in courses:
             offering = course.find("offering")
@@ -234,18 +228,15 @@ class CourseDataProxy:
                     lower = part.lower()
                     if lower.startswith("prerequisite"):
                         prerequisites = (
-                            part.split(":", 1)[1].strip(
-                            ) if ":" in part else ""
+                            part.split(":", 1)[1].strip() if ":" in part else ""
                         )
                     elif lower.startswith("antirequisite"):
                         antirequisites = (
-                            part.split(":", 1)[1].strip(
-                            ) if ":" in part else ""
+                            part.split(":", 1)[1].strip() if ":" in part else ""
                         )
             selection = course.find("selection")
             credits = selection.get("credits", "") if selection else ""
-            term_found = course.find("term").get(
-                "v", "") if course.find("term") else ""
+            term_found = course.find("term").get("v", "") if course.find("term") else ""
             teacher = ""
             block = course.find("block")
             if block:
@@ -279,8 +270,7 @@ class CourseDataProxy:
                 "date_updated": date.today().isoformat(),
             }
             await self.config.course_listings.set(new_data)
-            self.log.debug(
-                f"Fetched and cached {len(processed_listing)} courses")
+            self.log.debug(f"Fetched and cached {len(processed_listing)} courses")
             return len(processed_listing)
         elif error_msg:
             self.log.error(f"Error fetching course list: {error_msg}")
@@ -296,8 +286,7 @@ class CourseDataProxy:
         try:
             soup, error_message = await self._fetch_single_attempt(url)
             if soup:
-                self.log.debug(
-                    "Successfully fetched listing data from %s", url)
+                self.log.debug("Successfully fetched listing data from %s", url)
                 return soup, None
             elif error_message:
                 self.log.debug("Received error: %s", error_message)
@@ -306,8 +295,7 @@ class CourseDataProxy:
             ClientResponseError,
             ClientConnectionError,
         ) as error:
-            self.log.error(
-                "Exception during fetch from %s: %s", url, error)
+            self.log.error("Exception during fetch from %s: %s", url, error)
             return None, "Error: Issue occurred while fetching course data."
 
     def _process_course_listing(self, soup: BeautifulSoup) -> Dict[str, str]:
@@ -316,7 +304,8 @@ class CourseDataProxy:
         """
         courses = soup.find_all("rs")
         self.log.debug(
-            "Processing soup: found %s course listing entries.", len(courses))
+            "Processing soup: found %s course listing entries.", len(courses)
+        )
         courses_dict = {}
         for course in courses:
             course_code = course.text.upper()
