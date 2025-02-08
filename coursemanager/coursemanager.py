@@ -45,6 +45,10 @@ class CourseManager(commands.Cog):
          - If exactly one variant exists, use it.
          - If multiple exist, prompt the user.
       4. Otherwise, fall back to fuzzy lookup (up to 5 suggestions).
+
+    **Enabled Server Feature:**
+      This cog now only functions in servers that have been explicitly enabled.
+      Administrators can run `course enable` and `course disable` to opt in or out.
     """
 
     def __init__(self, bot: commands.Bot) -> None:
@@ -58,10 +62,12 @@ class CourseManager(commands.Cog):
         self.max_courses: int = 10
         self.logging_channel: Optional[discord.TextChannel] = None
 
+        # Add the new global config field "enabled_guilds" to control which servers are active.
         default_global: Dict[str, Any] = {
             "term_codes": {},
             "courses": {},
             "course_listings": {},
+            "enabled_guilds": [],  # List of guild IDs where Course Manager is enabled.
         }
         self.config: Config = Config.get_conf(
             self, identifier=3720194665, force_registration=True
@@ -69,6 +75,7 @@ class CourseManager(commands.Cog):
         self.config.register_global(**default_global)
         self.course_data_proxy: CourseDataProxy = CourseDataProxy(self.config, log)
 
+        # Start the background auto-prune task.
         self._prune_task: asyncio.Task = self.bot.loop.create_task(
             self._auto_prune_task()
         )
@@ -79,14 +86,45 @@ class CourseManager(commands.Cog):
         log.debug("Unloading CourseManager cog; cancelling auto-prune task.")
         self._prune_task.cancel()
 
+    async def cog_check(self, ctx: commands.Context) -> bool:
+        """
+        Ensure that the cog runs only in servers that have enabled it.
+        Bypasses check for owners and for the enable/disable commands.
+        """
+        # Allow DM commands (if any) or if there is no guild.
+        if ctx.guild is None:
+            return True
+
+        # Allow owners to bypass the check.
+        if await ctx.bot.is_owner(ctx.author):
+            return True
+
+        # Allow enable/disable commands to run even if the cog is disabled.
+        if ctx.command.name in ("enable", "disable"):
+            return True
+
+        enabled = await self.config.enabled_guilds()
+        if ctx.guild.id in enabled:
+            return True
+        else:
+            await ctx.send(
+                "Course Manager is not enabled in this server. "
+                "An administrator can enable it with `course enable`."
+            )
+            return False
+
     async def _auto_prune_task(self) -> None:
         """Background task to auto-prune inactive course channels."""
         PRUNE_INTERVAL = 3600  # seconds
         PRUNE_THRESHOLD = timedelta(days=120)
         await self.bot.wait_until_ready()
         log.debug("Auto-prune task started.")
+        # Only process guilds that have Course Manager enabled.
+        enabled = await self.config.enabled_guilds()
         while not self.bot.is_closed():
             for guild in self.bot.guilds:
+                if guild.id not in enabled:
+                    continue  # Skip guilds that haven't enabled Course Manager.
                 category = self.get_category(guild)
                 if not category:
                     log.debug(
@@ -101,6 +139,46 @@ class CourseManager(commands.Cog):
                             channel, PRUNE_THRESHOLD, "Auto-pruned due to inactivity."
                         )
             await asyncio.sleep(PRUNE_INTERVAL)
+
+    # --- New Enable/Disable Commands ---
+    @commands.group(name="course", invoke_without_command=True)
+    @commands.cooldown(1, 5, commands.BucketType.user)
+    async def course(self, ctx: commands.Context) -> None:
+        """Main command group for course functionalities.
+
+        Use `course enable` to enable or `course disable` to disable Course Manager in your server.
+        """
+        await ctx.send_help(self.course)
+
+    @course.command(name="enable")
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    async def enable(self, ctx: commands.Context) -> None:
+        """
+        Enable Course Manager in your server.
+        """
+        enabled = await self.config.enabled_guilds()
+        if ctx.guild.id in enabled:
+            await ctx.send("Course Manager is already enabled in this server.")
+        else:
+            enabled.append(ctx.guild.id)
+            await self.config.enabled_guilds.set(enabled)
+            await ctx.send("Course Manager has been enabled in this server.")
+
+    @course.command(name="disable")
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    async def disable(self, ctx: commands.Context) -> None:
+        """
+        Disable Course Manager in your server.
+        """
+        enabled = await self.config.enabled_guilds()
+        if ctx.guild.id not in enabled:
+            await ctx.send("Course Manager is already disabled in this server.")
+        else:
+            enabled.remove(ctx.guild.id)
+            await self.config.enabled_guilds.set(enabled)
+            await ctx.send("Course Manager has been disabled in this server.")
 
     # --- Course Key and Channel Helpers ---
 
@@ -457,13 +535,6 @@ class CourseManager(commands.Cog):
 
     # --- Commands ---
 
-    @commands.group(invoke_without_command=True)
-    @commands.cooldown(1, 5, commands.BucketType.user)
-    async def course(self, ctx: commands.Context) -> None:
-        """Main command group for course functionalities."""
-        log.debug("Course command group invoked by %s", ctx.author)
-        await ctx.send_help(self.course)
-
     @course.command(name="list")
     @commands.cooldown(1, 600, commands.BucketType.user)
     async def list_enrollments(self, ctx: commands.Context) -> None:
@@ -713,6 +784,10 @@ class CourseManager(commands.Cog):
         pruned_channels = []
         PRUNE_THRESHOLD = timedelta(days=120)
         for guild in self.bot.guilds:
+            # Only prune channels in enabled guilds.
+            enabled = await self.config.enabled_guilds()
+            if guild.id not in enabled:
+                continue
             category = self.get_category(guild)
             if not category:
                 continue
