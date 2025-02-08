@@ -658,6 +658,122 @@ class CourseManager(commands.Cog):
         else:
             await ctx.send(embed=embed)
 
+    # --- Developer Commands (Owner-only) ---
+
+    @commands.is_owner()
+    @commands.group(name="dc", invoke_without_command=True)
+    async def dev_course(self, ctx: commands.Context) -> None:
+        """Developer commands for managing course config data."""
+        log.debug("Dev command group 'dev_course' invoked by %s", ctx.author)
+        await ctx.send_help(self.dev_course)
+
+    @dev_course.command(name="term")
+    async def set_term_codes(
+        self, ctx: commands.Context, term_name: str, term_id: int
+    ) -> None:
+        """
+        Set the term code for a specified term.
+        Example: !dc term winter 2241
+        """
+        async with self.config.term_codes() as term_codes:
+            term_codes[term_name.lower()] = term_id
+        log.debug("Set term code for %s to %s", term_name, term_id)
+        await ctx.send(
+            success(f"Term code for {term_name.capitalize()} set to: {term_id}")
+        )
+
+    @dev_course.command(name="clearstale")
+    async def clear_stale_config(self, ctx: commands.Context) -> None:
+        """Clear stale course config entries that no longer correspond to a channel."""
+        log.debug("Clearing stale config entries.")
+        stale = []
+        courses = await self.config.courses.all()
+        stale.extend(
+            course_key
+            for course_key in courses.keys()
+            if not any(
+                self.get_course_channel(guild, course_key) for guild in self.bot.guilds
+            )
+        )
+        for course_key in stale:
+            await self.config.courses.clear_raw(course_key)
+            log.debug("Cleared stale entry for course %s", course_key)
+        if stale:
+            await ctx.send(success(f"Cleared stale config entries: {', '.join(stale)}"))
+        else:
+            await ctx.send(info("No stale course config entries found."))
+
+    @dev_course.command(name="prune")
+    async def manual_prune(self, ctx: commands.Context) -> None:
+        """
+        Manually trigger the prune process for inactive course channels.
+        Uses the unified _prune_channel helper.
+        """
+        log.debug("Manual prune triggered by %s", ctx.author)
+        pruned_channels = []
+        PRUNE_THRESHOLD = timedelta(days=120)
+        for guild in self.bot.guilds:
+            category = self.get_category(guild)
+            if not category:
+                continue
+            for channel in category.channels:
+                if isinstance(channel, discord.TextChannel):
+                    pruned = await self._prune_channel(
+                        channel, PRUNE_THRESHOLD, "Manually pruned due to inactivity."
+                    )
+                    if pruned:
+                        pruned_channels.append(f"{guild.name} - {channel.name}")
+        if pruned_channels:
+            await ctx.send(success("Pruned channels:\n" + "\n".join(pruned_channels)))
+        else:
+            await ctx.send(info("No inactive channels to prune."))
+
+    @dev_course.command(name="printconfig")
+    async def print_config(self, ctx: commands.Context) -> None:
+        """Print the entire global config to the console."""
+        cfg = await self.config.all()
+        log.debug("Current config: %s", cfg)
+        await ctx.send(info("Config has been printed to the console log."))
+
+    @dev_course.command(name="clearcourses")
+    async def clear_courses(self, ctx: commands.Context) -> None:
+        """Clear all cached course data from the config."""
+        await self.config.courses.set({})
+        log.debug("All course data cleared by %s", ctx.author)
+        await ctx.send(warning("All courses have been cleared from the config."))
+
+    @dev_course.command(name="list")
+    async def list_courses(self, ctx: commands.Context) -> None:
+        """Lists courses with cached details."""
+        cfg = await self.config.courses.all()
+        serialized = "\n".join([k for k in cfg])
+        await ctx.send(serialized)
+
+    @dev_course.command(name="listall")
+    async def list_all_courses(self, ctx: commands.Context) -> None:
+        """Lists all courses."""
+        cfg = await self.config.course_listings.all()
+        if "courses" in cfg:
+            courses = cfg["courses"]
+            dtm = cfg["date_updated"]
+            serialized_courses = "\n".join(list(courses.keys()))
+            if len(serialized_courses) > 1500:
+                serialized_courses = serialized_courses[:1500] + "..."
+            await ctx.send(
+                f"{len(cfg['courses'])} courses cached on {dtm}\n{serialized_courses}"
+            )
+        else:
+            await ctx.send("Course list not found. Run populate command first.")
+
+    @dev_course.command(name="populate")
+    async def fetch_prefixes(self, ctx: commands.Context) -> None:
+        """Force refresh cached course code and names."""
+        course_count = await self.course_data_proxy.update_course_listing()
+        if course_count and int(course_count) > 0:
+            await ctx.send(info(f"Fetched and cached {course_count} courses"))
+        else:
+            await ctx.send(warning("0 courses fetched. Check console log"))
+
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(CourseManager(bot))
