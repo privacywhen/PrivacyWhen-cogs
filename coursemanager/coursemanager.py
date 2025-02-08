@@ -701,14 +701,20 @@ class CourseManager(commands.Cog):
 
     @dev_course.command(name="clearcourses")
     async def clear_courses(self, ctx: commands.Context) -> None:
+        # Clear both the individual course data and the course listings.
         await self.config.courses.set({})
-        log.debug("All course data cleared by %s", ctx.author)
-        await ctx.send(warning("All courses have been cleared from the config."))
+        await self.config.course_listings.set({})
+        log.debug("All course data and course listings cleared by %s", ctx.author)
+        await ctx.send(
+            warning(
+                "All courses and course listings have been cleared from the config."
+            )
+        )
 
     @dev_course.command(name="list")
     async def list_courses(self, ctx: commands.Context) -> None:
         cfg = await self.config.courses.all()
-        serialized = "\n".join([k for k in cfg])
+        serialized = "\n".join(list(cfg))
         await ctx.send(serialized)
 
     @dev_course.command(name="listall")
@@ -719,7 +725,7 @@ class CourseManager(commands.Cog):
             dtm = cfg["date_updated"]
             serialized_courses = "\n".join(list(courses.keys()))
             if len(serialized_courses) > 1500:
-                serialized_courses = serialized_courses[:1500] + "..."
+                serialized_courses = f"{serialized_courses[:1500]}..."
             await ctx.send(
                 f"{len(cfg['courses'])} courses cached on {dtm}\n{serialized_courses}"
             )
