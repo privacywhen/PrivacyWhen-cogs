@@ -5,12 +5,19 @@
     "short": "Manages course-related Discord channels and fetches course data.",
     "end_user_data_statement": "The Course Manager cog stores course data in an SQLite database.",
     "min_bot_version": "3.5.14",
-    "min_python_version": [3, 8, 0],  
+    "min_python_version": [3, 8, 0],
     "required_cogs": {
         "Config": "Red-DiscordBot",
         "checks": "Red-DiscordBot"
     },
-    "requirements": ["aiohttp", "beautifulsoup4", "lxml", "discord.py"],
+    "requirements": [
+        "aiohttp",
+        "beautifulsoup4",
+        "lxml",
+        "discord.py",
+        "networkx",
+        "python-louvain"
+    ],
     "tags": ["courses", "education", "manager", "Redbot"],
     "type": "COG"
 }
