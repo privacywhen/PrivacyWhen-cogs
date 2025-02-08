@@ -22,8 +22,9 @@ log.setLevel(logging.DEBUG)
 if not log.handlers:
     log.addHandler(logging.StreamHandler())
 
-# New regex pattern: ensures subject is captured, then digits (possibly with letters in between)
-# and optionally exactly one letter as a suffix (captured in group 3) only if it follows a digit.
+# New regex pattern to normalize course codes.
+# It accepts inputs such as "socwork2cc3", "socwork 2cc3", "socwork-2cc3",
+# or with a trailing suffix like "math 2xx3 a" and returns codes like "SOCWORK-2CC3" or "MATH-2XX3A".
 COURSE_KEY_PATTERN = re.compile(
     r"^\s*([A-Za-z]+)[\s\-_]*(\d+(?:[A-Za-z\d]*\d+)?)([A-Za-z])?\s*$"
 )
@@ -38,6 +39,8 @@ class CourseManager(commands.Cog):
     Lookup logic:
       1. Normalize input (e.g. "socwork2cc3" becomes "SOCWORK-2CC3").
       2. If an exact match exists in the course listing, use it.
+         If the API call fails for the perfect match (e.g. returns HTTP 500),
+         return immediately (so the user is informed the course is not available).
       3. Otherwise, if the input lacks a suffix, search for variant keys.
          - If exactly one variant exists, use it.
          - If multiple exist, prompt the user.
@@ -117,7 +120,6 @@ class CourseManager(commands.Cog):
             log.debug("Input '%s' does not match expected pattern.", course_key_raw)
             return None
         subject, number, suffix = match.groups()
-        # Concatenate the main number and suffix if present.
         formatted = f"{subject.upper()}-{number.upper()}" + (
             suffix.upper() if suffix else ""
         )
@@ -129,7 +131,6 @@ class CourseManager(commands.Cog):
         Derive a channel name from the course code.
         Channels are lowercase and drop any suffix.
         """
-        # Remove the last character if it's a letter (the suffix).
         if course_key and course_key[-1].isalpha():
             base = course_key[:-1]
         else:
@@ -253,8 +254,9 @@ class CourseManager(commands.Cog):
     ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """
         Layered lookup for course data:
-          1. If an exact match exists, use it.
-          2. Otherwise, if no suffix was provided, look for variants.
+          1. If an exact match exists in the course listing, use it.
+             If the API call fails for the perfect match, return immediately.
+          2. Otherwise, if no suffix was provided, look for variant keys.
              - If exactly one variant is found, use it.
              - If multiple, prompt the user.
           3. Otherwise, fall back to fuzzy lookup (up to 5 suggestions).
@@ -262,11 +264,15 @@ class CourseManager(commands.Cog):
         listings: Dict[str, str] = (await self.config.course_listings()).get(
             "courses", {}
         )
+
         # Step 1: Exact match
         if formatted in listings:
             data = await self.course_data_proxy.get_course_data(formatted)
             if data and data.get("course_data"):
                 return formatted, data
+            else:
+                log.error("Failed to fetch fresh data for perfect match: %s", formatted)
+                return formatted, None
 
         # Step 2: If input lacks a suffix, check for variants.
         if not formatted[-1].isalpha():
@@ -329,7 +335,10 @@ class CourseManager(commands.Cog):
             await msg.clear_reactions()
         except Exception:
             pass
-        return selected, data if data and data.get("course_data") else (None, None)
+        if data and data.get("course_data"):
+            return selected, data
+        else:
+            return None, None
 
     async def _wait_for_reaction(
         self, ctx: commands.Context, message: discord.Message, valid_emojis: List[str]

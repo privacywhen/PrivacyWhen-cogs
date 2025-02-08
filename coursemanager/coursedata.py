@@ -167,7 +167,7 @@ class CourseDataProxy:
     def _build_url(self, term_id: int, course_key_formatted: str) -> str:
         """
         Build the URL for the course data API request.
-        Assumes that course_key_formatted has been normalized.
+        Assumes course_key_formatted has been normalized.
         """
         t, e = self._generate_time_code()
         url = self._URL_BASE.format(
@@ -191,7 +191,7 @@ class CourseDataProxy:
             async with ClientSession(timeout=timeout) as session:
                 async with session.get(url) as response:
                     self.log.debug("Response %s from URL: %s", response.status, url)
-                    # If we get a 500 error, we can consider it permanent for this course.
+                    # If we get a 500 error, return immediately.
                     if response.status == 500:
                         return None, "Error: HTTP 500"
                     if response.status != 200:
