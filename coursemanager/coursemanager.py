@@ -6,10 +6,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import discord
 from redbot.core import commands, Config
-from redbot.core.utils.chat_formatting import box, error, info, success, warning, pagify
-from redbot.core.utils.menus import menu, DEFAULT_CONTROLS
+from redbot.core.utils.chat_formatting import error, info, success, warning
+from redbot.core.utils.menus import DEFAULT_CONTROLS
 from .coursedata import CourseDataProxy
-import difflib
 from rapidfuzz import process
 
 # Configure logging
@@ -22,6 +21,9 @@ if not log.handlers:
 COURSE_KEY_PATTERN = re.compile(
     r"^\s*([A-Za-z]+)[\s\-_]*(\d+(?:[A-Za-z]+\d+)?)([ABab])?\s*$"
 )
+
+# Constants for reaction options used in interactive fallback.
+REACTION_OPTIONS: List[str] = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "❌"]  # Last is cancel
 
 
 ###############################################################################
@@ -43,7 +45,6 @@ class CourseManager(commands.Cog):
         self.bot: commands.Bot = bot
 
         # Channel management settings.
-        # Allowed permissions for users are defined by the bitmask (446676945984) and no denied permissions.
         self.channel_permissions: discord.PermissionOverwrite = (
             discord.PermissionOverwrite.from_pair(
                 discord.Permissions(446676945984),
@@ -110,8 +111,6 @@ class CourseManager(commands.Cog):
     def _format_course_key(self, course_key_raw: str) -> Optional[str]:
         """
         Normalize an input course string into a standardized format.
-        Accepts various separators (hyphen, underscore, space) and an optional suffix.
-
         Examples:
           - "socwork-2a06" or "SOCWORK2A06"  -> "SOCWORK-2A06"
           - "SocWork-2A06A"                  -> "SOCWORK-2A06A"
@@ -124,9 +123,9 @@ class CourseManager(commands.Cog):
             )
             return None
         subject, number, suffix = match.groups()
-        subject = subject.upper()
-        number = number.upper()
-        formatted = f"{subject}-{number}" + (suffix.upper() if suffix else "")
+        formatted = f"{subject.upper()}-{number.upper()}" + (
+            suffix.upper() if suffix else ""
+        )
         log.debug("Formatted course key: %s", formatted)
         return formatted
 
@@ -134,10 +133,6 @@ class CourseManager(commands.Cog):
         """
         Return a Discord channel name from a standardized course code by removing any trailing suffix
         and converting it to lowercase.
-
-        Examples:
-          - "SOCWORK-2A06A" or "SOCWORK-2A06B"  -> "socwork-2a06"
-          - "SOCWORK-2A06"                       -> "socwork-2a06"
         """
         if course_key and course_key[-1] in ("A", "B"):
             course_key = course_key[:-1]
@@ -150,16 +145,14 @@ class CourseManager(commands.Cog):
     ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """
         Attempt to fetch course data using the exact key first.
-        If not in cache or the web lookup returns an error (e.g. HTTP 500),
-        use fuzzy lookup on the full course listing to let the user choose from suggestions.
-        Returns a tuple (course_key, data) or (None, None) if not found.
+        If not found (or if the API returns an error), fall back to interactive fuzzy lookup.
         """
-        # First, try a direct lookup using the entered key.
+        # Try direct lookup.
         data = await self.course_data_proxy.get_course_data(formatted)
         if data and data.get("course_data"):
             return formatted, data
 
-        # If direct lookup fails, perform interactive fuzzy lookup.
+        # Fallback: interactive fuzzy lookup.
         return await self._fallback_fuzzy_lookup(ctx, formatted)
 
     async def _fallback_fuzzy_lookup(
@@ -168,7 +161,7 @@ class CourseManager(commands.Cog):
         """
         Perform a fuzzy lookup against the full course listing.
         Presents the top 5 matches (plus a cancel option) via reaction options.
-        Returns the chosen course key and its data.
+        Returns the selected course key and its data, or (None, None) if cancelled or timed out.
         """
         listings = (await self.config.course_listings()).get("courses", {})
         if not listings:
@@ -184,48 +177,70 @@ class CourseManager(commands.Cog):
         suggestion_msg = (
             "Course not found. Please choose one of the following options:\n"
         )
-        emoji_options = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "❌"]
-        options = []
+        options: List[str] = []
         for i, match in enumerate(matches):
             course_key = match[0]
             course_name = listings.get(course_key, "")
-            suggestion_msg += f"{emoji_options[i]} **{course_key}**: {course_name}\n"
+            suggestion_msg += f"{REACTION_OPTIONS[i]} **{course_key}**: {course_name}\n"
             options.append(course_key)
-        suggestion_msg += f"{emoji_options[-1]} Cancel"
+        suggestion_msg += f"{REACTION_OPTIONS[-1]} Cancel"
+
         msg = await ctx.send(suggestion_msg)
 
-        for emoji in emoji_options[: len(matches)]:
+        # Add reactions: one for each option plus cancel.
+        for emoji in REACTION_OPTIONS[: len(options)]:
             await msg.add_reaction(emoji)
-        await msg.add_reaction(emoji_options[-1])
+        await msg.add_reaction(REACTION_OPTIONS[-1])
 
-        def check(reaction, user):
+        reaction = await self._wait_for_reaction(ctx, msg, REACTION_OPTIONS)
+        if reaction is None or str(reaction.emoji) == REACTION_OPTIONS[-1]:
+            try:
+                await msg.clear_reactions()
+            except Exception:
+                pass
+            return None, None
+
+        selected_index = REACTION_OPTIONS.index(str(reaction.emoji))
+        selected_key = options[selected_index]
+        data = await self.course_data_proxy.get_course_data(selected_key)
+        try:
+            await msg.clear_reactions()
+        except Exception:
+            pass
+        if data and data.get("course_data"):
+            return selected_key, data
+        else:
+            return None, None
+
+    async def _wait_for_reaction(
+        self, ctx: commands.Context, message: discord.Message, valid_emojis: List[str]
+    ) -> Optional[discord.Reaction]:
+        """
+        Wait for a reaction from the command author on the given message.
+        Returns the reaction if a valid one is received, or None on timeout.
+        """
+
+        def check(reaction: discord.Reaction, user: discord.User) -> bool:
             return (
                 user == ctx.author
-                and str(reaction.emoji) in emoji_options
-                and reaction.message.id == msg.id
+                and str(reaction.emoji) in valid_emojis
+                and reaction.message.id == message.id
             )
 
         try:
             reaction, _ = await self.bot.wait_for(
                 "reaction_add", timeout=30.0, check=check
             )
-            if str(reaction.emoji) == emoji_options[-1]:
-                await msg.clear_reactions()
-                return None, None
-            selected_index = emoji_options.index(str(reaction.emoji))
-            selected_key = options[selected_index]
-            data = await self.course_data_proxy.get_course_data(selected_key)
-            if data and data.get("course_data"):
-                await msg.clear_reactions()
-                return selected_key, data
-            else:
-                await msg.clear_reactions()
-                return None, None
+            return reaction
         except asyncio.TimeoutError:
-            await msg.clear_reactions()
-            return None, None
+            return None
 
-    async def _get_course_details(self, ctx: commands.Context, course_code: str):
+    async def _get_course_details(
+        self, ctx: commands.Context, course_code: str
+    ) -> Optional[discord.Embed]:
+        """
+        Retrieve course details as an embed. Returns None if the course is not found.
+        """
         variant, data = await self._lookup_course_data(ctx, course_code)
         if not variant or not (data and data.get("course_data")):
             return None
@@ -237,9 +252,7 @@ class CourseManager(commands.Cog):
     ) -> bool:
         """
         Check whether a channel is inactive and delete it if needed.
-
-        Returns:
-        True if the channel was pruned (deleted); otherwise, False.
+        Returns True if the channel was deleted.
         """
         try:
             last_user_message: Optional[discord.Message] = None
@@ -248,7 +261,6 @@ class CourseManager(commands.Cog):
                     last_user_message = msg
                     break
 
-            # Use the most recent non-bot message timestamp, or fallback to channel creation time.
             last_activity = (
                 last_user_message.created_at
                 if last_user_message
@@ -288,7 +300,8 @@ class CourseManager(commands.Cog):
     async def list_enrollments(self, ctx: commands.Context) -> None:
         """List all course channels you are currently enrolled in."""
         log.debug("Listing courses for user %s in guild %s", ctx.author, ctx.guild.name)
-        if courses := self.get_user_courses(ctx.author, ctx.guild):
+        courses = self.get_user_courses(ctx.author, ctx.guild)
+        if courses:
             await ctx.send(
                 "You are enrolled in the following courses:\n" + "\n".join(courses)
             )
@@ -307,10 +320,12 @@ class CourseManager(commands.Cog):
         if not formatted:
             await ctx.send(error(f"Invalid course code: {course_code}."))
             return
+
         variant, data = await self._lookup_course_data(ctx, formatted)
         if not variant or not (data and data.get("course_data")):
             await ctx.send(error(f"Failed to refresh data for {formatted}."))
             return
+
         async with self.config.courses() as courses:
             courses[variant] = {"is_fresh": False}
         async with ctx.typing():
@@ -695,7 +710,7 @@ class CourseManager(commands.Cog):
 
     @dev_course.command(name="listall")
     async def list_all_courses(self, ctx: commands.Context) -> None:
-        """Lists all courses"""
+        """Lists all courses."""
         cfg = await self.config.course_listings()
         if "courses" in cfg:
             courses = cfg["courses"]
@@ -710,12 +725,12 @@ class CourseManager(commands.Cog):
 
     @dev_course.command(name="populate")
     async def fetch_prefixes(self, ctx: commands.Context) -> None:
-        """Force refresh cached course code and names"""
+        """Force refresh cached course code and names."""
         course_count = await self.course_data_proxy.update_course_listing()
         if course_count > 0:
             await ctx.send(info(f"Fetched and cached {course_count} courses"))
         else:
-            await ctx.send(warning("0 courses fetched. Check console log"))
+            await ctx.send(warning("0 courses fetched. Check console log."))
 
     @dev_course.command(name="search")
     async def fuzzy_search(self, ctx: commands.Context, *, search_code: str) -> None:
@@ -731,7 +746,7 @@ class CourseManager(commands.Cog):
 
         courses = cfg["courses"]
 
-        # exact match, no need for fuzzy search
+        # Exact match first.
         if search_code in courses:
             embed = await self._get_course_details(ctx, search_code)
             await ctx.send(embed=embed)
@@ -751,40 +766,31 @@ class CourseManager(commands.Cog):
             return
 
         suggestion_msg = "Course not found. Did you mean:\n"
-        emoji_list = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "❌"]
         for i, match in enumerate(closest_matches):
-            suggestion_msg += f"- {emoji_list[i]} **{match}**: {courses[match]}\n"
+            suggestion_msg += f"{REACTION_OPTIONS[i]} **{match}**: {courses[match]}\n"
+        suggestion_msg += f"{REACTION_OPTIONS[-1]} Cancel"
         msg = await ctx.send(suggestion_msg)
 
-        # Add reaction buttons
-        for emoji in emoji_list[: len(closest_matches)]:
+        for emoji in REACTION_OPTIONS[: len(closest_matches)]:
             await msg.add_reaction(emoji)
-        await msg.add_reaction(emoji_list[-1])
+        await msg.add_reaction(REACTION_OPTIONS[-1])
 
-        def check(reaction, user):
-            return (
-                user == ctx.author
-                and str(reaction.emoji) in emoji_list
-                and reaction.message.id == msg.id
-            )
-
-        try:
-            reaction, _ = await self.bot.wait_for(
-                "reaction_add", timeout=30.0, check=check
-            )
-            if str(reaction.emoji) == emoji_list[-1]:
+        reaction = await self._wait_for_reaction(ctx, msg, REACTION_OPTIONS)
+        if reaction is None or str(reaction.emoji) == REACTION_OPTIONS[-1]:
+            try:
                 await msg.clear_reactions()
-                return
-            selected_index = emoji_list.index(str(reaction.emoji))
-            selected_course = closest_matches[selected_index]
+            except Exception:
+                pass
+            return
+        selected_index = REACTION_OPTIONS.index(str(reaction.emoji))
+        selected_course = closest_matches[selected_index]
 
-            embed = await self._get_course_details(ctx, selected_course)
+        embed = await self._get_course_details(ctx, selected_course)
+        try:
             await msg.clear_reactions()
-            await msg.edit(content=None, embed=embed)
-
-        except asyncio.TimeoutError:
-            await msg.clear_reactions()
-            await msg.edit(content=suggestion_msg + "\n[Selection timed out]")
+        except Exception:
+            pass
+        await msg.edit(content=None, embed=embed)
 
 
 async def setup(bot):
