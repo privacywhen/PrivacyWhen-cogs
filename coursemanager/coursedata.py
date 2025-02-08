@@ -289,14 +289,28 @@ class CourseDataProxy:
         return None, None
 
     def _process_course_listing(self, soup: BeautifulSoup) -> Dict[str, str]:
-        """Parse the course listing from the BeautifulSoup object."""
         courses = soup.find_all("rs")
         self.log.debug(
             "Processing soup: found %s course listing entries.", len(courses)
         )
         courses_dict: Dict[str, str] = {}
+
+        # Define a regex that captures the subject and code parts.
+        # This pattern expects one or more letters, followed by one or more spaces or dashes, then one or more digits (and possibly trailing letters).
+        regex = re.compile(r"^\s*([A-Z]+)[\s\-]+(\d+[A-Z\d]*)\s*$")
+
         for course in courses:
-            course_code = course.text.upper()
+            raw_course_code = course.text.strip().upper()  # e.g., "SOCWORK 1AA3"
+            if match := regex.match(raw_course_code):
+                subject, code_part = match.groups()
+                normalized_course_code = f"{subject}-{code_part}"
+            else:
+                normalized_course_code = (
+                    raw_course_code  # fallback if the pattern doesn't match
+                )
+
+            # Clean the course name by replacing <br/> with a space.
             course_name = course.get("info").replace("<br/>", " ")
-            courses_dict[course_code] = course_name
+            courses_dict[normalized_course_code] = course_name
+
         return courses_dict
