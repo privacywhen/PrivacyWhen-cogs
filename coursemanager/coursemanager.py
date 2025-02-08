@@ -146,11 +146,29 @@ class CourseManager(commands.Cog):
         return channel_name
 
     async def _lookup_course_data(
-        self, formatted: str
+        self, ctx: commands.Context, formatted: str
     ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """
-        Attempt to fetch course data using fuzzy matching against course listings.
+        Attempt to fetch course data using the exact key first.
+        If not in cache or the web lookup returns an error (e.g. HTTP 500),
+        use fuzzy lookup on the full course listing to let the user choose from suggestions.
         Returns a tuple (course_key, data) or (None, None) if not found.
+        """
+        # First, try a direct lookup using the entered key.
+        data = await self.course_data_proxy.get_course_data(formatted)
+        if data and data.get("course_data"):
+            return formatted, data
+
+        # If direct lookup fails, perform interactive fuzzy lookup.
+        return await self._fallback_fuzzy_lookup(ctx, formatted)
+
+    async def _fallback_fuzzy_lookup(
+        self, ctx: commands.Context, formatted: str
+    ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+        """
+        Perform a fuzzy lookup against the full course listing.
+        Presents the top 5 matches (plus a cancel option) via reaction options.
+        Returns the chosen course key and its data.
         """
         listings = (await self.config.course_listings()).get("courses", {})
         if not listings:
@@ -159,23 +177,60 @@ class CourseManager(commands.Cog):
             )
             return None, None
 
-        best_match = process.extractOne(formatted, listings.keys(), score_cutoff=70)
-        if best_match is None:
-            log.debug("Fuzzy matching did not find a suitable match for %s", formatted)
+        matches = process.extract(formatted, listings.keys(), limit=5, score_cutoff=70)
+        if not matches:
             return None, None
 
-        matched_key, score, _ = best_match
-        log.debug(
-            "Fuzzy matching: %s matched to %s with score %s",
-            formatted,
-            matched_key,
-            score,
+        suggestion_msg = (
+            "Course not found. Please choose one of the following options:\n"
         )
-        data = await self.course_data_proxy.get_course_data(matched_key)
-        if data and data.get("course_data"):
-            return matched_key, data
-        log.debug("No course data found for matched key: %s", matched_key)
-        return None, None
+        emoji_options = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "❌"]
+        options = []
+        for i, match in enumerate(matches):
+            course_key = match[0]
+            course_name = listings.get(course_key, "")
+            suggestion_msg += f"{emoji_options[i]} **{course_key}**: {course_name}\n"
+            options.append(course_key)
+        suggestion_msg += f"{emoji_options[-1]} Cancel"
+        msg = await ctx.send(suggestion_msg)
+
+        for emoji in emoji_options[: len(matches)]:
+            await msg.add_reaction(emoji)
+        await msg.add_reaction(emoji_options[-1])
+
+        def check(reaction, user):
+            return (
+                user == ctx.author
+                and str(reaction.emoji) in emoji_options
+                and reaction.message.id == msg.id
+            )
+
+        try:
+            reaction, _ = await self.bot.wait_for(
+                "reaction_add", timeout=30.0, check=check
+            )
+            if str(reaction.emoji) == emoji_options[-1]:
+                await msg.clear_reactions()
+                return None, None
+            selected_index = emoji_options.index(str(reaction.emoji))
+            selected_key = options[selected_index]
+            data = await self.course_data_proxy.get_course_data(selected_key)
+            if data and data.get("course_data"):
+                await msg.clear_reactions()
+                return selected_key, data
+            else:
+                await msg.clear_reactions()
+                return None, None
+        except asyncio.TimeoutError:
+            await msg.clear_reactions()
+            return None, None
+
+    async def _get_course_details(self, ctx: commands.Context, course_code: str):
+        variant, data = await self._lookup_course_data(ctx, course_code)
+        if not variant or not (data and data.get("course_data")):
+            return None
+        embed = self._create_course_embed(variant, data)
+        return embed
 
     async def _prune_channel(
         self, channel: discord.TextChannel, threshold: timedelta, reason: str
@@ -252,7 +307,7 @@ class CourseManager(commands.Cog):
         if not formatted:
             await ctx.send(error(f"Invalid course code: {course_code}."))
             return
-        variant, data = await self._lookup_course_data(formatted)
+        variant, data = await self._lookup_course_data(ctx, formatted)
         if not variant or not (data and data.get("course_data")):
             await ctx.send(error(f"Failed to refresh data for {formatted}."))
             return
@@ -281,7 +336,7 @@ class CourseManager(commands.Cog):
             return
 
         async with ctx.typing():
-            variant, data = await self._lookup_course_data(formatted)
+            variant, data = await self._lookup_course_data(ctx, formatted)
         if not variant or not (data and data.get("course_data")):
             await ctx.send(error(f"No valid course data found for {formatted}."))
             return
@@ -418,18 +473,11 @@ class CourseManager(commands.Cog):
             )
             return
 
-        embed = await self._get_course_details(formatted)
+        embed = await self._get_course_details(ctx, formatted)
         if embed is None:
             await ctx.send(error(f"Course not found: {formatted}"))
         else:
             await ctx.send(embed=embed)
-
-    async def _get_course_details(self, course_code):
-        variant, data = await self._lookup_course_data(course_code)
-        if not variant or not (data and data.get("course_data")):
-            return None
-        embed = self._create_course_embed(variant, data)
-        return embed
 
     #####################################################
     # Utility Functions
@@ -615,9 +663,7 @@ class CourseManager(commands.Cog):
             for channel in category.channels:
                 if isinstance(channel, discord.TextChannel):
                     pruned = await self._prune_channel(
-                        channel,
-                        PRUNE_THRESHOLD,
-                        "Manually pruned due to inactivity.",
+                        channel, PRUNE_THRESHOLD, "Manually pruned due to inactivity."
                     )
                     if pruned:
                         pruned_channels.append(f"{guild.name} - {channel.name}")
@@ -687,7 +733,7 @@ class CourseManager(commands.Cog):
 
         # exact match, no need for fuzzy search
         if search_code in courses:
-            embed = await self._get_course_details(search_code)
+            embed = await self._get_course_details(ctx, search_code)
             await ctx.send(embed=embed)
             return
 
@@ -705,7 +751,7 @@ class CourseManager(commands.Cog):
             return
 
         suggestion_msg = "Course not found. Did you mean:\n"
-        emoji_list = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣"]
+        emoji_list = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "❌"]
         for i, match in enumerate(closest_matches):
             suggestion_msg += f"- {emoji_list[i]} **{match}**: {courses[match]}\n"
         msg = await ctx.send(suggestion_msg)
@@ -713,6 +759,7 @@ class CourseManager(commands.Cog):
         # Add reaction buttons
         for emoji in emoji_list[: len(closest_matches)]:
             await msg.add_reaction(emoji)
+        await msg.add_reaction(emoji_list[-1])
 
         def check(reaction, user):
             return (
@@ -725,11 +772,16 @@ class CourseManager(commands.Cog):
             reaction, _ = await self.bot.wait_for(
                 "reaction_add", timeout=30.0, check=check
             )
+            if str(reaction.emoji) == emoji_list[-1]:
+                await msg.clear_reactions()
+                return
             selected_index = emoji_list.index(str(reaction.emoji))
             selected_course = closest_matches[selected_index]
-            embed = await self._get_course_details(selected_course)
+
+            embed = await self._get_course_details(ctx, selected_course)
             await msg.clear_reactions()
             await msg.edit(content=None, embed=embed)
+
         except asyncio.TimeoutError:
             await msg.clear_reactions()
             await msg.edit(content=suggestion_msg + "\n[Selection timed out]")
