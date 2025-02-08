@@ -92,32 +92,48 @@ class CourseManager(commands.Cog):
         enabled = await self.config.enabled_guilds()
         if ctx.guild.id in enabled:
             return True
-        else:
-            await ctx.send(
-                "Course Manager is not enabled in this server. "
-                "An administrator can enable it with `course enable`."
-            )
-            return False
+        await ctx.send(
+            "Course Manager is not enabled in this server. "
+            "An administrator can enable it with `course enable`."
+        )
+        return False
 
     async def _auto_prune_task(self) -> None:
         """Background task to auto-prune inactive course channels."""
-        PRUNE_INTERVAL = 3600  # seconds
+        PRUNE_INTERVAL = 2628000  # seconds (monthly)
         PRUNE_THRESHOLD = timedelta(days=120)
         await self.bot.wait_until_ready()
         log.debug("Auto-prune task started.")
         enabled = await self.config.enabled_guilds()
         while not self.bot.is_closed():
+            log.debug("Auto-prune cycle started at %s", datetime.now(timezone.utc))
             for guild in self.bot.guilds:
                 if guild.id not in enabled:
+                    log.debug(
+                        "Skipping guild %s as Course Manager is not enabled", guild.name
+                    )
                     continue
+                log.debug("Processing guild: %s for auto-pruning", guild.name)
                 for category in self.get_course_categories(guild):
+                    log.debug(
+                        "Processing category: %s in guild %s", category.name, guild.name
+                    )
                     for channel in category.channels:
                         if isinstance(channel, discord.TextChannel):
-                            await self._prune_channel(
+                            pruned = await self._prune_channel(
                                 channel,
                                 PRUNE_THRESHOLD,
                                 "Auto-pruned due to inactivity.",
                             )
+                            if pruned:
+                                log.debug(
+                                    "Channel %s in guild %s pruned during auto-prune cycle",
+                                    channel.name,
+                                    guild.name,
+                                )
+            log.debug(
+                "Auto-prune cycle complete. Sleeping for %s seconds.", PRUNE_INTERVAL
+            )
             await asyncio.sleep(PRUNE_INTERVAL)
 
     @commands.group(name="course", invoke_without_command=True)
@@ -193,10 +209,14 @@ class CourseManager(commands.Cog):
         Return the base course category (exact match, case-insensitive) in the guild.
         This is used when creating a new course channel.
         """
-        for cat in guild.categories:
-            if cat.name.upper() == self.category_name.upper():
-                return cat
-        return None
+        return next(
+            (
+                cat
+                for cat in guild.categories
+                if cat.name.upper() == self.category_name.upper()
+            ),
+            None,
+        )
 
     def get_course_channel(
         self, guild: discord.Guild, course_key: str
@@ -241,12 +261,14 @@ class CourseManager(commands.Cog):
         """
         courses = []
         for category in self.get_course_categories(guild):
-            for channel in category.channels:
+            courses.extend(
+                channel.name.upper()
+                for channel in category.channels
                 if (
                     isinstance(channel, discord.TextChannel)
                     and channel.permissions_for(user).read_messages
-                ):
-                    courses.append(channel.name.upper())
+                )
+            )
         log.debug("User %s has access to courses: %s", user, courses)
         return courses
 
@@ -355,10 +377,7 @@ class CourseManager(commands.Cog):
             await msg.clear_reactions()
         except Exception:
             pass
-        if data and data.get("course_data"):
-            return selected, data
-        else:
-            return None, None
+        return (selected, data) if data and data.get("course_data") else (None, None)
 
     async def _wait_for_reaction(
         self, ctx: commands.Context, message: discord.Message, valid_emojis: List[str]
@@ -383,10 +402,9 @@ class CourseManager(commands.Cog):
         self, ctx: commands.Context, course_code: str
     ) -> Optional[discord.Embed]:
         candidate, data = await self._lookup_course_data(ctx, course_code)
-        if not candidate or not (data and data.get("course_data")):
+        if not candidate or not data or not data.get("course_data"):
             return None
-        embed = self._create_course_embed(candidate, data)
-        return embed
+        return self._create_course_embed(candidate, data)
 
     async def _prune_channel(
         self, channel: discord.TextChannel, threshold: timedelta, reason: str
@@ -467,8 +485,7 @@ class CourseManager(commands.Cog):
     @commands.cooldown(1, 600, commands.BucketType.user)
     async def list_enrollments(self, ctx: commands.Context) -> None:
         log.debug("Listing courses for user %s in guild %s", ctx.author, ctx.guild.name)
-        courses = self.get_user_courses(ctx.author, ctx.guild)
-        if courses:
+        if courses := self.get_user_courses(ctx.author, ctx.guild):
             await ctx.send(
                 "You are enrolled in the following courses:\n" + "\n".join(courses)
             )
@@ -484,7 +501,7 @@ class CourseManager(commands.Cog):
             await ctx.send(error(f"Invalid course code: {course_code}."))
             return
         candidate, data = await self._lookup_course_data(ctx, formatted)
-        if not candidate or not (data and data.get("course_data")):
+        if not candidate or not data or not data.get("course_data"):
             await ctx.send(error(f"Failed to refresh data for {formatted}."))
             return
         async with self.config.courses() as courses:
@@ -508,7 +525,7 @@ class CourseManager(commands.Cog):
             return
         async with ctx.typing():
             candidate, data = await self._lookup_course_data(ctx, formatted)
-        if not candidate or not (data and data.get("course_data")):
+        if not candidate or not data or not data.get("course_data"):
             await ctx.send(error(f"No valid course data found for {formatted}."))
             return
         if candidate.upper() in self.get_user_courses(ctx.author, ctx.guild):
@@ -680,8 +697,15 @@ class CourseManager(commands.Cog):
         for guild in self.bot.guilds:
             enabled = await self.config.enabled_guilds()
             if guild.id not in enabled:
+                log.debug(
+                    "Skipping guild %s as Course Manager is not enabled", guild.name
+                )
                 continue
+            log.debug("Processing guild %s for manual pruning", guild.name)
             for category in self.get_course_categories(guild):
+                log.debug(
+                    "Processing category %s in guild %s", category.name, guild.name
+                )
                 for channel in category.channels:
                     if isinstance(channel, discord.TextChannel):
                         pruned = await self._prune_channel(
@@ -691,16 +715,15 @@ class CourseManager(commands.Cog):
                         )
                         if pruned:
                             pruned_channels.append(f"{guild.name} - {channel.name}")
+                            log.debug(
+                                "Channel %s in guild %s pruned manually",
+                                channel.name,
+                                guild.name,
+                            )
         if pruned_channels:
             await ctx.send(success("Pruned channels:\n" + "\n".join(pruned_channels)))
         else:
             await ctx.send(info("No inactive channels to prune."))
-
-    @dev_course.command(name="printconfig")
-    async def print_config(self, ctx: commands.Context) -> None:
-        cfg = await self.config.all()
-        log.debug("Current config: %s", cfg)
-        await ctx.send(info("Config has been printed to the console log."))
 
     @dev_course.command(name="clearcourses")
     async def clear_courses(self, ctx: commands.Context) -> None:

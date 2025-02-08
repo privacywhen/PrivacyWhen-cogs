@@ -92,17 +92,15 @@ class ChannelManager(commands.Cog):
         if category is None:
             default_cat_name: str = await self.config.default_category()
             category = discord.utils.get(ctx.guild.categories, name=default_cat_name)
-            if category is None:
-                try:
-                    category = await ctx.guild.create_category(default_cat_name)
-                    log.debug("Created default category: %s", default_cat_name)
-                except discord.Forbidden:
-                    await ctx.send(
-                        error(
-                            "I do not have permission to create the default category."
-                        )
-                    )
-                    return
+        if category is None:
+            try:
+                category = await ctx.guild.create_category(default_cat_name)
+                log.debug("Created default category: %s", default_cat_name)
+            except discord.Forbidden:
+                await ctx.send(
+                    error("I do not have permission to create the default category.")
+                )
+                return
         try:
             channel = await ctx.guild.create_text_channel(
                 channel_name, category=category
@@ -152,45 +150,61 @@ class ChannelManager(commands.Cog):
         else:
             await ctx.send(info("No channels found."))
 
-    @commands.command()
-    async def prunechannels(
-        self, ctx: commands.Context, days: Optional[int] = None
-    ) -> None:
-        """Prune channels that have been inactive for a specified number of days.
-        If no value is provided, the default from config is used.
-        Only channels in the default category are pruned.
-        Example: !prunechannels 14
-        """
-        if days is None:
-            days = await self.config.prune_threshold_days()
-        threshold = timedelta(days=days)
-        default_cat_name: str = await self.config.default_category()
-        category = discord.utils.get(ctx.guild.categories, name=default_cat_name)
-        if category is None:
-            await ctx.send(info("Default category not found."))
-            return
-
-        pruned: List[str] = []
-        now = datetime.now(timezone.utc)
-        for channel in category.channels:
-            if not isinstance(channel, discord.TextChannel):
-                continue
-            last_message_time = channel.created_at
-            try:
-                async for msg in channel.history(limit=1):
-                    last_message_time = msg.created_at
-            except Exception as e:
-                log.debug("Error fetching history for channel %s: %s", channel.name, e)
-            if now - last_message_time > threshold:
-                try:
-                    await channel.delete(reason="Pruned due to inactivity.")
-                    pruned.append(channel.name)
-                except Exception as e:
-                    log.error("Failed to prune channel %s: %s", channel.name, e)
-        if pruned:
-            await ctx.send(success(f"Pruned channels: {', '.join(pruned)}"))
-        else:
-            await ctx.send(info("No channels pruned."))
+    async def _prune_channel(
+        self, channel: discord.TextChannel, threshold: timedelta, reason: str
+    ) -> bool:
+        log.debug("Starting to check channel %s for pruning", channel.name)
+        try:
+            last_user_message: Optional[discord.Message] = None
+            log.debug("Fetching message history for channel %s", channel.name)
+            async for msg in channel.history(limit=10):
+                if not msg.author.bot:
+                    last_user_message = msg
+                    log.debug(
+                        "Found last user message in channel %s at %s",
+                        channel.name,
+                        last_user_message.created_at,
+                    )
+                    break
+            if last_user_message:
+                last_activity = last_user_message.created_at
+            else:
+                last_activity = channel.created_at
+                log.debug(
+                    "No user messages found in channel %s; using channel creation time: %s",
+                    channel.name,
+                    channel.created_at,
+                )
+            inactivity_duration = datetime.now(timezone.utc) - last_activity
+            log.debug(
+                "Channel %s inactivity duration: %s", channel.name, inactivity_duration
+            )
+            if inactivity_duration > threshold:
+                log.info(
+                    "Pruning channel '%s' in guild '%s' (last activity: %s, inactivity duration: %s)",
+                    channel.name,
+                    channel.guild.name,
+                    last_activity,
+                    inactivity_duration,
+                )
+                await channel.delete(reason=reason)
+                log.debug("Channel %s successfully pruned", channel.name)
+                return True
+            else:
+                log.debug(
+                    "Channel %s is active (inactivity duration %s is within threshold %s)",
+                    channel.name,
+                    inactivity_duration,
+                    threshold,
+                )
+        except Exception as e:
+            log.error(
+                "Error pruning channel '%s' in guild '%s': %s",
+                channel.name,
+                channel.guild.name,
+                e,
+            )
+        return False
 
     @commands.command()
     async def setchannelperm(
