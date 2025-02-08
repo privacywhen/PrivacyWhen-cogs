@@ -86,9 +86,7 @@ class CourseDataProxy:
     async def _fetch_course_online(
         self, course_key_formatted: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
-        """
-        Fetch course data from the external API.
-        """
+        """Fetch course data from the external API."""
         self.log.debug("Fetching online data for %s", course_key_formatted)
         term_order = self._determine_term_order()
         self.log.debug("Term order: %s", term_order)
@@ -98,9 +96,7 @@ class CourseDataProxy:
         return (soup, None) if soup else (None, error_message)
 
     def _determine_term_order(self) -> List[str]:
-        """
-        Determine a prioritized list of term names based on the current date.
-        """
+        """Determine a prioritized list of term names based on the current date."""
         now = date.today()
         current_term_index = (now.month - 1) // 4
         term_order = (
@@ -155,9 +151,7 @@ class CourseDataProxy:
         return None, "Error: Max retries reached while fetching course data."
 
     async def _get_term_id(self, term_name: str) -> Optional[int]:
-        """
-        Retrieve the term code from the configuration.
-        """
+        """Retrieve the term code from the configuration."""
         self.log.debug("Retrieving term ID for: %s", term_name)
         term_codes: Dict[str, Any] = await self.config.term_codes()
         term_id = term_codes.get(term_name)
@@ -165,10 +159,7 @@ class CourseDataProxy:
         return term_id
 
     def _build_url(self, term_id: int, course_key_formatted: str) -> str:
-        """
-        Build the URL for the course data API request.
-        Assumes course_key_formatted has been normalized.
-        """
+        """Build the URL for the course data API request."""
         t, e = self._generate_time_code()
         url = self._URL_BASE.format(
             term=term_id, course_key_formatted=course_key_formatted, t=t, e=e
@@ -191,7 +182,6 @@ class CourseDataProxy:
             async with ClientSession(timeout=timeout) as session:
                 async with session.get(url) as response:
                     self.log.debug("Response %s from URL: %s", response.status, url)
-                    # If we get a 500 error, return immediately.
                     if response.status == 500:
                         return None, "Error: HTTP 500"
                     if response.status != 200:
@@ -209,9 +199,7 @@ class CourseDataProxy:
             return None, str(e)
 
     def _process_course_data(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
-        """
-        Parse the BeautifulSoup object to extract course data.
-        """
+        """Parse the BeautifulSoup object to extract course data."""
         courses = soup.find_all("course")
         self.log.debug("Processing soup: found %s course entries.", len(courses))
         processed_courses: List[Dict[str, Any]] = []
@@ -301,9 +289,7 @@ class CourseDataProxy:
         return None, None
 
     def _process_course_listing(self, soup: BeautifulSoup) -> Dict[str, str]:
-        """
-        Parse the course listing from the BeautifulSoup object.
-        """
+        """Parse the course listing from the BeautifulSoup object."""
         courses = soup.find_all("rs")
         self.log.debug(
             "Processing soup: found %s course listing entries.", len(courses)
