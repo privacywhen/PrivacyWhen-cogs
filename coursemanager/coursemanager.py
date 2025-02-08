@@ -116,7 +116,7 @@ class CourseManager(commands.Cog):
 
     @course.command(name="enable")
     @commands.guild_only()
-    @commands.has_permissions(manage_guild=True)
+    @commands.has_permissions(administrator=True)
     async def enable(self, ctx: commands.Context) -> None:
         """Enable the CourseManager cog in this server."""
         await self.config.guild(ctx.guild).enabled.set(True)
@@ -126,7 +126,7 @@ class CourseManager(commands.Cog):
 
     @course.command(name="disable")
     @commands.guild_only()
-    @commands.has_permissions(manage_guild=True)
+    @commands.has_permissions(administrator=True)
     async def disable(self, ctx: commands.Context) -> None:
         """Disable the CourseManager cog in this server."""
         await self.config.guild(ctx.guild).enabled.set(False)
