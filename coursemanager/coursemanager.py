@@ -9,6 +9,7 @@ from redbot.core import commands, Config
 from redbot.core.utils.chat_formatting import box, error, info, success, warning, pagify
 from redbot.core.utils.menus import menu, DEFAULT_CONTROLS
 from .coursedata import CourseDataProxy
+import difflib
 from rapidfuzz import process
 
 # Configure logging
@@ -151,7 +152,7 @@ class CourseManager(commands.Cog):
         Attempt to fetch course data using fuzzy matching against course listings.
         Returns a tuple (course_key, data) or (None, None) if not found.
         """
-        listings = await self.config.course_listings.get("courses", default={})
+        listings = (await self.config.course_listings()).get("courses", {})
         if not listings:
             log.debug(
                 "Course listings not available in config; cannot perform fuzzy lookup."
@@ -255,7 +256,8 @@ class CourseManager(commands.Cog):
         if not variant or not (data and data.get("course_data")):
             await ctx.send(error(f"Failed to refresh data for {formatted}."))
             return
-        await self.config.courses.set_raw(variant, value={"is_fresh": False})
+        async with self.config.courses() as courses:
+            courses[variant] = {"is_fresh": False}
         async with ctx.typing():
             data = await self.course_data_proxy.get_course_data(variant)
         if data and data.get("course_data"):
@@ -524,8 +526,6 @@ class CourseManager(commands.Cog):
         """
         target_name = self._get_channel_name(course_key)
         log.debug("Creating channel '%s' in guild %s", target_name, guild.name)
-        # Deny view_channel for @everyone.
-        # For the bot, we grant full permissions by setting administrator=True.
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
             guild.me: discord.PermissionOverwrite(administrator=True),
@@ -582,19 +582,19 @@ class CourseManager(commands.Cog):
     async def clear_stale_config(self, ctx: commands.Context) -> None:
         """Clear stale course config entries that no longer correspond to a channel."""
         log.debug("Clearing stale config entries.")
-        stale = []
-        courses = await self.config.courses.all()
-        stale.extend(
+        courses = await self.config.courses()
+        stale = [
             course_key
             for course_key in courses.keys()
             if not any(
                 self.get_course_channel(guild, course_key) for guild in self.bot.guilds
             )
-        )
-        for course_key in stale:
-            await self.config.courses.clear_raw(course_key)
-            log.debug("Cleared stale entry for course %s", course_key)
+        ]
         if stale:
+            async with self.config.courses() as courses_update:
+                for course_key in stale:
+                    courses_update.pop(course_key, None)
+                    log.debug("Cleared stale entry for course %s", course_key)
             await ctx.send(success(f"Cleared stale config entries: {', '.join(stale)}"))
         else:
             await ctx.send(info("No stale course config entries found."))
@@ -615,7 +615,9 @@ class CourseManager(commands.Cog):
             for channel in category.channels:
                 if isinstance(channel, discord.TextChannel):
                     pruned = await self._prune_channel(
-                        channel, PRUNE_THRESHOLD, "Manually pruned due to inactivity."
+                        channel,
+                        PRUNE_THRESHOLD,
+                        "Manually pruned due to inactivity.",
                     )
                     if pruned:
                         pruned_channels.append(f"{guild.name} - {channel.name}")
@@ -641,18 +643,18 @@ class CourseManager(commands.Cog):
     @dev_course.command(name="list")
     async def list_courses(self, ctx: commands.Context) -> None:
         """Lists courses with cached details."""
-        cfg = await self.config.courses.all()
-        serialized = "\n".join([k for k in cfg])
+        cfg = await self.config.courses()
+        serialized = "\n".join(cfg.keys())
         await ctx.send(serialized)
 
     @dev_course.command(name="listall")
     async def list_all_courses(self, ctx: commands.Context) -> None:
         """Lists all courses"""
-        cfg = await self.config.course_listings.all()
+        cfg = await self.config.course_listings()
         if "courses" in cfg:
             courses = cfg["courses"]
             dtm = cfg["date_updated"]
-            serialized_courses = "\n".join(list(courses.keys()))
+            serialized_courses = "\n".join(courses.keys())
             await ctx.send(
                 f"{len(cfg['courses'])} courses cached on {dtm}\n"
                 f"{serialized_courses[:1500] + '...' if len(serialized_courses) > 1500 else serialized_courses}"
@@ -676,7 +678,7 @@ class CourseManager(commands.Cog):
         returns a list of the closest matching course codes.
         """
         search_code = search_code.upper()
-        cfg = await self.config.course_listings.all()
+        cfg = await self.config.course_listings()
         if "courses" not in cfg:
             await ctx.send("No course listings available.")
             return
@@ -689,7 +691,6 @@ class CourseManager(commands.Cog):
             await ctx.send(embed=embed)
             return
 
-        # Perform fuzzy search for the closest matches
         closest_matches = [
             match[0]
             for match in process.extract(
@@ -713,7 +714,6 @@ class CourseManager(commands.Cog):
         for emoji in emoji_list[: len(closest_matches)]:
             await msg.add_reaction(emoji)
 
-        # Wait for user reaction
         def check(reaction, user):
             return (
                 user == ctx.author
@@ -727,13 +727,10 @@ class CourseManager(commands.Cog):
             )
             selected_index = emoji_list.index(str(reaction.emoji))
             selected_course = closest_matches[selected_index]
-
             embed = await self._get_course_details(selected_course)
             await msg.clear_reactions()
             await msg.edit(content=None, embed=embed)
-
         except asyncio.TimeoutError:
-            # Remove reactions and append timeout message
             await msg.clear_reactions()
             await msg.edit(content=suggestion_msg + "\n[Selection timed out]")
 
