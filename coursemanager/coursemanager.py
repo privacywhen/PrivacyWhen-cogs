@@ -11,7 +11,6 @@ from redbot.core.utils.menus import menu, DEFAULT_CONTROLS
 from .coursedata import CourseDataProxy
 from rapidfuzz import process
 
-
 # Configure logging
 log = logging.getLogger("red.course_helper")
 log.setLevel(logging.DEBUG)
@@ -64,15 +63,13 @@ class CourseManager(commands.Cog):
             self, identifier=3720194665, force_registration=True
         )
         self.config.register_global(**default_global)
-        self.course_data_proxy: CourseDataProxy = CourseDataProxy(
-            self.config, log)
+        self.course_data_proxy: CourseDataProxy = CourseDataProxy(self.config, log)
 
         # Start the background auto-prune task.
         self._prune_task: asyncio.Task = self.bot.loop.create_task(
             self._auto_prune_task()
         )
-        log.debug("CourseManager initialized with max_courses=%s",
-                  self.max_courses)
+        log.debug("CourseManager initialized with max_courses=%s", self.max_courses)
 
     def cog_unload(self) -> None:
         """Cancel the auto-prune task when the cog unloads."""
@@ -147,41 +144,36 @@ class CourseManager(commands.Cog):
         log.debug("Derived channel name: %s", channel_name)
         return channel_name
 
-    def _get_course_variants(self, formatted: str) -> List[str]:
-        """
-        Given a standardized course key (with or without suffix), return variants for lookup.
-
-        If no suffix is present:
-          Returns [base, base+"A", base+"B"].
-        If a suffix is present:
-          Returns [original, fallback] (e.g. "SOCWORK-2A06A" → ["SOCWORK-2A06A", "SOCWORK-2A06B"]).
-        """
-        if formatted[-1] in ("A", "B"):
-            base = formatted[:-1]
-            suffix = formatted[-1]
-            fallback = "B" if suffix == "A" else "A"
-            variants = [formatted, base + fallback]
-        else:
-            variants = [formatted, f"{formatted}A", f"{formatted}B"]
-        log.debug("Lookup variants for '%s': %s", formatted, variants)
-        return variants
-
     async def _lookup_course_data(
         self, formatted: str
     ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """
-        Attempt to fetch course data using fallback suffix logic.
-        If the input has no suffix, try base, then "A", then "B".
-        If the input has a suffix, try it first then the opposite.
-        Returns a tuple (course_variant, data) or (None, None) if not found.
+        Attempt to fetch course data using fuzzy matching against course listings.
+        Returns a tuple (course_key, data) or (None, None) if not found.
         """
-        for variant in self._get_course_variants(formatted):
-            log.debug("Trying lookup for variant: %s", variant)
-            data = await self.course_data_proxy.get_course_data(variant)
-            if data and data.get("course_data"):
-                log.debug("Found course data for %s", variant)
-                return variant, data
-        log.debug("No course data found for variants of %s", formatted)
+        listings = await self.config.course_listings.get("courses", default={})
+        if not listings:
+            log.debug(
+                "Course listings not available in config; cannot perform fuzzy lookup."
+            )
+            return None, None
+
+        best_match = process.extractOne(formatted, listings.keys(), score_cutoff=70)
+        if best_match is None:
+            log.debug("Fuzzy matching did not find a suitable match for %s", formatted)
+            return None, None
+
+        matched_key, score, _ = best_match
+        log.debug(
+            "Fuzzy matching: %s matched to %s with score %s",
+            formatted,
+            matched_key,
+            score,
+        )
+        data = await self.course_data_proxy.get_course_data(matched_key)
+        if data and data.get("course_data"):
+            return matched_key, data
+        log.debug("No course data found for matched key: %s", matched_key)
         return None, None
 
     async def _prune_channel(
@@ -239,12 +231,10 @@ class CourseManager(commands.Cog):
     @commands.cooldown(1, 600, commands.BucketType.user)
     async def list_enrollments(self, ctx: commands.Context) -> None:
         """List all course channels you are currently enrolled in."""
-        log.debug("Listing courses for user %s in guild %s",
-                  ctx.author, ctx.guild.name)
+        log.debug("Listing courses for user %s in guild %s", ctx.author, ctx.guild.name)
         if courses := self.get_user_courses(ctx.author, ctx.guild):
             await ctx.send(
-                "You are enrolled in the following courses:\n" +
-                "\n".join(courses)
+                "You are enrolled in the following courses:\n" + "\n".join(courses)
             )
         else:
             await ctx.send("You are not enrolled in any courses.")
@@ -257,8 +247,7 @@ class CourseManager(commands.Cog):
         Example: `!course refresh MATH 1A03`
         """
         formatted = self._format_course_key(course_code)
-        log.debug("Refresh invoked for '%s' (formatted: %s)",
-                  course_code, formatted)
+        log.debug("Refresh invoked for '%s' (formatted: %s)", course_code, formatted)
         if not formatted:
             await ctx.send(error(f"Invalid course code: {course_code}."))
             return
@@ -324,16 +313,14 @@ class CourseManager(commands.Cog):
 
         channel = self.get_course_channel(ctx.guild, variant)
         if not channel:
-            log.debug(
-                "Course channel for %s not found; creating new channel.", variant)
+            log.debug("Course channel for %s not found; creating new channel.", variant)
             channel = await self.create_course_channel(ctx.guild, category, variant)
 
         try:
             await channel.set_permissions(
                 ctx.author, overwrite=self.channel_permissions
             )
-            log.debug("Permissions set for %s on channel %s",
-                      ctx.author, channel.name)
+            log.debug("Permissions set for %s on channel %s", ctx.author, channel.name)
         except discord.Forbidden:
             await ctx.send(
                 error("I don't have permission to manage channel permissions.")
@@ -384,15 +371,13 @@ class CourseManager(commands.Cog):
         self, ctx: commands.Context, *, channel: discord.TextChannel
     ) -> None:
         """Delete a course channel (admin-only)."""
-        log.debug("Admin %s attempting to delete channel %s",
-                  ctx.author, channel.name)
+        log.debug("Admin %s attempting to delete channel %s", ctx.author, channel.name)
         if not channel.category or channel.category.name != self.category_name:
             await ctx.send(error(f"{channel.mention} is not a course channel."))
             return
         try:
             await channel.delete()
-            log.debug("Channel %s deleted by admin %s",
-                      channel.name, ctx.author)
+            log.debug("Channel %s deleted by admin %s", channel.name, ctx.author)
         except discord.Forbidden:
             await ctx.send(error("I don't have permission to delete that channel."))
             return
@@ -407,8 +392,7 @@ class CourseManager(commands.Cog):
     ) -> None:
         """Set the logging channel for join/leave notifications (admin-only)."""
         self.logging_channel = channel
-        log.debug("Logging channel set to %s by admin %s",
-                  channel.name, ctx.author)
+        log.debug("Logging channel set to %s by admin %s", channel.name, ctx.author)
         await ctx.send(success(f"Logging channel set to {channel.mention}."))
 
     @course.command(name="details")
@@ -505,8 +489,7 @@ class CourseManager(commands.Cog):
                     "Found category '%s' in guild %s", self.category_name, guild.name
                 )
                 return category
-        log.debug("Category '%s' not found in guild %s",
-                  self.category_name, guild.name)
+        log.debug("Category '%s' not found in guild %s", self.category_name, guild.name)
         return None
 
     def get_course_channel(
@@ -528,8 +511,7 @@ class CourseManager(commands.Cog):
                     "Found course channel '%s' in guild %s", channel.name, guild.name
                 )
                 return channel
-        log.debug("Course channel '%s' not found in guild %s",
-                  target_name, guild.name)
+        log.debug("Course channel '%s' not found in guild %s", target_name, guild.name)
         return None
 
     async def create_course_channel(
@@ -593,8 +575,7 @@ class CourseManager(commands.Cog):
             term_codes[term_name.lower()] = term_id
         log.debug("Set term code for %s to %s", term_name, term_id)
         await ctx.send(
-            success(
-                f"Term code for {term_name.capitalize()} set to: {term_id}")
+            success(f"Term code for {term_name.capitalize()} set to: {term_id}")
         )
 
     @dev_course.command(name="clearstale")
@@ -637,8 +618,7 @@ class CourseManager(commands.Cog):
                         channel, PRUNE_THRESHOLD, "Manually pruned due to inactivity."
                     )
                     if pruned:
-                        pruned_channels.append(
-                            f"{guild.name} - {channel.name}")
+                        pruned_channels.append(f"{guild.name} - {channel.name}")
         if pruned_channels:
             await ctx.send(success("Pruned channels:\n" + "\n".join(pruned_channels)))
         else:
@@ -662,7 +642,6 @@ class CourseManager(commands.Cog):
     async def list_courses(self, ctx: commands.Context) -> None:
         """Lists courses with cached details."""
         cfg = await self.config.courses.all()
-        # log.debug("Current config: %s", cfg)
         serialized = "\n".join([k for k in cfg])
         await ctx.send(serialized)
 
@@ -673,9 +652,11 @@ class CourseManager(commands.Cog):
         if "courses" in cfg:
             courses = cfg["courses"]
             dtm = cfg["date_updated"]
-            # log.debug("Current config: %s", cfg)
             serialized_courses = "\n".join(list(courses.keys()))
-            await ctx.send(f"{len(cfg['courses'])} courses cached on {dtm}\n{serialized_courses[:1500] + '...' if len(serialized_courses) > 1500 else ''}")
+            await ctx.send(
+                f"{len(cfg['courses'])} courses cached on {dtm}\n"
+                f"{serialized_courses[:1500] + '...' if len(serialized_courses) > 1500 else serialized_courses}"
+            )
         else:
             await ctx.send("Course list not found. Run populate command first.")
 
@@ -699,7 +680,7 @@ class CourseManager(commands.Cog):
         if "courses" not in cfg:
             await ctx.send("No course listings available.")
             return
-    
+
         courses = cfg["courses"]
 
         # exact match, no need for fuzzy search
@@ -707,13 +688,19 @@ class CourseManager(commands.Cog):
             embed = await self._get_course_details(search_code)
             await ctx.send(embed=embed)
             return
-                        
+
         # Perform fuzzy search for the closest matches
-        # closest_matches = difflib.get_close_matches(search_code, courses.keys(), n=3, cutoff=0.75)
-        closest_matches = [match[0] for match in process.extract(search_code, courses.keys(), limit=5, score_cutoff=70)]
+        closest_matches = [
+            match[0]
+            for match in process.extract(
+                search_code, courses.keys(), limit=5, score_cutoff=70
+            )
+        ]
 
         if not closest_matches:
-            await ctx.send(f"❌ `{search_code}` not found and no similar matches available.")
+            await ctx.send(
+                f"❌ `{search_code}` not found and no similar matches available."
+            )
             return
 
         suggestion_msg = "Course not found. Did you mean:\n"
@@ -723,23 +710,33 @@ class CourseManager(commands.Cog):
         msg = await ctx.send(suggestion_msg)
 
         # Add reaction buttons
-        for emoji in emoji_list[:len(closest_matches)]:
+        for emoji in emoji_list[: len(closest_matches)]:
             await msg.add_reaction(emoji)
 
         # Wait for user reaction
         def check(reaction, user):
-            return user == ctx.author and str(reaction.emoji) in emoji_list and reaction.message.id == msg.id
-            
+            return (
+                user == ctx.author
+                and str(reaction.emoji) in emoji_list
+                and reaction.message.id == msg.id
+            )
+
         try:
-            reaction, _ = await self.bot.wait_for("reaction_add", timeout=30.0, check=check)
+            reaction, _ = await self.bot.wait_for(
+                "reaction_add", timeout=30.0, check=check
+            )
             selected_index = emoji_list.index(str(reaction.emoji))
             selected_course = closest_matches[selected_index]
 
             embed = await self._get_course_details(selected_course)
             await msg.clear_reactions()
             await msg.edit(content=None, embed=embed)
-        
+
         except asyncio.TimeoutError:
             # Remove reactions and append timeout message
             await msg.clear_reactions()
             await msg.edit(content=suggestion_msg + "\n[Selection timed out]")
+
+
+async def setup(bot):
+    await bot.add_cog(CourseManager(bot))
