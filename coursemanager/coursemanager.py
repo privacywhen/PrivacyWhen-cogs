@@ -1,150 +1,96 @@
 import asyncio
-import logging
 import re
-from datetime import datetime, timedelta, timezone
+import logging
+from datetime import timezone, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 import discord
 from redbot.core import commands, Config
-from redbot.core.utils.chat_formatting import box, error, info, success, warning
-from redbot.core.utils.menus import DEFAULT_CONTROLS, menu
+from redbot.core.utils.chat_formatting import box, error, info, success, warning, pagify
+from redbot.core.utils.menus import menu, DEFAULT_CONTROLS
+from .coursedata import CourseDataProxy
 from rapidfuzz import process
 
-from .coursedata import CourseDataProxy
-from .coursegrouping import CourseGrouping
 
+# Configure logging
 log = logging.getLogger("red.course_helper")
 log.setLevel(logging.DEBUG)
 if not log.handlers:
     log.addHandler(logging.StreamHandler())
 
+# Constant for course key pattern.
 COURSE_KEY_PATTERN = re.compile(
     r"^\s*([A-Za-z]+)[\s\-_]*(\d+(?:[A-Za-z]+\d+)?)([ABab])?\s*$"
 )
 
 
+###############################################################################
+# CourseManager Cog
+###############################################################################
 class CourseManager(commands.Cog):
     """
     Manages course channels and details.
 
     Features:
-      - Users can join/leave course channels under the "COURSES" category.
-      - Auto-prunes inactive channels.
-      - Retrieves and caches course data via an external API.
-      - Provides commands to refresh course data and view details.
-      - Computes course clusters dynamically.
-      - Owner-only commands to manage term codes and stale config.
-
-    Note:
-      This cog is disabled by default in each server. Use `!course enable`
-      to activate its functionality. Once enabled, it remains active until
-      explicitly disabled, persisting through server reboots and cog reloads.
+      • Users can join/leave course channels under the "COURSES" category.
+      • Auto-prunes inactive channels.
+      • Retrieves and caches course data via an external API.
+      • Provides commands to refresh course data and view details.
+      • Owner-only commands to manage term codes and stale config.
     """
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot: commands.Bot = bot
+
+        # Channel management settings.
+        # Allowed permissions for users are defined by the bitmask (446676945984) and no denied permissions.
+        self.channel_permissions: discord.PermissionOverwrite = (
+            discord.PermissionOverwrite.from_pair(
+                discord.Permissions(446676945984),
+                discord.Permissions(0),
+            )
+        )
         self.category_name: str = "COURSES"
         self.max_courses: int = 10
         self.logging_channel: Optional[discord.TextChannel] = None
 
-        # Channel permission settings.
-        self.channel_permissions: discord.PermissionOverwrite = (
-            discord.PermissionOverwrite.from_pair(
-                discord.Permissions(446676945984), discord.Permissions(0)
-            )
-        )
-
-        # Global defaults.
+        # Global defaults for config.
         default_global: Dict[str, Any] = {
             "term_codes": {},
             "courses": {},
             "course_listings": {},
-            "enrollments": {},
-            "grouping_threshold": 2,
         }
         self.config: Config = Config.get_conf(
             self, identifier=3720194665, force_registration=True
         )
         self.config.register_global(**default_global)
+        self.course_data_proxy: CourseDataProxy = CourseDataProxy(
+            self.config, log)
 
-        # Guild-specific default (disabled by default).
-        default_guild: Dict[str, Any] = {"enabled": False}
-        self.config.register_guild(**default_guild)
-
-        self.course_data_proxy: CourseDataProxy = CourseDataProxy(self.config, log)
-        self.course_grouping: CourseGrouping = CourseGrouping(self.config, log)
-
-        # Schedule tasks.
-        self._group_update_task: asyncio.Task = self.bot.loop.create_task(
-            self.course_grouping.schedule_group_update(interval=604800)
-        )
+        # Start the background auto-prune task.
         self._prune_task: asyncio.Task = self.bot.loop.create_task(
             self._auto_prune_task()
         )
-        log.debug("CourseManager initialized with max_courses=%s", self.max_courses)
+        log.debug("CourseManager initialized with max_courses=%s",
+                  self.max_courses)
 
     def cog_unload(self) -> None:
-        """Cancel background tasks when the cog unloads."""
-        log.debug("Unloading CourseManager cog; cancelling background tasks.")
+        """Cancel the auto-prune task when the cog unloads."""
+        log.debug("Unloading CourseManager cog; cancelling auto-prune task.")
         self._prune_task.cancel()
-        self._group_update_task.cancel()
-
-    async def cog_check(self, ctx: commands.Context) -> bool:
-        """
-        Global check to ensure commands run only in enabled guilds.
-        Bypasses the check for enable/disable commands.
-        """
-        if ctx.command.qualified_name in ["course.enable", "course.disable"]:
-            return True
-
-        enabled = await self.config.guild(ctx.guild).enabled()
-        if not enabled:
-            raise commands.CheckFailure(
-                "This cog is disabled in this server. Use `!course enable` to activate it."
-            )
-        return True
-
-    @commands.group(invoke_without_command=True)
-    @commands.cooldown(1, 5, commands.BucketType.user)
-    async def course(self, ctx: commands.Context) -> None:
-        """
-        Course command group.
-
-        Use `!course enable` or `!course disable` to toggle cog functionality.
-        """
-        await ctx.send_help(self.course)
-
-    @course.command(name="enable")
-    @commands.guild_only()
-    @commands.has_permissions(administrator=True)
-    async def enable(self, ctx: commands.Context) -> None:
-        """Enable the CourseManager cog in this server."""
-        await self.config.guild(ctx.guild).enabled.set(True)
-        await ctx.send(
-            success("CourseManager cog has been **enabled** in this server.")
-        )
-
-    @course.command(name="disable")
-    @commands.guild_only()
-    @commands.has_permissions(administrator=True)
-    async def disable(self, ctx: commands.Context) -> None:
-        """Disable the CourseManager cog in this server."""
-        await self.config.guild(ctx.guild).enabled.set(False)
-        await ctx.send(
-            warning("CourseManager cog has been **disabled** in this server.")
-        )
 
     async def _auto_prune_task(self) -> None:
-        """Background task to auto-prune inactive channels."""
-        PRUNE_INTERVAL = 3600  # seconds
+        """
+        Background task to auto-prune inactive course channels.
+        Iterates through all guilds and channels in the "COURSES" category,
+        using the unified _prune_channel helper.
+        """
+        PRUNE_INTERVAL = 3600  # every hour
         PRUNE_THRESHOLD = timedelta(days=120)
         await self.bot.wait_until_ready()
         log.debug("Auto-prune task started.")
         while not self.bot.is_closed():
             for guild in self.bot.guilds:
-                if not await self.config.guild(guild).enabled():
-                    log.debug("Skipping auto-prune in disabled guild: %s", guild.name)
-                    continue
                 category = self.get_category(guild)
                 if not category:
                     log.debug(
@@ -160,31 +106,17 @@ class CourseManager(commands.Cog):
                         )
             await asyncio.sleep(PRUNE_INTERVAL)
 
-    async def _add_enrollment(self, user: discord.Member, course: str) -> None:
-        """
-        Add a course to the user's enrollment list.
-        """
-        user_id = str(user.id)
-        enrollments = await self.config.enrollments.get_raw(user_id, default=[])
-        if course not in enrollments:
-            enrollments.append(course)
-            await self.config.enrollments.set_raw(user_id, value=enrollments)
-            log.debug("Added enrollment: %s -> %s", user, course)
-
-    async def _remove_enrollment(self, user: discord.Member, course: str) -> None:
-        """
-        Remove a course from the user's enrollment list.
-        """
-        user_id = str(user.id)
-        enrollments = await self.config.enrollments.get_raw(user_id, default=[])
-        if course in enrollments:
-            enrollments.remove(course)
-            await self.config.enrollments.set_raw(user_id, value=enrollments)
-            log.debug("Removed enrollment: %s -> %s", user, course)
-
+    #####################################################
+    # Course Code & Channel Name Helpers
+    #####################################################
     def _format_course_key(self, course_key_raw: str) -> Optional[str]:
         """
-        Format the course key to a standard format.
+        Normalize an input course string into a standardized format.
+        Accepts various separators (hyphen, underscore, space) and an optional suffix.
+
+        Examples:
+          - "socwork-2a06" or "SOCWORK2A06"  -> "SOCWORK-2A06"
+          - "SocWork-2A06A"                  -> "SOCWORK-2A06A"
         """
         log.debug("Formatting course key: %s", course_key_raw)
         match = COURSE_KEY_PATTERN.match(course_key_raw)
@@ -194,15 +126,20 @@ class CourseManager(commands.Cog):
             )
             return None
         subject, number, suffix = match.groups()
-        formatted = f"{subject.upper()}-{number.upper()}" + (
-            suffix.upper() if suffix else ""
-        )
+        subject = subject.upper()
+        number = number.upper()
+        formatted = f"{subject}-{number}" + (suffix.upper() if suffix else "")
         log.debug("Formatted course key: %s", formatted)
         return formatted
 
     def _get_channel_name(self, course_key: str) -> str:
         """
-        Derive the channel name from the course key.
+        Return a Discord channel name from a standardized course code by removing any trailing suffix
+        and converting it to lowercase.
+
+        Examples:
+          - "SOCWORK-2A06A" or "SOCWORK-2A06B"  -> "socwork-2a06"
+          - "SOCWORK-2A06"                       -> "socwork-2a06"
         """
         if course_key and course_key[-1] in ("A", "B"):
             course_key = course_key[:-1]
@@ -212,7 +149,12 @@ class CourseManager(commands.Cog):
 
     def _get_course_variants(self, formatted: str) -> List[str]:
         """
-        Generate possible variants of a course key.
+        Given a standardized course key (with or without suffix), return variants for lookup.
+
+        If no suffix is present:
+          Returns [base, base+"A", base+"B"].
+        If a suffix is present:
+          Returns [original, fallback] (e.g. "SOCWORK-2A06A" → ["SOCWORK-2A06A", "SOCWORK-2A06B"]).
         """
         if formatted[-1] in ("A", "B"):
             base = formatted[:-1]
@@ -228,7 +170,10 @@ class CourseManager(commands.Cog):
         self, formatted: str
     ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """
-        Look up course data using different variants until one is found.
+        Attempt to fetch course data using fallback suffix logic.
+        If the input has no suffix, try base, then "A", then "B".
+        If the input has a suffix, try it first then the opposite.
+        Returns a tuple (course_variant, data) or (None, None) if not found.
         """
         for variant in self._get_course_variants(formatted):
             log.debug("Trying lookup for variant: %s", variant)
@@ -243,7 +188,10 @@ class CourseManager(commands.Cog):
         self, channel: discord.TextChannel, threshold: timedelta, reason: str
     ) -> bool:
         """
-        Prune a channel if its last activity exceeds the threshold.
+        Check whether a channel is inactive and delete it if needed.
+
+        Returns:
+        True if the channel was pruned (deleted); otherwise, False.
         """
         try:
             last_user_message: Optional[discord.Message] = None
@@ -251,11 +199,14 @@ class CourseManager(commands.Cog):
                 if not msg.author.bot:
                     last_user_message = msg
                     break
+
+            # Use the most recent non-bot message timestamp, or fallback to channel creation time.
             last_activity = (
                 last_user_message.created_at
                 if last_user_message
                 else channel.created_at
             )
+
             if datetime.now(timezone.utc) - last_activity > threshold:
                 log.info(
                     "Pruning channel '%s' in guild '%s' (last activity at %s)",
@@ -274,15 +225,26 @@ class CourseManager(commands.Cog):
             )
         return False
 
+    #####################################################
+    # Command Group: course
+    #####################################################
+    @commands.group(invoke_without_command=True)
+    @commands.cooldown(1, 5, commands.BucketType.user)
+    async def course(self, ctx: commands.Context) -> None:
+        """Main command group for course functionalities."""
+        log.debug("Course command group invoked by %s", ctx.author)
+        await ctx.send_help(self.course)
+
     @course.command(name="list")
     @commands.cooldown(1, 600, commands.BucketType.user)
     async def list_enrollments(self, ctx: commands.Context) -> None:
-        """List all course channels you are enrolled in."""
-        log.debug("Listing courses for user %s in guild %s", ctx.author, ctx.guild.name)
-        courses = self.get_user_courses(ctx.author, ctx.guild)
-        if courses:
+        """List all course channels you are currently enrolled in."""
+        log.debug("Listing courses for user %s in guild %s",
+                  ctx.author, ctx.guild.name)
+        if courses := self.get_user_courses(ctx.author, ctx.guild):
             await ctx.send(
-                "You are enrolled in the following courses:\n" + "\n".join(courses)
+                "You are enrolled in the following courses:\n" +
+                "\n".join(courses)
             )
         else:
             await ctx.send("You are not enrolled in any courses.")
@@ -291,19 +253,19 @@ class CourseManager(commands.Cog):
     @commands.cooldown(1, 86400, commands.BucketType.user)
     async def refresh(self, ctx: commands.Context, *, course_code: str) -> None:
         """
-        Refresh the course data.
+        Force refresh the course data for a specified course.
+        Example: `!course refresh MATH 1A03`
         """
         formatted = self._format_course_key(course_code)
-        log.debug("Refresh invoked for '%s' (formatted: %s)", course_code, formatted)
+        log.debug("Refresh invoked for '%s' (formatted: %s)",
+                  course_code, formatted)
         if not formatted:
             await ctx.send(error(f"Invalid course code: {course_code}."))
             return
-
         variant, data = await self._lookup_course_data(formatted)
         if not variant or not (data and data.get("course_data")):
             await ctx.send(error(f"Failed to refresh data for {formatted}."))
             return
-
         await self.config.courses.set_raw(variant, value={"is_fresh": False})
         async with ctx.typing():
             data = await self.course_data_proxy.get_course_data(variant)
@@ -319,8 +281,7 @@ class CourseManager(commands.Cog):
     async def join(self, ctx: commands.Context, *, course_code: str) -> None:
         """
         Join a course channel.
-        Validates the course code, checks enrollment limits, sets permissions,
-        and records the enrollment.
+        Validates the course code, checks enrollment limits, and sets permissions.
         """
         formatted = self._format_course_key(course_code)
         log.debug("%s attempting to join course: %s", ctx.author, formatted)
@@ -334,16 +295,14 @@ class CourseManager(commands.Cog):
             await ctx.send(error(f"No valid course data found for {formatted}."))
             return
 
-        enrolled_channels = self.get_user_courses(ctx.author, ctx.guild)
-        target_channel_name = self._get_channel_name(variant).upper()
-        if target_channel_name in enrolled_channels:
+        if variant.upper() in self.get_user_courses(ctx.author, ctx.guild):
             await ctx.send(info(f"You are already enrolled in {variant}."))
             return
 
-        if len(enrolled_channels) >= self.max_courses:
+        if len(self.get_user_courses(ctx.author, ctx.guild)) >= self.max_courses:
             await ctx.send(
                 error(
-                    f"You have reached the maximum limit of {self.max_courses} courses."
+                    f"You have reached the maximum limit of {self.max_courses} courses. Leave one to join another."
                 )
             )
             return
@@ -365,14 +324,16 @@ class CourseManager(commands.Cog):
 
         channel = self.get_course_channel(ctx.guild, variant)
         if not channel:
-            log.debug("Course channel for %s not found; creating new channel.", variant)
+            log.debug(
+                "Course channel for %s not found; creating new channel.", variant)
             channel = await self.create_course_channel(ctx.guild, category, variant)
 
         try:
             await channel.set_permissions(
                 ctx.author, overwrite=self.channel_permissions
             )
-            log.debug("Permissions set for %s on channel %s", ctx.author, channel.name)
+            log.debug("Permissions set for %s on channel %s",
+                      ctx.author, channel.name)
         except discord.Forbidden:
             await ctx.send(
                 error("I don't have permission to manage channel permissions.")
@@ -385,14 +346,10 @@ class CourseManager(commands.Cog):
         if self.logging_channel:
             await self.logging_channel.send(f"{ctx.author} has joined {variant}.")
 
-        await self._add_enrollment(ctx.author, self._get_channel_name(variant).upper())
-
     @course.command()
     @commands.cooldown(5, 28800, commands.BucketType.user)
     async def leave(self, ctx: commands.Context, *, course_code: str) -> None:
-        """
-        Leave a course channel by removing your permissions and updating enrollment.
-        """
+        """Leave a course channel by removing your permission override."""
         formatted = self._format_course_key(course_code)
         log.debug("%s attempting to leave course: %s", ctx.author, formatted)
         if not formatted:
@@ -421,23 +378,21 @@ class CourseManager(commands.Cog):
         if self.logging_channel:
             await self.logging_channel.send(f"{ctx.author} has left {formatted}.")
 
-        await self._remove_enrollment(
-            ctx.author, self._get_channel_name(formatted).upper()
-        )
-
     @commands.admin()
     @course.command()
     async def delete(
         self, ctx: commands.Context, *, channel: discord.TextChannel
     ) -> None:
         """Delete a course channel (admin-only)."""
-        log.debug("Admin %s attempting to delete channel %s", ctx.author, channel.name)
+        log.debug("Admin %s attempting to delete channel %s",
+                  ctx.author, channel.name)
         if not channel.category or channel.category.name != self.category_name:
             await ctx.send(error(f"{channel.mention} is not a course channel."))
             return
         try:
             await channel.delete()
-            log.debug("Channel %s deleted by admin %s", channel.name, ctx.author)
+            log.debug("Channel %s deleted by admin %s",
+                      channel.name, ctx.author)
         except discord.Forbidden:
             await ctx.send(error("I don't have permission to delete that channel."))
             return
@@ -452,7 +407,8 @@ class CourseManager(commands.Cog):
     ) -> None:
         """Set the logging channel for join/leave notifications (admin-only)."""
         self.logging_channel = channel
-        log.debug("Logging channel set to %s by admin %s", channel.name, ctx.author)
+        log.debug("Logging channel set to %s by admin %s",
+                  channel.name, ctx.author)
         await ctx.send(success(f"Logging channel set to {channel.mention}."))
 
     @course.command(name="details")
@@ -462,7 +418,7 @@ class CourseManager(commands.Cog):
     ) -> None:
         """
         Display details for a specified course.
-        Example: !course details MATH 1A03
+        Example: `!course details MATH 1A03`
         """
         formatted = self._format_course_key(course_key_raw)
         log.debug(
@@ -482,16 +438,20 @@ class CourseManager(commands.Cog):
         else:
             await ctx.send(embed=embed)
 
-    async def _get_course_details(self, course_code: str) -> Optional[discord.Embed]:
+    async def _get_course_details(self, course_code):
         variant, data = await self._lookup_course_data(course_code)
         if not variant or not (data and data.get("course_data")):
             return None
-        return self._create_course_embed(variant, data)
+        embed = self._create_course_embed(variant, data)
+        return embed
 
+    #####################################################
+    # Utility Functions
+    #####################################################
     def _create_course_embed(
         self, course_key: str, course_data: Dict[str, Any]
     ) -> discord.Embed:
-        """Create an embed with course details."""
+        """Build a Discord embed with comprehensive course details."""
         log.debug("Creating embed for course: %s", course_key)
         embed = discord.Embed(
             title=f"Course Details: {course_key}", color=discord.Color.green()
@@ -502,15 +462,14 @@ class CourseManager(commands.Cog):
         footer_icon = "🟢" if is_fresh else "🔴"
         embed.set_footer(text=f"{footer_icon} Last updated: {date_added}")
 
-        fields = [
+        for name, value in [
             ("Title", data_item.get("title", "")),
             ("Term", data_item.get("term_found", "")),
             ("Instructor", data_item.get("teacher", "")),
             ("Code", data_item.get("course_code", "")),
             ("Number", data_item.get("course_number", "")),
             ("Credits", data_item.get("credits", "")),
-        ]
-        for name, value in fields:
+        ]:
             if value:
                 embed.add_field(name=name, value=value, inline=True)
 
@@ -534,7 +493,9 @@ class CourseManager(commands.Cog):
         return embed
 
     def get_category(self, guild: discord.Guild) -> Optional[discord.CategoryChannel]:
-        """Retrieve the course category for the guild."""
+        """
+        Find and return the category matching self.category_name in the guild.
+        """
         log.debug(
             "Searching for category '%s' in guild %s", self.category_name, guild.name
         )
@@ -544,13 +505,16 @@ class CourseManager(commands.Cog):
                     "Found category '%s' in guild %s", self.category_name, guild.name
                 )
                 return category
-        log.debug("Category '%s' not found in guild %s", self.category_name, guild.name)
+        log.debug("Category '%s' not found in guild %s",
+                  self.category_name, guild.name)
         return None
 
     def get_course_channel(
         self, guild: discord.Guild, course_key: str
     ) -> Optional[discord.TextChannel]:
-        """Retrieve a course channel by its key."""
+        """
+        Retrieve the course channel by its base (formatted) course key.
+        """
         category = self.get_category(guild)
         if not category:
             log.debug(
@@ -564,15 +528,22 @@ class CourseManager(commands.Cog):
                     "Found course channel '%s' in guild %s", channel.name, guild.name
                 )
                 return channel
-        log.debug("Course channel '%s' not found in guild %s", target_name, guild.name)
+        log.debug("Course channel '%s' not found in guild %s",
+                  target_name, guild.name)
         return None
 
     async def create_course_channel(
         self, guild: discord.Guild, category: discord.CategoryChannel, course_key: str
     ) -> discord.TextChannel:
-        """Create a new course channel."""
+        """
+        Create a new course channel under the designated category.
+        The channel is created with no permissions for @everyone (hidden by default).
+        Only the bot is given full permissions until a user joins via the join command.
+        """
         target_name = self._get_channel_name(course_key)
         log.debug("Creating channel '%s' in guild %s", target_name, guild.name)
+        # Deny view_channel for @everyone.
+        # For the bot, we grant full permissions by setting administrator=True.
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
             guild.me: discord.PermissionOverwrite(administrator=True),
@@ -584,7 +555,9 @@ class CourseManager(commands.Cog):
         return channel
 
     def get_user_courses(self, user: discord.Member, guild: discord.Guild) -> List[str]:
-        """Return a list of course channels (uppercase) that the user can access."""
+        """
+        Return a list of course channels (by name) that the user can access.
+        """
         category = self.get_category(guild)
         if not category:
             log.debug("No category in guild %s for user %s", guild.name, user)
@@ -598,33 +571,13 @@ class CourseManager(commands.Cog):
         log.debug("User %s has access to courses: %s", user, courses)
         return courses
 
-    @course.command(name="showclusters")
-    async def show_clusters(self, ctx: commands.Context) -> None:
-        """Display the current course clusters based on user enrollments."""
-        clusters = self.course_grouping.course_clusters
-        if not clusters:
-            await ctx.send("No clusters available at this time.")
-            return
-
-        msg = "Current Course Clusters:\n"
-        for cluster_id, courses in clusters.items():
-            msg += f"Cluster {cluster_id}: " + ", ".join(sorted(courses)) + "\n"
-        await ctx.send(box(msg))
-
-    @course.command(name="updategroups")
-    async def update_groups(self, ctx: commands.Context) -> None:
-        """Force an update of course groupings."""
-        try:
-            await self.course_grouping.update_groups()
-            await ctx.send(success("Course groupings updated successfully."))
-        except Exception as e:
-            log.error("Error updating course groupings: %s", e)
-            await ctx.send(error("Error updating course groupings."))
-
+    #####################################################
+    # Developer Commands (Owner-only)
+    #####################################################
     @commands.is_owner()
     @commands.group(name="dc", invoke_without_command=True)
     async def dev_course(self, ctx: commands.Context) -> None:
-        """Developer command group."""
+        """Developer commands for managing course config data."""
         log.debug("Dev command group 'dev_course' invoked by %s", ctx.author)
         await ctx.send_help(self.dev_course)
 
@@ -632,17 +585,21 @@ class CourseManager(commands.Cog):
     async def set_term_codes(
         self, ctx: commands.Context, term_name: str, term_id: int
     ) -> None:
-        """Set the term code for a given term name."""
+        """
+        Set the term code for a specified term.
+        Example: `!dc term winter 2241`
+        """
         async with self.config.term_codes() as term_codes:
             term_codes[term_name.lower()] = term_id
         log.debug("Set term code for %s to %s", term_name, term_id)
         await ctx.send(
-            success(f"Term code for {term_name.capitalize()} set to: {term_id}")
+            success(
+                f"Term code for {term_name.capitalize()} set to: {term_id}")
         )
 
     @dev_course.command(name="clearstale")
     async def clear_stale_config(self, ctx: commands.Context) -> None:
-        """Clear stale course config entries."""
+        """Clear stale course config entries that no longer correspond to a channel."""
         log.debug("Clearing stale config entries.")
         stale = []
         courses = await self.config.courses.all()
@@ -663,7 +620,10 @@ class CourseManager(commands.Cog):
 
     @dev_course.command(name="prune")
     async def manual_prune(self, ctx: commands.Context) -> None:
-        """Manually prune inactive course channels."""
+        """
+        Manually trigger the prune process for inactive course channels.
+        Uses the unified _prune_channel helper.
+        """
         log.debug("Manual prune triggered by %s", ctx.author)
         pruned_channels = []
         PRUNE_THRESHOLD = timedelta(days=120)
@@ -677,7 +637,8 @@ class CourseManager(commands.Cog):
                         channel, PRUNE_THRESHOLD, "Manually pruned due to inactivity."
                     )
                     if pruned:
-                        pruned_channels.append(f"{guild.name} - {channel.name}")
+                        pruned_channels.append(
+                            f"{guild.name} - {channel.name}")
         if pruned_channels:
             await ctx.send(success("Pruned channels:\n" + "\n".join(pruned_channels)))
         else:
@@ -685,43 +646,42 @@ class CourseManager(commands.Cog):
 
     @dev_course.command(name="printconfig")
     async def print_config(self, ctx: commands.Context) -> None:
-        """Print the current configuration to the console log."""
+        """Print the entire global config to the console."""
         cfg = await self.config.all()
         log.debug("Current config: %s", cfg)
         await ctx.send(info("Config has been printed to the console log."))
 
     @dev_course.command(name="clearcourses")
     async def clear_courses(self, ctx: commands.Context) -> None:
-        """Clear all course data from the config."""
+        """Clear all cached course data from the config."""
         await self.config.courses.set({})
         log.debug("All course data cleared by %s", ctx.author)
         await ctx.send(warning("All courses have been cleared from the config."))
 
     @dev_course.command(name="list")
     async def list_courses(self, ctx: commands.Context) -> None:
-        """List all courses in the config."""
+        """Lists courses with cached details."""
         cfg = await self.config.courses.all()
+        # log.debug("Current config: %s", cfg)
         serialized = "\n".join([k for k in cfg])
         await ctx.send(serialized)
 
     @dev_course.command(name="listall")
     async def list_all_courses(self, ctx: commands.Context) -> None:
-        """List all cached course listings."""
+        """Lists all courses"""
         cfg = await self.config.course_listings.all()
         if "courses" in cfg:
             courses = cfg["courses"]
             dtm = cfg["date_updated"]
+            # log.debug("Current config: %s", cfg)
             serialized_courses = "\n".join(list(courses.keys()))
-            await ctx.send(
-                f"{len(cfg['courses'])} courses cached on {dtm}\n"
-                f"{serialized_courses[:1500] + '...' if len(serialized_courses) > 1500 else serialized_courses}"
-            )
+            await ctx.send(f"{len(cfg['courses'])} courses cached on {dtm}\n{serialized_courses[:1500] + '...' if len(serialized_courses) > 1500 else ''}")
         else:
             await ctx.send("Course list not found. Run populate command first.")
 
     @dev_course.command(name="populate")
     async def fetch_prefixes(self, ctx: commands.Context) -> None:
-        """Fetch and cache course listings."""
+        """Force refresh cached course code and names"""
         course_count = await self.course_data_proxy.update_course_listing()
         if course_count > 0:
             await ctx.send(info(f"Fetched and cached {course_count} courses"))
@@ -730,29 +690,30 @@ class CourseManager(commands.Cog):
 
     @dev_course.command(name="search")
     async def fuzzy_search(self, ctx: commands.Context, *, search_code: str) -> None:
-        """Perform a fuzzy search for a course."""
+        """
+        Returns the course name for the given course code. If not found,
+        returns a list of the closest matching course codes.
+        """
         search_code = search_code.upper()
         cfg = await self.config.course_listings.all()
         if "courses" not in cfg:
             await ctx.send("No course listings available.")
             return
-
+    
         courses = cfg["courses"]
+
+        # exact match, no need for fuzzy search
         if search_code in courses:
             embed = await self._get_course_details(search_code)
             await ctx.send(embed=embed)
             return
+                        
+        # Perform fuzzy search for the closest matches
+        # closest_matches = difflib.get_close_matches(search_code, courses.keys(), n=3, cutoff=0.75)
+        closest_matches = [match[0] for match in process.extract(search_code, courses.keys(), limit=5, score_cutoff=70)]
 
-        closest_matches = [
-            match[0]
-            for match in process.extract(
-                search_code, courses.keys(), limit=5, score_cutoff=70
-            )
-        ]
         if not closest_matches:
-            await ctx.send(
-                f"❌ {search_code} not found and no similar matches available."
-            )
+            await ctx.send(f"❌ `{search_code}` not found and no similar matches available.")
             return
 
         suggestion_msg = "Course not found. Did you mean:\n"
@@ -760,25 +721,25 @@ class CourseManager(commands.Cog):
         for i, match in enumerate(closest_matches):
             suggestion_msg += f"- {emoji_list[i]} **{match}**: {courses[match]}\n"
         msg = await ctx.send(suggestion_msg)
-        for emoji in emoji_list[: len(closest_matches)]:
+
+        # Add reaction buttons
+        for emoji in emoji_list[:len(closest_matches)]:
             await msg.add_reaction(emoji)
 
+        # Wait for user reaction
         def check(reaction, user):
-            return (
-                user == ctx.author
-                and str(reaction.emoji) in emoji_list
-                and reaction.message.id == msg.id
-            )
-
+            return user == ctx.author and str(reaction.emoji) in emoji_list and reaction.message.id == msg.id
+            
         try:
-            reaction, _ = await self.bot.wait_for(
-                "reaction_add", timeout=30.0, check=check
-            )
+            reaction, _ = await self.bot.wait_for("reaction_add", timeout=30.0, check=check)
             selected_index = emoji_list.index(str(reaction.emoji))
             selected_course = closest_matches[selected_index]
+
             embed = await self._get_course_details(selected_course)
             await msg.clear_reactions()
             await msg.edit(content=None, embed=embed)
+        
         except asyncio.TimeoutError:
+            # Remove reactions and append timeout message
             await msg.clear_reactions()
             await msg.edit(content=suggestion_msg + "\n[Selection timed out]")
