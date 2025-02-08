@@ -92,10 +92,9 @@ class CourseManager(commands.Cog):
     async def cog_check(self, ctx: commands.Context) -> bool:
         """
         Global check to ensure commands run only in enabled guilds.
-        Bypasses the check for 'enable' and 'disable' commands.
+        Bypasses the check for enable/disable commands.
         """
-        # Use the command name rather than qualified_name
-        if ctx.command.name in ["enable", "disable"]:
+        if ctx.command.qualified_name in ["course.enable", "course.disable"]:
             return True
 
         enabled = await self.config.guild(ctx.guild).enabled()
