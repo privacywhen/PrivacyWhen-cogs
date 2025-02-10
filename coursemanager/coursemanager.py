@@ -477,10 +477,7 @@ class CourseManager(commands.Cog):
             await ctx.send(error(f"Invalid course code: {course_code}."))
             return
         async with ctx.typing():
-            # Pass auto_variant=True to automatically pick a variant.
-            candidate, data = await self._lookup_course_data(
-                ctx, formatted, auto_variant=True
-            )
+            candidate, data = await self._lookup_course_data(ctx, formatted)
         if not candidate or not data or not data.get("course_data"):
             await ctx.send(error(f"No valid course data found for {formatted}."))
             return
