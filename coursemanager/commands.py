@@ -5,7 +5,6 @@ This cog provides commands for managing course channels, dynamic grouping, and c
 """
 
 import asyncio
-import logging
 from typing import Optional
 
 import discord
@@ -15,11 +14,9 @@ from redbot.core.utils.chat_formatting import error, info, success, warning
 from .channel_service import ChannelService
 from .course_service import CourseService
 from .constants import GLOBAL_DEFAULTS
+from .utils import get_logger
 
-log = logging.getLogger("red.course_channel_cog")
-log.setLevel(logging.DEBUG)
-if not log.handlers:
-    log.addHandler(logging.StreamHandler())
+log = get_logger("red.course_channel_cog")
 
 
 class CourseChannelCog(commands.Cog):
@@ -28,7 +25,7 @@ class CourseChannelCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot: commands.Bot = bot
         self.config: Config = Config.get_conf(
-            self, identifier=1234567890, force_registration=True
+            self, identifier=42043360, force_registration=True
         )
         self.config.register_global(**GLOBAL_DEFAULTS)
         self.channel_service: ChannelService = ChannelService(bot, self.config)

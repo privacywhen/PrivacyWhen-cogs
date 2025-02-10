@@ -15,20 +15,15 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from bs4 import BeautifulSoup
 from redbot.core import Config
-from logging import getLogger, Logger
 from aiohttp import (
     ClientConnectionError,
     ClientResponseError,
     ClientSession,
     ClientTimeout,
 )
+from .utils import get_logger
 
-log: Logger = getLogger("red.course_data_proxy")
-log.setLevel(logging.DEBUG)
-if not log.handlers:
-    from logging import StreamHandler
-
-    log.addHandler(StreamHandler())
+log = get_logger("red.course_data_proxy")
 
 
 class CourseDataProxy:
@@ -47,9 +42,9 @@ class CourseDataProxy:
         "&page_num=-1"
     )
 
-    def __init__(self, config: Config, logger: Logger) -> None:
+    def __init__(self, config: Config, logger: logging.Logger) -> None:
         self.config: Config = config
-        self.log: Logger = logger
+        self.log: logging.Logger = logger
         self.log.debug("CourseDataProxy initialized.")
 
     async def get_course_data(self, course_key_formatted: str) -> Dict[str, Any]:

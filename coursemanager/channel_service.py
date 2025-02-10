@@ -19,12 +19,14 @@ import community as community_louvain
 from redbot.core import Config
 from redbot.core.utils.chat_formatting import error
 
-from .utils import prune_channel, get_categories_by_prefix
+from .utils import (
+    prune_channel,
+    get_categories_by_prefix,
+    get_or_create_category,
+    get_logger,
+)
 
-log = logging.getLogger("red.channel_service")
-log.setLevel(logging.DEBUG)
-if not log.handlers:
-    log.addHandler(logging.StreamHandler())
+log = get_logger("red.channel_service")
 
 
 class ChannelService:
@@ -78,13 +80,8 @@ class ChannelService:
         guild: discord.Guild = ctx.guild
         if category is None:
             default_cat_name: str = await self.config.default_category()
-            category = discord.utils.get(guild.categories, name=default_cat_name)
-
-        if category is None:
-            try:
-                category = await guild.create_category(default_cat_name)
-                log.debug(f"Created default category: {default_cat_name}")
-            except discord.Forbidden:
+            category = await get_or_create_category(guild, default_cat_name)
+            if category is None:
                 await ctx.send(
                     error("I do not have permission to create the default category.")
                 )
@@ -375,8 +372,7 @@ class ChannelService:
                                 )
                             except discord.Forbidden:
                                 log.error(
-                                    f"No permission to move channel {channel.name} "
-                                    f"in guild {guild.name}"
+                                    f"No permission to move channel {channel.name} in guild {guild.name}"
                                 )
 
     async def auto_prune_task(self) -> None:

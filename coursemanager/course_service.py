@@ -14,13 +14,12 @@ from .utils import (
     get_channel_name,
     prune_channel,
     get_categories_by_prefix,
+    get_or_create_category,
+    get_logger,
 )
 from .constants import REACTION_OPTIONS
 
-log = logging.getLogger("red.course_service")
-log.setLevel(logging.DEBUG)
-if not log.handlers:
-    log.addHandler(logging.StreamHandler())
+log = get_logger("red.course_service")
 
 
 class CourseService:
@@ -428,7 +427,6 @@ class CourseService:
             await ctx.send("You are not enrolled in any courses.")
 
     async def join_course(self, ctx: commands.Context, course_code: str) -> None:
-        # Check if Course Manager is enabled for the guild.
         if not await self._check_enabled(ctx):
             return
 
@@ -483,12 +481,8 @@ class CourseService:
             return
         category = self.get_category(ctx.guild)
         if category is None:
-            try:
-                category = await ctx.guild.create_category(self.category_name)
-                log.debug(
-                    f"Created category '{self.category_name}' in guild {ctx.guild.name}"
-                )
-            except discord.Forbidden:
+            category = await get_or_create_category(ctx.guild, self.category_name)
+            if category is None:
                 await ctx.send(
                     error("I don't have permission to create the courses category.")
                 )

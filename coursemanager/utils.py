@@ -2,12 +2,20 @@ from typing import Optional, List
 import discord
 from datetime import datetime, timezone, timedelta
 import logging
+import re
 
 from .constants import COURSE_KEY_PATTERN
 
-logger = logging.getLogger(__name__)
-if not logger.handlers:
-    logger.addHandler(logging.StreamHandler())
+
+def get_logger(name: str, level: int = logging.DEBUG) -> logging.Logger:
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    if not logger.handlers:
+        logger.addHandler(logging.StreamHandler())
+    return logger
+
+
+logger = get_logger(__name__)
 
 
 def format_course_key(course_key_raw: str) -> Optional[str]:
@@ -82,3 +90,23 @@ async def prune_channel(
             f"Error pruning channel '{channel.name}' in guild '{channel.guild.name}'"
         )
     return False
+
+
+async def get_or_create_category(
+    guild: discord.Guild, category_name: str
+) -> Optional[discord.CategoryChannel]:
+    """Retrieve a category by name or create it if it does not exist.
+
+    This helper abstracts the logic used in several parts of the code base.
+    """
+    category = discord.utils.get(guild.categories, name=category_name)
+    if category is None:
+        try:
+            category = await guild.create_category(category_name)
+            logger.debug(f"Created category {category_name} in guild {guild.name}")
+        except discord.Forbidden:
+            logger.error(
+                f"No permission to create category {category_name} in guild {guild.name}"
+            )
+            return None
+    return category
