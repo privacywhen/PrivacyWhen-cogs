@@ -117,18 +117,20 @@ class CourseService:
             Optional[discord.TextChannel]: The course text channel if found; otherwise, None.
         """
         target_name = get_channel_name(course_key)
-        for category in self.get_course_categories(guild):
-            for channel in category.channels:
-                if (
-                    isinstance(channel, discord.TextChannel)
-                    and channel.name == target_name
-                ):
-                    log.debug(
-                        f"Found course channel '{channel.name}' in guild {guild.name}"
-                    )
-                    return channel
-        log.debug(f"Course channel '{target_name}' not found in guild {guild.name}")
-        return None
+        channel = next(
+            (
+                ch
+                for category in self.get_course_categories(guild)
+                for ch in category.channels
+                if isinstance(ch, discord.TextChannel) and ch.name == target_name
+            ),
+            None,
+        )
+        if channel:
+            log.debug(f"Found course channel '{channel.name}' in guild {guild.name}")
+        else:
+            log.debug(f"Course channel '{target_name}' not found in guild {guild.name}")
+        return channel
 
     async def create_course_channel(
         self, guild: discord.Guild, category: discord.CategoryChannel, course_key: str
@@ -167,14 +169,13 @@ class CourseService:
         Returns:
             List[str]: A list of course channel names in uppercase.
         """
-        courses: List[str] = []
-        for category in self.get_course_categories(guild):
-            courses.extend(
-                channel.name.upper()
-                for channel in category.channels
-                if isinstance(channel, discord.TextChannel)
-                and channel.permissions_for(user).read_messages
-            )
+        courses = [
+            channel.name.upper()
+            for category in self.get_course_categories(guild)
+            for channel in category.channels
+            if isinstance(channel, discord.TextChannel)
+            and channel.permissions_for(user).read_messages
+        ]
         log.debug(f"User {user} has access to courses: {courses}")
         return courses
 
@@ -207,10 +208,15 @@ class CourseService:
         Returns:
             Tuple[Optional[str], Optional[Dict[str, Any]]]: The selected course key and its data, or (None, None) if canceled.
         """
-        prompt = "Multiple course variants found. Please choose one:\n"
-        for i, key in enumerate(variants):
-            prompt += f"{REACTION_OPTIONS[i]} **{key}**: {listings.get(key, '')}\n"
-        prompt += f"{REACTION_OPTIONS[-1]} Cancel"
+        options = [
+            f"{REACTION_OPTIONS[i]} **{key}**: {listings.get(key, '')}"
+            for i, key in enumerate(variants)
+        ]
+        prompt = (
+            "Multiple course variants found. Please choose one:\n"
+            + "\n".join(options)
+            + f"\n{REACTION_OPTIONS[-1]} Cancel"
+        )
         msg = await ctx.send(prompt)
         for emoji in REACTION_OPTIONS[: len(variants)]:
             await msg.add_reaction(emoji)
@@ -291,15 +297,17 @@ class CourseService:
         matches = process.extract(formatted, listings.keys(), limit=5, score_cutoff=70)
         if not matches:
             return None, None
-        prompt = "Course not found. Did you mean:\n"
-        options: List[str] = []
-        for i, match in enumerate(matches):
-            key = match[0]
-            prompt += f"{REACTION_OPTIONS[i]} **{key}**: {listings.get(key, '')}\n"
-            options.append(key)
-        prompt += f"{REACTION_OPTIONS[-1]} Cancel"
+        options = [
+            f"{REACTION_OPTIONS[i]} **{match[0]}**: {listings.get(match[0], '')}"
+            for i, match in enumerate(matches)
+        ]
+        prompt = (
+            "Course not found. Did you mean:\n"
+            + "\n".join(options)
+            + f"\n{REACTION_OPTIONS[-1]} Cancel"
+        )
         msg = await ctx.send(prompt)
-        for emoji in REACTION_OPTIONS[: len(options)]:
+        for emoji in REACTION_OPTIONS[: len(matches)]:
             await msg.add_reaction(emoji)
         await msg.add_reaction(REACTION_OPTIONS[-1])
         reaction = await self._wait_for_reaction(ctx, msg, REACTION_OPTIONS)
@@ -310,7 +318,7 @@ class CourseService:
                 pass
             return None, None
         selected_index = REACTION_OPTIONS.index(str(reaction.emoji))
-        selected = options[selected_index]
+        selected = matches[selected_index][0]
         data = await self.course_data_proxy.get_course_data(selected)
         try:
             await msg.clear_reactions()

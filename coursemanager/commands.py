@@ -39,26 +39,22 @@ class CourseChannelCog(commands.Cog):
         """
         Global check for commands in this cog.
 
-        For commands in the 'course' group (except for 'enable' and 'disable')
-        we require that Course Manager is enabled in the guild. This prevents
-        join/leave and similar commands from running when Course Manager is disabled.
+        For commands in the 'course' group (except for 'enable', 'disable', and the group command),
+        we require that Course Manager is enabled in the guild.
         """
         # Allow DM commands.
         if ctx.guild is None:
             return True
 
-        # Identify commands that are part of the 'course' group.
-        # We exempt the commands that enable or disable the manager,
-        # as well as the top-level group command itself.
-        if ctx.command.qualified_name.lower().startswith("course"):
-            if ctx.command.name.lower() in {"enable", "disable", "course"}:
-                return True
+        # For course-related commands (except for enable/disable commands), check if Course Manager is enabled.
+        if ctx.command.qualified_name.lower().startswith(
+            "course"
+        ) and ctx.command.name.lower() not in {"enable", "disable", "course"}:
             enabled = await self.config.enabled_guilds()
             if ctx.guild.id not in enabled:
                 await ctx.send(
                     error(
-                        "Course Manager is disabled in this server. "
-                        "Please enable it using `course enable`."
+                        "Course Manager is disabled in this server. Please enable it using `course enable`."
                     )
                 )
                 return False
