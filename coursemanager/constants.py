@@ -1,3 +1,10 @@
+"""
+Module for global constants and configuration defaults.
+
+This module centralizes configuration defaults, regular expression patterns,
+and reaction options used throughout the Course Channel Cog.
+"""
+
 from typing import Dict, Any, List
 import re
 

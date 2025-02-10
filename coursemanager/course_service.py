@@ -645,9 +645,9 @@ class CourseService:
                 )
                 await channel.delete(reason=reason)
                 return True
-        except Exception as e:
-            log.error(
-                f"Error pruning channel '{channel.name}' in guild '{channel.guild.name}': {e}"
+        except Exception:
+            log.exception(
+                f"Error pruning channel '{channel.name}' in guild '{channel.guild.name}'"
             )
         return False
 

@@ -1,3 +1,9 @@
+"""
+Module defining the CourseChannelCog commands.
+
+This cog provides commands for managing course channels, dynamic grouping, and course-related operations.
+"""
+
 import asyncio
 import logging
 from typing import Optional

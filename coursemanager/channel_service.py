@@ -1,3 +1,12 @@
+"""
+Module for managing channel operations and dynamic grouping of course channels.
+
+This module implements the ChannelService class that handles channel creation,
+deletion, permission updates, dynamic grouping of course channels, and auto-pruning
+of inactive channels. Error handling uses detailed exception logging for better
+diagnosis.
+"""
+
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
@@ -178,9 +187,8 @@ class ChannelService:
             except asyncio.CancelledError:
                 log.info("Dynamic grouping task cancelled.")
                 break
-            except Exception as e:
-                log.error(f"Error computing course groupings: {e}")
-
+            except Exception:
+                log.exception("Error computing course groupings")
             interval: int = await self.config.grouping_interval()
             await asyncio.sleep(interval)
 
@@ -447,8 +455,8 @@ class ChannelService:
                 )
                 await channel.delete(reason=reason)
                 return True
-        except Exception as e:
-            log.error(
-                f"Error pruning channel '{channel.name}' in guild '{channel.guild.name}': {e}"
+        except Exception:
+            log.exception(
+                f"Error pruning channel '{channel.name}' in guild '{channel.guild.name}'"
             )
         return False

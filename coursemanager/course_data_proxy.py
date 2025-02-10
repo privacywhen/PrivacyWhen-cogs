@@ -1,4 +1,10 @@
-# course_data_proxy.py
+"""
+Module for fetching and caching course data from an external API.
+
+The CourseDataProxy class handles HTTP requests, data processing, and caching for
+course information. It includes retry logic and detailed exception logging to aid in debugging.
+"""
+
 import asyncio
 import logging
 import re
@@ -134,7 +140,7 @@ class CourseDataProxy:
                     ClientConnectionError,
                     asyncio.TimeoutError,
                 ) as error:
-                    self.log.error(f"Exception during fetch from {url}: {error}")
+                    self.log.exception(f"HTTP error during fetch from {url}")
                     if retry_count == max_retries - 1:
                         return None, "Error: Issue occurred while fetching course data."
                     self.log.debug(f"Retrying in {retry_delay} seconds...")
@@ -193,10 +199,10 @@ class CourseDataProxy:
                     self.log.debug(f"Error tag found: {error_message}")
                     return None, error_message or None
         except (ClientResponseError, ClientConnectionError, asyncio.TimeoutError) as e:
-            self.log.error(f"HTTP error during GET from {url}: {e}")
+            self.log.exception(f"HTTP error during GET from {url}")
             return None, f"HTTP error: {e}"
         except Exception as e:
-            self.log.error(f"Unexpected error during HTTP GET from {url}: {e}")
+            self.log.exception(f"Unexpected error during HTTP GET from {url}")
             return None, f"Unexpected error: {e}"
 
     def _process_course_data(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
@@ -282,7 +288,7 @@ class CourseDataProxy:
                 self.log.debug(f"Received error: {error_message}")
                 return None, error_message
         except (ClientResponseError, ClientConnectionError) as error:
-            self.log.error(f"Exception during fetch from {url}: {error}")
+            self.log.exception(f"Exception during fetch from {url}")
             return None, "Error: Issue occurred while fetching course data."
         return None, None
 
