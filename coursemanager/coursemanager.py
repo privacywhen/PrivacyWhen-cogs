@@ -476,21 +476,63 @@ class CourseManager(commands.Cog):
         if not formatted:
             await ctx.send(error(f"Invalid course code: {course_code}."))
             return
+
+        # Cache the user's current enrollments.
+        user_courses = self.get_user_courses(ctx.author, ctx.guild)
+
+        # --- NEW: Check if the channel already exists within a COURSES category ---
+        # get_course_channel() only searches channels in categories whose name starts with "COURSES"
+        channel = self.get_course_channel(ctx.guild, formatted)
+        if channel:
+            # If the channel exists, check if the user already has access.
+            if formatted.upper() in user_courses:
+                await ctx.send(info(f"You are already enrolled in {formatted}."))
+                return
+            # Before adding a new course, ensure the user hasn't reached the maximum.
+            if len(user_courses) >= self.max_courses:
+                await ctx.send(
+                    error(
+                        f"You have reached the maximum limit of {self.max_courses} courses. Leave one to join another."
+                    )
+                )
+                return
+            try:
+                await channel.set_permissions(
+                    ctx.author, overwrite=self.channel_permissions
+                )
+                log.debug(f"Permissions set for {ctx.author} on channel {channel.name}")
+            except discord.Forbidden:
+                await ctx.send(
+                    error("I don't have permission to manage channel permissions.")
+                )
+                return
+            await ctx.send(
+                success(f"You have successfully joined {formatted}."), delete_after=120
+            )
+            if self.logging_channel:
+                await self.logging_channel.send(f"{ctx.author} has joined {formatted}.")
+            return  # Early return since the channel already existed.
+
+        # Only if the channel doesn't exist do we continue with the full lookup process.
         async with ctx.typing():
             candidate, data = await self._lookup_course_data(ctx, formatted)
         if not candidate or not data or not data.get("course_data"):
             await ctx.send(error(f"No valid course data found for {formatted}."))
             return
-        if candidate.upper() in self.get_user_courses(ctx.author, ctx.guild):
+
+        # Refresh the user's courses in case anything has changed.
+        user_courses = self.get_user_courses(ctx.author, ctx.guild)
+        if candidate.upper() in user_courses:
             await ctx.send(info(f"You are already enrolled in {candidate}."))
             return
-        if len(self.get_user_courses(ctx.author, ctx.guild)) >= self.max_courses:
+        if len(user_courses) >= self.max_courses:
             await ctx.send(
                 error(
                     f"You have reached the maximum limit of {self.max_courses} courses. Leave one to join another."
                 )
             )
             return
+
         category = self.get_category(ctx.guild)
         if category is None:
             try:
@@ -503,12 +545,15 @@ class CourseManager(commands.Cog):
                     error("I don't have permission to create the courses category.")
                 )
                 return
+
+        # Attempt to get the channel again in case it was created in the interim.
         channel = self.get_course_channel(ctx.guild, candidate)
         if not channel:
             log.debug(
                 f"Course channel for {candidate} not found; creating new channel."
             )
             channel = await self.create_course_channel(ctx.guild, category, candidate)
+
         try:
             await channel.set_permissions(
                 ctx.author, overwrite=self.channel_permissions
@@ -519,6 +564,7 @@ class CourseManager(commands.Cog):
                 error("I don't have permission to manage channel permissions.")
             )
             return
+
         await ctx.send(
             success(f"You have successfully joined {candidate}."), delete_after=120
         )
