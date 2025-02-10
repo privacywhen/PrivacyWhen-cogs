@@ -1,5 +1,13 @@
-from typing import Optional
+from typing import Optional, List
+import discord
+from datetime import datetime, timezone, timedelta
+import logging
+
 from .constants import COURSE_KEY_PATTERN
+
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    logger.addHandler(logging.StreamHandler())
 
 
 def format_course_key(course_key_raw: str) -> Optional[str]:
@@ -35,3 +43,42 @@ def get_channel_name(course_key: str) -> str:
         formatted = formatted[:-1]
 
     return formatted.lower()
+
+
+def get_categories_by_prefix(
+    guild: discord.Guild, prefix: str
+) -> List[discord.CategoryChannel]:
+    """Retrieve all category channels in the guild that start with the given prefix (case-insensitive)."""
+    return [
+        cat for cat in guild.categories if cat.name.upper().startswith(prefix.upper())
+    ]
+
+
+async def prune_channel(
+    channel: discord.TextChannel, threshold: timedelta, reason: str
+) -> bool:
+    """Prune (delete) a channel if its last user activity exceeds the given threshold.
+
+    Returns:
+        bool: True if the channel was pruned; otherwise, False.
+    """
+    try:
+        last_user_message: Optional[discord.Message] = None
+        async for msg in channel.history(limit=10):
+            if not msg.author.bot:
+                last_user_message = msg
+                break
+        last_activity = (
+            last_user_message.created_at if last_user_message else channel.created_at
+        )
+        if datetime.now(timezone.utc) - last_activity > threshold:
+            logger.info(
+                f"Pruning channel '{channel.name}' in guild '{channel.guild.name}' (last activity: {last_activity})"
+            )
+            await channel.delete(reason=reason)
+            return True
+    except Exception:
+        logger.exception(
+            f"Error pruning channel '{channel.name}' in guild '{channel.guild.name}'"
+        )
+    return False

@@ -9,7 +9,12 @@ from redbot.core import Config, commands
 from redbot.core.utils.chat_formatting import error, info, success, warning
 
 from .course_data_proxy import CourseDataProxy
-from .utils import format_course_key, get_channel_name
+from .utils import (
+    format_course_key,
+    get_channel_name,
+    prune_channel,
+    get_categories_by_prefix,
+)
 from .constants import REACTION_OPTIONS
 
 log = logging.getLogger("red.course_service")
@@ -72,17 +77,8 @@ class CourseService:
     ) -> List[discord.CategoryChannel]:
         """
         Retrieve all course categories in the guild that match the configured category name.
-
-        Args:
-            guild (discord.Guild): The Discord guild.
-
-        Returns:
-            List[discord.CategoryChannel]: A list of category channels whose names start with the configured course category.
         """
-        base_upper = self.category_name.upper()
-        return [
-            cat for cat in guild.categories if cat.name.upper().startswith(base_upper)
-        ]
+        return get_categories_by_prefix(guild, self.category_name)
 
     def get_category(self, guild: discord.Guild) -> Optional[discord.CategoryChannel]:
         """
@@ -611,7 +607,7 @@ class CourseService:
             for category in self.get_course_categories(guild):
                 for channel in category.channels:
                     if isinstance(channel, discord.TextChannel):
-                        if await self._prune_channel(
+                        if await prune_channel(
                             channel,
                             PRUNE_THRESHOLD,
                             "Manually pruned due to inactivity.",
@@ -624,32 +620,6 @@ class CourseService:
             await ctx.send(success("Pruned channels:\n" + "\n".join(pruned_channels)))
         else:
             await ctx.send(info("No inactive channels to prune."))
-
-    async def _prune_channel(
-        self, channel: discord.TextChannel, threshold: timedelta, reason: str
-    ) -> bool:
-        try:
-            last_user_message: Optional[discord.Message] = None
-            async for msg in channel.history(limit=10):
-                if not msg.author.bot:
-                    last_user_message = msg
-                    break
-            last_activity = (
-                last_user_message.created_at
-                if last_user_message
-                else channel.created_at
-            )
-            if datetime.now(timezone.utc) - last_activity > threshold:
-                log.info(
-                    f"Pruning channel '{channel.name}' in guild '{channel.guild.name}' (last activity: {last_activity})"
-                )
-                await channel.delete(reason=reason)
-                return True
-        except Exception:
-            log.exception(
-                f"Error pruning channel '{channel.name}' in guild '{channel.guild.name}'"
-            )
-        return False
 
     async def clear_courses(self, ctx: commands.Context) -> None:
         await self.config.courses.set({})

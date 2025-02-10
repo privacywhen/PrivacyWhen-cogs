@@ -19,6 +19,8 @@ import community as community_louvain
 from redbot.core import Config
 from redbot.core.utils.chat_formatting import error
 
+from .utils import prune_channel, get_categories_by_prefix
+
 log = logging.getLogger("red.channel_service")
 log.setLevel(logging.DEBUG)
 if not log.handlers:
@@ -303,9 +305,7 @@ class ChannelService:
         Returns:
             List[discord.CategoryChannel]: A list of matching category channels.
         """
-        return [
-            cat for cat in guild.categories if cat.name.upper().startswith(base.upper())
-        ]
+        return get_categories_by_prefix(guild, base)
 
     def _compute_target_mapping(
         self, communities: Dict[str, List[str]], base: str
@@ -405,58 +405,17 @@ class ChannelService:
                 for category in self._get_course_categories(guild, base_category):
                     for channel in category.channels:
                         if isinstance(channel, discord.TextChannel):
-                            pruned = await self._prune_channel(
+                            pruned = await prune_channel(
                                 channel,
                                 PRUNE_THRESHOLD,
                                 reason="Auto-pruned due to inactivity.",
                             )
                             if pruned:
                                 log.debug(
-                                    f"Channel {channel.name} in guild {guild.name} "
-                                    f"pruned during auto-prune cycle"
+                                    f"Channel {channel.name} in guild {guild.name} pruned during auto-prune cycle"
                                 )
 
             log.debug(
                 f"Auto-prune cycle complete. Sleeping for {PRUNE_INTERVAL} seconds."
             )
             await asyncio.sleep(PRUNE_INTERVAL)
-
-    async def _prune_channel(
-        self, channel: discord.TextChannel, threshold: timedelta, reason: str
-    ) -> bool:
-        """
-        Prune (delete) a channel if its last user activity exceeds a given threshold.
-
-        Args:
-            channel (discord.TextChannel): The channel to evaluate.
-            threshold (timedelta): The maximum allowed inactivity duration.
-            reason (str): Reason provided for the channel deletion.
-
-        Returns:
-            bool: True if the channel was pruned, otherwise False.
-        """
-        try:
-            last_user_message: Optional[discord.Message] = None
-            async for msg in channel.history(limit=10):
-                if not msg.author.bot:
-                    last_user_message = msg
-                    break
-
-            last_activity = (
-                last_user_message.created_at
-                if last_user_message
-                else channel.created_at
-            )
-
-            if datetime.now(timezone.utc) - last_activity > threshold:
-                log.info(
-                    f"Pruning channel '{channel.name}' in guild '{channel.guild.name}' "
-                    f"(last activity: {last_activity})"
-                )
-                await channel.delete(reason=reason)
-                return True
-        except Exception:
-            log.exception(
-                f"Error pruning channel '{channel.name}' in guild '{channel.guild.name}'"
-            )
-        return False
