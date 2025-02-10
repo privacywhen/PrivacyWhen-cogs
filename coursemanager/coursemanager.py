@@ -270,7 +270,7 @@ class CourseManager(commands.Cog):
         return candidate, data if data and data.get("course_data") else (None, None)
 
     async def _lookup_course_data(
-        self, ctx: commands.Context, formatted: str
+        self, ctx: commands.Context, formatted: str, auto_variant: bool = False
     ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         listings: Dict[str, str] = (await self.config.course_listings()).get(
             "courses", {}
