@@ -1,9 +1,10 @@
+# course_data_proxy.py
 import asyncio
 import logging
 import re
 from math import floor
 from time import time
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from bs4 import BeautifulSoup
@@ -59,7 +60,7 @@ class CourseDataProxy:
                 processed_data = self._process_course_data(soup)
                 new_data = {
                     "course_data": processed_data,
-                    "date_added": date.today().isoformat(),
+                    "date_added": datetime.now(timezone.utc).isoformat(),
                     "is_fresh": True,
                 }
                 async with self.config.courses() as courses_update:
@@ -258,7 +259,7 @@ class CourseDataProxy:
             processed_listing = self._process_course_listing(soup)
             new_data = {
                 "courses": processed_listing,
-                "date_updated": date.today().isoformat(),
+                "date_updated": datetime.now(timezone.utc).isoformat(),
             }
             await self.config.course_listings.set(new_data)
             self.log.debug(f"Fetched and cached {len(processed_listing)} courses")
