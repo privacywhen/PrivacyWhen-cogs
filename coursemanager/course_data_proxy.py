@@ -143,10 +143,11 @@ class CourseDataProxy:
         return None, "Error: Max retries reached while fetching course data."
 
     async def _get_term_id(self, term_name: str) -> Optional[int]:
-        """Retrieve the term ID from configuration."""
+        """Retrieve the term ID from configuration, normalizing the term name to lowercase."""
         self.log.debug(f"Retrieving term ID for: {term_name}")
         term_codes: Dict[str, Any] = await self.config.term_codes()
-        term_id = term_codes.get(term_name)
+        # Normalize term_name to lowercase for consistent lookup
+        term_id = term_codes.get(term_name.lower())
         self.log.debug(f"Term ID for {term_name}: {term_id}")
         return term_id
 
@@ -183,16 +184,19 @@ class CourseDataProxy:
                         return None, f"Error: HTTP {response.status}"
                     content = await response.text()
                     soup = BeautifulSoup(content, content_type)
-                    if not (soup.find("error")):
+                    if not soup.find("error"):
                         self.log.debug(f"No error tag in response for {url}")
                         return soup, None
                     error_tag = soup.find("error")
                     error_message = error_tag.text.strip() if error_tag else ""
                     self.log.debug(f"Error tag found: {error_message}")
                     return None, error_message or None
+        except (ClientResponseError, ClientConnectionError, asyncio.TimeoutError) as e:
+            self.log.error(f"HTTP error during GET from {url}: {e}")
+            return None, f"HTTP error: {e}"
         except Exception as e:
-            self.log.error(f"Exception during HTTP GET from {url}: {e}")
-            return None, str(e)
+            self.log.error(f"Unexpected error during HTTP GET from {url}: {e}")
+            return None, f"Unexpected error: {e}"
 
     def _process_course_data(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
         """Parse the BeautifulSoup object to extract course data."""

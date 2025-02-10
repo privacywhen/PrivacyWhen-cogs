@@ -35,6 +35,35 @@ class CourseChannelCog(commands.Cog):
         )
         log.debug("CourseChannelCog initialized.")
 
+    async def cog_check(self, ctx: commands.Context) -> bool:
+        """
+        Global check for commands in this cog.
+
+        For commands in the 'course' group (except for 'enable' and 'disable')
+        we require that Course Manager is enabled in the guild. This prevents
+        join/leave and similar commands from running when Course Manager is disabled.
+        """
+        # Allow DM commands.
+        if ctx.guild is None:
+            return True
+
+        # Identify commands that are part of the 'course' group.
+        # We exempt the commands that enable or disable the manager,
+        # as well as the top-level group command itself.
+        if ctx.command.qualified_name.lower().startswith("course"):
+            if ctx.command.name.lower() in {"enable", "disable", "course"}:
+                return True
+            enabled = await self.config.enabled_guilds()
+            if ctx.guild.id not in enabled:
+                await ctx.send(
+                    error(
+                        "Course Manager is disabled in this server. "
+                        "Please enable it using `course enable`."
+                    )
+                )
+                return False
+        return True
+
     def cog_unload(self) -> None:
         log.debug("Unloading CourseChannelCog; cancelling background tasks.")
         if self._grouping_task:
@@ -112,26 +141,31 @@ class CourseChannelCog(commands.Cog):
         await self.course_service.disable(ctx)
 
     @course.command(name="join")
+    @commands.cooldown(1, 5, commands.BucketType.user)
     async def join_course(self, ctx: commands.Context, *, course_code: str) -> None:
         """Join a course channel."""
         await self.course_service.join_course(ctx, course_code)
 
     @course.command(name="leave")
+    @commands.cooldown(1, 5, commands.BucketType.user)
     async def leave_course(self, ctx: commands.Context, *, course_code: str) -> None:
         """Leave a course channel."""
         await self.course_service.leave_course(ctx, course_code)
 
     @course.command(name="refresh")
+    @commands.cooldown(1, 5, commands.BucketType.user)
     async def refresh_course(self, ctx: commands.Context, *, course_code: str) -> None:
         """Refresh course data."""
         await self.course_service.refresh_course_data(ctx, course_code)
 
     @course.command(name="list")
+    @commands.cooldown(1, 5, commands.BucketType.user)
     async def list_enrollments(self, ctx: commands.Context) -> None:
         """List your enrolled courses."""
         await self.course_service.list_enrollments(ctx)
 
     @course.command(name="details")
+    @commands.cooldown(1, 5, commands.BucketType.user)
     async def course_details(self, ctx: commands.Context, *, course_code: str) -> None:
         """Get details for a course."""
         embed = await self.course_service.course_details(ctx, course_code)

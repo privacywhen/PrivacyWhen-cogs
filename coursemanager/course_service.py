@@ -34,6 +34,21 @@ class CourseService:
         )
         self.course_data_proxy: CourseDataProxy = CourseDataProxy(self.config, log)
 
+    async def _check_enabled(self, ctx: commands.Context) -> bool:
+        """
+        Helper method to check if Course Manager is enabled in the guild.
+        If not enabled, it notifies the user and returns False.
+        """
+        enabled: List[int] = await self.config.enabled_guilds()
+        if ctx.guild.id not in enabled:
+            await ctx.send(
+                error(
+                    "Course Manager is disabled in this server. Please enable it using the 'course enable' command."
+                )
+            )
+            return False
+        return True
+
     async def enable(self, ctx: commands.Context) -> None:
         enabled: List[int] = await self.config.enabled_guilds()
         if ctx.guild.id in enabled:
@@ -235,6 +250,7 @@ class CourseService:
     async def course_details(
         self, ctx: commands.Context, course_code: str
     ) -> Optional[discord.Embed]:
+        # Optionally, you may check for enablement here too if details should be restricted.
         formatted = format_course_key(course_code)
         if not formatted:
             return None
@@ -285,6 +301,8 @@ class CourseService:
         return embed
 
     async def list_enrollments(self, ctx: commands.Context) -> None:
+        if not await self._check_enabled(ctx):
+            return
         courses = self.get_user_courses(ctx.author, ctx.guild)
         if courses:
             await ctx.send(
@@ -294,6 +312,10 @@ class CourseService:
             await ctx.send("You are not enrolled in any courses.")
 
     async def join_course(self, ctx: commands.Context, course_code: str) -> None:
+        # Check if Course Manager is enabled for the guild.
+        if not await self._check_enabled(ctx):
+            return
+
         formatted = format_course_key(course_code)
         if not formatted:
             await ctx.send(error(f"Invalid course code: {course_code}."))
@@ -378,6 +400,10 @@ class CourseService:
             await self.logging_channel.send(f"{ctx.author} has joined {candidate}.")
 
     async def leave_course(self, ctx: commands.Context, course_code: str) -> None:
+        # Check if Course Manager is enabled for the guild.
+        if not await self._check_enabled(ctx):
+            return
+
         formatted = format_course_key(course_code)
         if not formatted:
             await ctx.send(error(f"Invalid course code: {course_code}."))
@@ -403,6 +429,7 @@ class CourseService:
     async def admin_delete_channel(
         self, ctx: commands.Context, channel: discord.TextChannel
     ) -> None:
+        # (Optionally, you could also check enablement here if desired.)
         if channel.category not in self.get_course_categories(ctx.guild):
             await ctx.send(error(f"{channel.mention} is not a course channel."))
             return
@@ -539,3 +566,33 @@ class CourseService:
             await ctx.send(info(f"Fetched and cached {course_count} courses"))
         else:
             await ctx.send(warning("0 courses fetched. Check console log"))
+
+    async def refresh_course_data(
+        self, ctx: commands.Context, course_code: str
+    ) -> None:
+        """
+        Refresh course data for a given course.
+        Marks the cached data as stale so that the next fetch returns fresh data.
+        """
+        if not await self._check_enabled(ctx):
+            return
+
+        formatted = format_course_key(course_code)
+        if not formatted:
+            await ctx.send(error(f"Invalid course code: {course_code}."))
+            return
+
+        # Mark the existing data as stale.
+        async with self.config.courses() as courses:
+            if formatted in courses:
+                courses[formatted]["is_fresh"] = False
+            else:
+                await ctx.send(error(f"No existing data for course {formatted}."))
+                return
+
+        # Re-fetch data from the external API.
+        data = await self.course_data_proxy.get_course_data(formatted)
+        if data and data.get("course_data"):
+            await ctx.send(success(f"Course data for {formatted} has been refreshed."))
+        else:
+            await ctx.send(error(f"Failed to refresh course data for {formatted}."))

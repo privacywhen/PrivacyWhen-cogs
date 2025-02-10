@@ -147,8 +147,12 @@ class ChannelService:
                     G, weight="weight"
                 )
             else:
+                # -- Change 1: Dynamic Grouping Fallback --
+                # Previously, nonnumeric channels were grouped into community "0".
+                # Now, we assign each channel its own group:
                 partition = {
-                    node: int(node) if node.isdigit() else 0 for node in G.nodes()
+                    node: str(int(node)) if node.isdigit() else node
+                    for node in G.nodes()
                 }
             communities: Dict[str, List[str]] = {}
             for course, community_id in partition.items():
@@ -245,13 +249,21 @@ class ChannelService:
 
     async def auto_prune_task(self) -> None:
         """Background task to auto-prune inactive course channels."""
-        PRUNE_INTERVAL = 2628000  # monthly in seconds
-        PRUNE_THRESHOLD = timedelta(days=120)
+        # -- Change 2: Use Configurable Prune Threshold --
+        prune_threshold_days = await self.config.prune_threshold_days()
+        PRUNE_THRESHOLD = timedelta(days=prune_threshold_days)
+        PRUNE_INTERVAL = (
+            2628000  # monthly in seconds; consider making this configurable in future.
+        )
         await self.bot.wait_until_ready()
         log.debug("Auto-prune task started.")
         while not self.bot.is_closed():
             log.debug(f"Auto-prune cycle started at {datetime.now(timezone.utc)}")
+            # -- Change 3: Process Only Enabled Guilds --
+            enabled_guilds = await self.config.enabled_guilds()
             for guild in self.bot.guilds:
+                if guild.id not in enabled_guilds:
+                    continue
                 for category in self._get_course_categories(
                     guild, await self.config.course_category()
                 ):
