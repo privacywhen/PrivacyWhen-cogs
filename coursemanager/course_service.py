@@ -132,48 +132,9 @@ class CourseService:
     async def _prompt_variant_selection(
         self, ctx: commands.Context, variants: List[str], listings: Dict[str, str]
     ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
-        options_list = []
-        emoji_to_result = {}
-        for i, variant in enumerate(variants):
-            emoji = REACTION_OPTIONS[i]
-            option_text = f"{emoji} **{variant}**: {listings.get(variant, '')}"
-            options_list.append(option_text)
-            emoji_to_result[emoji] = variant
-        cancel_emoji = REACTION_OPTIONS[-1]
-        options_list.append(f"{cancel_emoji} Cancel")
-
-        prompt = "Multiple course variants found. Please choose one:\n" + "\n".join(
-            options_list
-        )
-
-        controls = {}
-        for emoji, course_key in emoji_to_result.items():
-
-            async def handler(
-                ctx,
-                pages,
-                controls,
-                message,
-                page,
-                timeout,
-                emoji,
-                *,
-                user=None,
-                course_key=course_key,
-            ):
-                return course_key
-
-            controls[emoji] = handler
-
-        async def cancel_handler(
-            ctx, pages, controls, message, page, timeout, emoji, *, user=None
-        ):
-            return None
-
-        controls[cancel_emoji] = cancel_handler
-
-        result = await menu(
-            ctx, [prompt], controls=controls, timeout=30.0, user=ctx.author
+        options = [(variant, listings.get(variant, "")) for variant in variants]
+        result = await self._menu_select_option(
+            ctx, options, "Multiple course variants found. Please choose one:"
         )
         if result is None:
             return (None, None)
@@ -219,49 +180,9 @@ class CourseService:
         matches = process.extract(formatted, listings.keys(), limit=5, score_cutoff=70)
         if not matches:
             return (None, None)
-
-        # Build menu options with emoji mapping.
-        options_list = []
-        emoji_to_result = {}
-        for i, match in enumerate(matches):
-            emoji = REACTION_OPTIONS[i]
-            option_text = f"{emoji} **{match[0]}**: {listings.get(match[0], '')}"
-            options_list.append(option_text)
-            emoji_to_result[emoji] = match[0]
-        cancel_emoji = REACTION_OPTIONS[-1]
-        options_list.append(f"{cancel_emoji} Cancel")
-
-        prompt = "Course not found. Did you mean:\n" + "\n".join(options_list)
-
-        # Create custom control handlers for selection.
-        controls = {}
-        for emoji, course_key in emoji_to_result.items():
-
-            async def handler(
-                ctx,
-                pages,
-                controls,
-                message,
-                page,
-                timeout,
-                emoji,
-                *,
-                user=None,
-                course_key=course_key,
-            ):
-                return course_key
-
-            controls[emoji] = handler
-
-        async def cancel_handler(
-            ctx, pages, controls, message, page, timeout, emoji, *, user=None
-        ):
-            return None
-
-        controls[cancel_emoji] = cancel_handler
-
-        result = await menu(
-            ctx, [prompt], controls=controls, timeout=30.0, user=ctx.author
+        options = [(match[0], listings.get(match[0], "")) for match in matches]
+        result = await self._menu_select_option(
+            ctx, options, "Course not found. Did you mean:"
         )
         if result is None:
             return (None, None)
@@ -577,3 +498,49 @@ class CourseService:
             await ctx.send(success(f"Course data for {formatted} has been refreshed."))
         else:
             await ctx.send(error(f"Failed to refresh course data for {formatted}."))
+
+    async def _menu_select_option(
+        self, ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
+    ) -> Optional[str]:
+        """
+        Displays a menu for selecting an option from a list.
+
+        Args:
+            ctx: The command context.
+            options: A list of tuples where each tuple is (option, description).
+            prompt_prefix: The text to show before the options.
+
+        Returns:
+            The selected option as a string, or None if cancelled.
+        """
+        cancel_emoji = REACTION_OPTIONS[-1]
+        emoji_to_option = {}
+        option_lines = []
+        for i, (option, description) in enumerate(options):
+            emoji = REACTION_OPTIONS[i] if i < len(REACTION_OPTIONS) - 1 else None
+            if not emoji:
+                break
+            emoji_to_option[emoji] = option
+            option_lines.append(f"{emoji} **{option}**: {description}")
+        option_lines.append(f"{cancel_emoji} Cancel")
+        prompt = f"{prompt_prefix}\n" + "\n".join(option_lines)
+        controls = {}
+        for emoji, opt in emoji_to_option.items():
+
+            async def handler(
+                ctx, pages, controls, message, page, timeout, emoji, *, opt=opt
+            ):
+                return opt
+
+            controls[emoji] = handler
+
+        async def cancel_handler(
+            ctx, pages, controls, message, page, timeout, emoji, *, user=None
+        ):
+            return None
+
+        controls[cancel_emoji] = cancel_handler
+        result = await menu(
+            ctx, [prompt], controls=controls, timeout=30.0, user=ctx.author
+        )
+        return result
