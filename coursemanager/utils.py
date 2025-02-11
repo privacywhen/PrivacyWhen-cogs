@@ -22,26 +22,44 @@ logger = get_logger(__name__)
 def format_course_key(course_key_raw: str) -> Optional[str]:
     match = COURSE_KEY_PATTERN.match(course_key_raw)
     if not match:
+        logger.debug(
+            f"format_course_key: Failed to match pattern for input '{course_key_raw}'"
+        )
         return None
     subject, number, suffix = match.groups()
-    return f"{subject.upper()}-{number.upper()}{(suffix.upper() if suffix else '')}"
+    formatted = (
+        f"{subject.upper()}-{number.upper()}{(suffix.upper() if suffix else '')}"
+    )
+    logger.debug(f"format_course_key: Converted '{course_key_raw}' to '{formatted}'")
+    return formatted
 
 
 def get_channel_name(course_key: str) -> str:
     formatted = format_course_key(course_key)
     if formatted is None:
+        logger.debug(
+            f"get_channel_name: No formatted value for '{course_key}', returning lower-case raw value"
+        )
         return course_key.lower()
     if formatted[-1].isalpha():
         formatted = formatted[:-1]
-    return formatted.lower()
+    channel_name = formatted.lower()
+    logger.debug(
+        f"get_channel_name: Generated channel name '{channel_name}' from course key '{course_key}'"
+    )
+    return channel_name
 
 
 def get_categories_by_prefix(
     guild: discord.Guild, prefix: str
 ) -> List[discord.CategoryChannel]:
-    return [
+    matching = [
         cat for cat in guild.categories if cat.name.upper().startswith(prefix.upper())
     ]
+    logger.debug(
+        f"get_categories_by_prefix: Found {len(matching)} categories in guild '{guild.name}' with prefix '{prefix}'"
+    )
+    return matching
 
 
 async def prune_channel(
@@ -76,10 +94,16 @@ async def get_or_create_category(
     if category is None:
         try:
             category = await guild.create_category(category_name)
-            logger.debug(f"Created category {category_name} in guild {guild.name}")
+            logger.debug(
+                f"get_or_create_category: Created category '{category_name}' in guild '{guild.name}'"
+            )
         except discord.Forbidden:
             logger.error(
-                f"No permission to create category {category_name} in guild {guild.name}"
+                f"get_or_create_category: No permission to create category '{category_name}' in guild '{guild.name}'"
             )
             return None
+    else:
+        logger.debug(
+            f"get_or_create_category: Found existing category '{category_name}' in guild '{guild.name}'"
+        )
     return category
