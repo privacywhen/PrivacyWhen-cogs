@@ -296,7 +296,7 @@ class CourseDataProxy:
             raw_course_code = course.text.strip().upper()
             match = regex.match(raw_course_code)
             normalized_course_code = (
-                f"{match.group(1)}-{match.group(2)}" if match else raw_course_code
+                f"{match[1]}-{match[2]}" if match else raw_course_code
             )
             course_info = course.get("info", "").replace("<br/>", " ")
             courses_dict[normalized_course_code] = course_info

@@ -255,8 +255,7 @@ class CourseService:
             log.error(f"Failed to fetch fresh data for perfect match: {formatted}")
             return formatted, None
         if not formatted[-1].isalpha():
-            variants = self._find_variant_matches(formatted, listings)
-            if variants:
+            if variants := self._find_variant_matches(formatted, listings):
                 if len(variants) == 1:
                     candidate = variants[0]
                     data = await self.course_data_proxy.get_course_data(candidate)
@@ -418,8 +417,7 @@ class CourseService:
     async def list_enrollments(self, ctx: commands.Context) -> None:
         if not await self._check_enabled(ctx):
             return
-        courses = self.get_user_courses(ctx.author, ctx.guild)
-        if courses:
+        if courses := self.get_user_courses(ctx.author, ctx.guild):
             await ctx.send(
                 "You are enrolled in the following courses:\n" + "\n".join(courses)
             )
@@ -482,11 +480,11 @@ class CourseService:
         category = self.get_category(ctx.guild)
         if category is None:
             category = await get_or_create_category(ctx.guild, self.category_name)
-            if category is None:
-                await ctx.send(
-                    error("I don't have permission to create the courses category.")
-                )
-                return
+        if category is None:
+            await ctx.send(
+                error("I don't have permission to create the courses category.")
+            )
+            return
         channel = self.get_course_channel(ctx.guild, candidate)
         if not channel:
             log.debug(
@@ -574,11 +572,13 @@ class CourseService:
         log.debug("Clearing stale config entries.")
         stale: List[str] = []
         courses = await self.config.courses.all()
-        for course_key in courses.keys():
+        stale.extend(
+            course_key
+            for course_key in courses.keys()
             if not any(
                 self.get_course_channel(guild, course_key) for guild in self.bot.guilds
-            ):
-                stale.append(course_key)
+            )
+        )
         for course_key in stale:
             await self.config.courses.clear_raw(course_key)
             log.debug(f"Cleared stale entry for course {course_key}")

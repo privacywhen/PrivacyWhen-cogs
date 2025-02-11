@@ -8,7 +8,6 @@ diagnosis.
 """
 
 import asyncio
-import logging
 from datetime import datetime, timedelta, timezone
 from itertools import combinations
 from typing import Any, Dict, List, Optional, Tuple
@@ -81,11 +80,11 @@ class ChannelService:
         if category is None:
             default_cat_name: str = await self.config.default_category()
             category = await get_or_create_category(guild, default_cat_name)
-            if category is None:
-                await ctx.send(
-                    error("I do not have permission to create the default category.")
-                )
-                return
+        if category is None:
+            await ctx.send(
+                error("I do not have permission to create the default category.")
+            )
+            return
 
         try:
             channel = await guild.create_text_channel(channel_name, category=category)
@@ -126,11 +125,11 @@ class ChannelService:
             category (Optional[discord.CategoryChannel], optional): The category to list channels from.
                 If not provided, lists all text channels in the guild.
         """
-        guild: discord.Guild = ctx.guild
         if category:
             channels = category.channels
             title = f"Channels in category **{category.name}**:"
         else:
+            guild: discord.Guild = ctx.guild
             channels = guild.text_channels
             title = "Text channels in this server:"
 
