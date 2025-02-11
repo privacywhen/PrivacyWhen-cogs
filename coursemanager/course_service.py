@@ -5,7 +5,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import discord
 from rapidfuzz import process
 from redbot.core import Config, commands
-from redbot.core.utils.chat_formatting import error, info, success, warning
+from redbot.core.utils.chat_formatting import error, info, success, warning, pagify
+from redbot.core.utils.menus import menu, DEFAULT_CONTROLS
 from .course_data_proxy import CourseDataProxy
 from .utils import (
     format_course_key,
@@ -131,28 +132,25 @@ class CourseService:
     async def _prompt_variant_selection(
         self, ctx: commands.Context, variants: List[str], listings: Dict[str, str]
     ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
-        options = [
-            f"{REACTION_OPTIONS[i]} **{key}**: {listings.get(key, '')}"
-            for i, key in enumerate(variants)
-        ]
-        prompt = (
-            "Multiple course variants found. Please choose one:\n"
-            + "\n".join(options)
-            + f"\n{REACTION_OPTIONS[-1]} Cancel"
+        options = [f"**{key}**: {listings.get(key, '')}" for key in variants]
+        prompt = "Multiple course variants found. Please choose one:\n" + "\n".join(
+            options
         )
-        msg = await ctx.send(prompt)
-        for emoji in REACTION_OPTIONS[: len(variants)]:
-            await msg.add_reaction(emoji)
-        await msg.add_reaction(REACTION_OPTIONS[-1])
-        reaction = await self._wait_for_reaction(ctx, msg, REACTION_OPTIONS)
-        if reaction is None or str(reaction.emoji) == REACTION_OPTIONS[-1]:
-            await self._safe_clear_reactions(msg)
+        choice = await menu(
+            ctx, [prompt], controls=DEFAULT_CONTROLS, timeout=30.0, user=ctx.author
+        )
+        if not choice or choice == "close":
             return (None, None)
-        selected_index = REACTION_OPTIONS.index(str(reaction.emoji))
-        candidate = variants[selected_index]
-        data = await self.course_data_proxy.get_course_data(candidate)
-        await self._safe_clear_reactions(msg)
-        return (candidate, data if data and data.get("course_data") else (None, None))
+        try:
+            index = int(choice) - 1
+            candidate = variants[index]
+            data = await self.course_data_proxy.get_course_data(candidate)
+            return (
+                candidate,
+                data if data and data.get("course_data") else (None, None),
+            )
+        except (ValueError, IndexError):
+            return (None, None)
 
     async def _lookup_course_data(
         self, ctx: commands.Context, formatted: str
@@ -513,12 +511,11 @@ class CourseService:
         if "courses" in cfg:
             courses = cfg["courses"]
             dtm = cfg["date_updated"]
-            serialized_courses = "\n".join(list(courses.keys()))
-            if len(serialized_courses) > 1500:
-                serialized_courses = f"{serialized_courses[:1500]}..."
-            await ctx.send(
-                f"{len(courses)} courses cached on {dtm}\n{serialized_courses}"
-            )
+            serialized_courses = "\n".join(courses.keys())
+            pages = list(pagify(serialized_courses, page_length=1500))
+            header = f"{len(courses)} courses cached on {dtm}\n"
+            for page in pages:
+                await ctx.send(header + page)
         else:
             await ctx.send("Course list not found. Run populate command first.")
 

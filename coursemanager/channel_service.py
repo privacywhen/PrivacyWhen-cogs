@@ -6,7 +6,7 @@ import discord
 import networkx as nx
 import community as community_louvain
 from redbot.core import Config
-from redbot.core.utils.chat_formatting import error
+from redbot.core.utils.chat_formatting import error, pagify
 from .utils import (
     prune_channel,
     get_categories_by_prefix,
@@ -76,7 +76,9 @@ class ChannelService:
             title = "Text channels in this server:"
         if channels:
             channel_list = "\n".join(channel.name for channel in channels)
-            await ctx.send(f"**{title}**\n{channel_list}")
+            pages = list(pagify(channel_list, page_length=1900))
+            for page in pages:
+                await ctx.send(f"**{title}**\n{page}")
         else:
             await ctx.send("No channels found.")
 
