@@ -1,6 +1,5 @@
-from redbot.core import commands
-from .commands import CourseChannelCog
+from .course_commands import CourseChannelCog
 
 
-async def setup(bot: commands.Bot) -> None:
+async def setup(bot):
     await bot.add_cog(CourseChannelCog(bot))
