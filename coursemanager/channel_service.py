@@ -176,7 +176,7 @@ class ChannelService:
         self, guild: discord.Guild, base: str
     ) -> Dict[int, List[str]]:
         enrollments: Dict[int, List[str]] = {}
-        course_categories = self._get_course_categories(guild, base)
+        course_categories = get_categories_by_prefix(guild, base)
         for category in course_categories:
             for channel in category.channels:
                 if isinstance(channel, discord.TextChannel):
@@ -187,11 +187,6 @@ class ChannelService:
                             )
                             break
         return enrollments
-
-    def _get_course_categories(
-        self, guild: discord.Guild, base: str
-    ) -> List[discord.CategoryChannel]:
-        return get_categories_by_prefix(guild, base)
 
     def _compute_target_mapping(
         self, communities: Dict[str, List[str]], base: str
@@ -206,7 +201,7 @@ class ChannelService:
     async def _assign_channels_to_categories(
         self, guild: discord.Guild, target_mapping: Dict[str, str], base: str
     ) -> None:
-        course_categories = self._get_course_categories(guild, base)
+        course_categories = get_categories_by_prefix(guild, base)
         for category in course_categories:
             for channel in category.channels:
                 if not isinstance(channel, discord.TextChannel):
@@ -243,7 +238,7 @@ class ChannelService:
                 if guild.id not in enabled_guilds:
                     continue
                 base_category: str = await self.config.course_category()
-                for category in self._get_course_categories(guild, base_category):
+                for category in get_categories_by_prefix(guild, base_category):
                     for channel in category.channels:
                         if isinstance(channel, discord.TextChannel):
                             pruned = await prune_channel(
