@@ -2,13 +2,11 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from itertools import combinations
 from typing import Any, Dict, List, Optional, Tuple
-
 import discord
 import networkx as nx
 import community as community_louvain
 from redbot.core import Config
 from redbot.core.utils.chat_formatting import error
-
 from .utils import (
     prune_channel,
     get_categories_by_prefix,
@@ -90,11 +88,12 @@ class ChannelService:
         allow: bool,
     ) -> None:
         try:
-            overwrite = (
-                discord.PermissionOverwrite(read_messages=allow, send_messages=allow)
-                if allow
-                else discord.PermissionOverwrite(read_messages=False)
-            )
+            if allow:
+                overwrite = discord.PermissionOverwrite(
+                    read_messages=True, send_messages=True
+                )
+            else:
+                overwrite = discord.PermissionOverwrite(read_messages=False)
             action = "granted" if allow else "removed"
             await channel.set_permissions(member, overwrite=overwrite)
             await ctx.send(
@@ -125,16 +124,19 @@ class ChannelService:
             enrollments = await self._gather_enrollments(guild, base)
             if not enrollments:
                 continue
+
             edge_counts = self._compute_edge_counts(enrollments)
             courses_set = {
                 course for courses in enrollments.values() for course in courses
             }
             G = nx.Graph()
             G.add_nodes_from(courses_set)
+
             grouping_threshold: int = await self.config.grouping_threshold()
             for (course1, course2), weight in edge_counts.items():
                 if weight >= grouping_threshold:
                     G.add_edge(course1, course2, weight=weight)
+
             if G.number_of_edges() > 0:
                 partition: Dict[str, int] = community_louvain.best_partition(
                     G, weight="weight"
@@ -147,9 +149,11 @@ class ChannelService:
             for course, community_id in partition.items():
                 communities.setdefault(str(community_id), []).append(course)
             new_groupings[guild.id] = communities
+
             target_mapping = self._compute_target_mapping(communities, base)
             await self._assign_channels_to_categories(guild, target_mapping, base)
             log.debug(f"Guild {guild.id}: target mapping: {target_mapping}")
+
         await self.config.course_groups.set(new_groupings)
         log.debug(f"Updated course groups: {new_groupings}")
 
@@ -171,11 +175,12 @@ class ChannelService:
         for category in course_categories:
             for channel in category.channels:
                 if isinstance(channel, discord.TextChannel):
-                    async for _ in channel.history(limit=1):
-                        enrollments.setdefault(channel.id, []).append(
-                            channel.name.upper()
-                        )
-                        break
+                    async for msg in channel.history(limit=10):
+                        if not msg.author.bot:
+                            enrollments.setdefault(channel.id, []).append(
+                                channel.name.upper()
+                            )
+                            break
         return enrollments
 
     def _get_course_categories(
@@ -223,7 +228,7 @@ class ChannelService:
     async def auto_prune_task(self) -> None:
         prune_threshold_days: int = await self.config.prune_threshold_days()
         PRUNE_THRESHOLD = timedelta(days=prune_threshold_days)
-        PRUNE_INTERVAL = 2628000  # ~1 month in seconds
+        PRUNE_INTERVAL = 2628000  # seconds (approx. one month)
         await self.bot.wait_until_ready()
         log.debug("Auto-prune task started.")
         while not self.bot.is_closed():

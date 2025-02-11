@@ -2,12 +2,10 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
-
 import discord
 from rapidfuzz import process
 from redbot.core import Config, commands
 from redbot.core.utils.chat_formatting import error, info, success, warning
-
 from .course_data_proxy import CourseDataProxy
 from .utils import (
     format_course_key,
@@ -148,18 +146,12 @@ class CourseService:
         await msg.add_reaction(REACTION_OPTIONS[-1])
         reaction = await self._wait_for_reaction(ctx, msg, REACTION_OPTIONS)
         if reaction is None or str(reaction.emoji) == REACTION_OPTIONS[-1]:
-            try:
-                await msg.clear_reactions()
-            except Exception:
-                pass
+            await self._safe_clear_reactions(msg)
             return (None, None)
         selected_index = REACTION_OPTIONS.index(str(reaction.emoji))
         candidate = variants[selected_index]
         data = await self.course_data_proxy.get_course_data(candidate)
-        try:
-            await msg.clear_reactions()
-        except Exception:
-            pass
+        await self._safe_clear_reactions(msg)
         return (candidate, data if data and data.get("course_data") else (None, None))
 
     async def _lookup_course_data(
@@ -175,8 +167,7 @@ class CourseService:
             log.error(f"Failed to fetch fresh data for perfect match: {formatted}")
             return (formatted, None)
         if not formatted[-1].isalpha():
-            variants = self._find_variant_matches(formatted, listings)
-            if variants:
+            if variants := self._find_variant_matches(formatted, listings):
                 if len(variants) == 1:
                     candidate = variants[0]
                     data = await self.course_data_proxy.get_course_data(candidate)
@@ -217,18 +208,12 @@ class CourseService:
         await msg.add_reaction(REACTION_OPTIONS[-1])
         reaction = await self._wait_for_reaction(ctx, msg, REACTION_OPTIONS)
         if reaction is None or str(reaction.emoji) == REACTION_OPTIONS[-1]:
-            try:
-                await msg.clear_reactions()
-            except Exception:
-                pass
+            await self._safe_clear_reactions(msg)
             return (None, None)
         selected_index = REACTION_OPTIONS.index(str(reaction.emoji))
         selected = matches[selected_index][0]
         data = await self.course_data_proxy.get_course_data(selected)
-        try:
-            await msg.clear_reactions()
-        except Exception:
-            pass
+        await self._safe_clear_reactions(msg)
         return (selected, data) if data and data.get("course_data") else (None, None)
 
     async def _wait_for_reaction(
@@ -238,7 +223,7 @@ class CourseService:
             return (
                 user == ctx.author
                 and str(reaction.emoji) in valid_emojis
-                and reaction.message.id == message.id
+                and (reaction.message.id == message.id)
             )
 
         try:
@@ -249,6 +234,12 @@ class CourseService:
         except asyncio.TimeoutError:
             log.debug(f"Reaction wait timed out for user {ctx.author}")
             return None
+
+    async def _safe_clear_reactions(self, message: discord.Message) -> None:
+        try:
+            await message.clear_reactions()
+        except Exception:
+            pass
 
     async def course_details(
         self, ctx: commands.Context, course_code: str
@@ -305,8 +296,7 @@ class CourseService:
     async def list_enrollments(self, ctx: commands.Context) -> None:
         if not await self._check_enabled(ctx):
             return
-        user_courses = self.get_user_courses(ctx.author, ctx.guild)
-        if user_courses:
+        if user_courses := self.get_user_courses(ctx.author, ctx.guild):
             await ctx.send(
                 "You are enrolled in the following courses:\n" + "\n".join(user_courses)
             )
@@ -457,11 +447,16 @@ class CourseService:
         log.debug("Clearing stale config entries.")
         stale: List[str] = []
         courses = await self.config.courses.all()
-        for course_key in courses.keys():
+        stale.extend(
+            course_key
+            for course_key in courses.keys()
             if not any(
-                self.get_course_channel(guild, course_key) for guild in self.bot.guilds
-            ):
-                stale.append(course_key)
+                (
+                    self.get_course_channel(guild, course_key)
+                    for guild in self.bot.guilds
+                )
+            )
+        )
         for course_key in stale:
             await self.config.courses.clear_raw(course_key)
             log.debug(f"Cleared stale entry for course {course_key}")

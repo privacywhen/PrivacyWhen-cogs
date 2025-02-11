@@ -2,7 +2,6 @@ from typing import Optional, List
 import discord
 from datetime import datetime, timezone, timedelta
 import logging
-
 from .constants import COURSE_KEY_PATTERN, REACTION_OPTIONS
 
 

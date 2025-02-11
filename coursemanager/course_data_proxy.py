@@ -5,7 +5,6 @@ from math import floor
 from time import time
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
-
 from bs4 import BeautifulSoup
 from redbot.core import Config
 from aiohttp import (
@@ -14,7 +13,6 @@ from aiohttp import (
     ClientSession,
     ClientTimeout,
 )
-
 from .utils import get_logger
 
 log = get_logger("red.course_data_proxy")
@@ -28,13 +26,20 @@ class CourseDataProxy:
         "https://mytimetable.mcmaster.ca/api/class-data?term={term}&course_0_0={course_key_formatted}&t={t}&e={e}"
     )
     _LISTING_URL: str = (
-        "https://mytimetable.mcmaster.ca/api/courses/suggestions?cams=MCMSTiMCMST_MCMSTiSNPOL_MCMSTiMHK_MCMSTiCON_MCMSTiOFF&course_add=*&page_num=-1"
+        "https://mytimetable.mcmaster.ca/api/courses/suggestions?"
+        "cams=MCMSTiMCMST_MCMSTiSNPOL_MCMSTiMHK_MCMSTiCON_MCMSTiOFF&course_add=*&page_num=-1"
     )
 
     def __init__(self, config: Config, logger: logging.Logger) -> None:
         self.config: Config = config
         self.log: logging.Logger = logger
+        self.session: Optional[ClientSession] = None
         self.log.debug("CourseDataProxy initialized.")
+
+    async def _get_session(self) -> ClientSession:
+        if self.session is None or self.session.closed:
+            self.session = ClientSession(timeout=ClientTimeout(total=15))
+        return self.session
 
     async def get_course_data(self, course_key_formatted: str) -> Dict[str, Any]:
         self.log.debug(f"Retrieving course data for {course_key_formatted}")
@@ -158,24 +163,23 @@ class CourseDataProxy:
         self, url: str, content_type: str = "xml"
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
         self.log.debug(f"HTTP GET: {url}")
-        timeout = ClientTimeout(total=15)
+        session = await self._get_session()
         try:
-            async with ClientSession(timeout=timeout) as session:
-                async with session.get(url) as response:
-                    self.log.debug(f"Response {response.status} from URL: {url}")
-                    if response.status == 500:
-                        return (None, "Error: HTTP 500")
-                    if response.status != 200:
-                        return (None, f"Error: HTTP {response.status}")
-                    content = await response.text()
-                    soup = BeautifulSoup(content, content_type)
-                    error_tag = soup.find("error")
-                    if not error_tag:
-                        self.log.debug(f"No error tag in response for {url}")
-                        return (soup, None)
-                    error_message = error_tag.text.strip() if error_tag else ""
-                    self.log.debug(f"Error tag found: {error_message}")
-                    return (None, error_message or None)
+            async with session.get(url) as response:
+                self.log.debug(f"Response {response.status} from URL: {url}")
+                if response.status == 500:
+                    return (None, "Error: HTTP 500")
+                if response.status != 200:
+                    return (None, f"Error: HTTP {response.status}")
+                content = await response.text()
+                soup = BeautifulSoup(content, content_type)
+                error_tag = soup.find("error")
+                if not error_tag:
+                    self.log.debug(f"No error tag in response for {url}")
+                    return (soup, None)
+                error_message = error_tag.text.strip() if error_tag else ""
+                self.log.debug(f"Error tag found: {error_message}")
+                return (None, error_message or None)
         except (ClientResponseError, ClientConnectionError, asyncio.TimeoutError) as e:
             self.log.exception(f"HTTP error during GET from {url}")
             return (None, f"HTTP error: {e}")
@@ -282,3 +286,7 @@ class CourseDataProxy:
             course_info = course.get("info", "").replace("<br/>", " ")
             courses_dict[normalized_course_code] = course_info
         return courses_dict
+
+    async def close(self) -> None:
+        if self.session:
+            await self.session.close()

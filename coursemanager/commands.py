@@ -3,7 +3,6 @@ from typing import Optional
 import discord
 from redbot.core import commands, Config
 from redbot.core.utils.chat_formatting import error, info, success, warning
-
 from .channel_service import ChannelService
 from .course_service import CourseService
 from .constants import GLOBAL_DEFAULTS
@@ -21,10 +20,11 @@ class CourseChannelCog(commands.Cog):
         self.config.register_global(**GLOBAL_DEFAULTS)
         self.channel_service: ChannelService = ChannelService(bot, self.config)
         self.course_service: CourseService = CourseService(bot, self.config)
-        self._grouping_task: Optional[asyncio.Task] = asyncio.create_task(
+        # Tie background tasks to the bot’s loop
+        self._grouping_task: Optional[asyncio.Task] = self.bot.loop.create_task(
             self.channel_service.dynamic_grouping_task()
         )
-        self._prune_task: Optional[asyncio.Task] = asyncio.create_task(
+        self._prune_task: Optional[asyncio.Task] = self.bot.loop.create_task(
             self.channel_service.auto_prune_task()
         )
         log.debug("CourseChannelCog initialized.")
