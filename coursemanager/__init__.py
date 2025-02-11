@@ -1,5 +1,5 @@
-from .course_commands import CourseChannelCog
+from .course_commands import ChannelCog
 
 
-async def setup(bot: course_commands.Bot) -> None:
-    await bot.add_cog(CourseChannelCog(bot))
+async def setup(bot):
+    await bot.add_cog(ChannelCog(bot))
