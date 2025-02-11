@@ -1,10 +1,3 @@
-"""
-Module for global constants and configuration defaults.
-
-This module centralizes configuration defaults, regular expression patterns,
-and reaction options used throughout the Course Channel Cog.
-"""
-
 from typing import Dict, Any, List
 import re
 
@@ -24,5 +17,4 @@ GLOBAL_DEFAULTS: Dict[str, Any] = {
 COURSE_KEY_PATTERN: re.Pattern = re.compile(
     r"^\s*([A-Za-z]+)[\s\-_]*(\d[A-Za-z0-9]{2}\d)([A-Za-z])?\s*$"
 )
-
 REACTION_OPTIONS: List[str] = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "❌"]

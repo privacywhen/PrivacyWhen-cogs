@@ -23,8 +23,6 @@ log = get_logger("red.course_service")
 
 
 class CourseService:
-    """Implements high-level course workflows."""
-
     def __init__(self, bot: commands.Bot, config: Config) -> None:
         self.bot: commands.Bot = bot
         self.config: Config = config
@@ -39,10 +37,6 @@ class CourseService:
         self.course_data_proxy: CourseDataProxy = CourseDataProxy(self.config, log)
 
     async def _check_enabled(self, ctx: commands.Context) -> bool:
-        """
-        Helper method to check if Course Manager is enabled in the guild.
-        If not enabled, it notifies the user and returns False.
-        """
         enabled: List[int] = await self.config.enabled_guilds()
         if ctx.guild.id not in enabled:
             await ctx.send(
@@ -74,21 +68,9 @@ class CourseService:
     def get_course_categories(
         self, guild: discord.Guild
     ) -> List[discord.CategoryChannel]:
-        """
-        Retrieve all course categories in the guild that match the configured category name.
-        """
         return get_categories_by_prefix(guild, self.category_name)
 
     def get_category(self, guild: discord.Guild) -> Optional[discord.CategoryChannel]:
-        """
-        Retrieve the course category channel that exactly matches the configured category name.
-
-        Args:
-            guild (discord.Guild): The Discord guild.
-
-        Returns:
-            Optional[discord.CategoryChannel]: The matching category channel, or None if not found.
-        """
         return next(
             (
                 cat
@@ -101,22 +83,12 @@ class CourseService:
     def get_course_channel(
         self, guild: discord.Guild, course_key: str
     ) -> Optional[discord.TextChannel]:
-        """
-        Retrieve a course text channel by course key within the guild.
-
-        Args:
-            guild (discord.Guild): The Discord guild.
-            course_key (str): The course key to search for.
-
-        Returns:
-            Optional[discord.TextChannel]: The course text channel if found; otherwise, None.
-        """
         target_name = get_channel_name(course_key)
         channel = next(
             (
                 ch
-                for category in self.get_course_categories(guild)
-                for ch in category.channels
+                for cat in self.get_course_categories(guild)
+                for ch in cat.channels
                 if isinstance(ch, discord.TextChannel) and ch.name == target_name
             ),
             None,
@@ -130,17 +102,6 @@ class CourseService:
     async def create_course_channel(
         self, guild: discord.Guild, category: discord.CategoryChannel, course_key: str
     ) -> discord.TextChannel:
-        """
-        Create a new course text channel in the specified category.
-
-        Args:
-            guild (discord.Guild): The Discord guild.
-            category (discord.CategoryChannel): The category in which to create the channel.
-            course_key (str): The course key used to determine the channel name.
-
-        Returns:
-            discord.TextChannel: The newly created course text channel.
-        """
         target_name = get_channel_name(course_key)
         log.debug(f"Creating channel '{target_name}' in guild {guild.name}")
         overwrites = {
@@ -154,16 +115,6 @@ class CourseService:
         return channel
 
     def get_user_courses(self, user: discord.Member, guild: discord.Guild) -> List[str]:
-        """
-        Retrieve a list of course channel names that the user can access in the guild.
-
-        Args:
-            user (discord.Member): The user whose course enrollments are being checked.
-            guild (discord.Guild): The Discord guild.
-
-        Returns:
-            List[str]: A list of course channel names in uppercase.
-        """
         courses = [
             channel.name.upper()
             for category in self.get_course_categories(guild)
@@ -175,16 +126,6 @@ class CourseService:
         return courses
 
     def _find_variant_matches(self, base: str, listings: Dict[str, str]) -> List[str]:
-        """
-        Find course variants that start with the given base course code.
-
-        Args:
-            base (str): The base course code.
-            listings (Dict[str, str]): The course listings.
-
-        Returns:
-            List[str]: A list of variant course keys.
-        """
         return [
             key for key in listings if key.startswith(base) and len(key) > len(base)
         ]
@@ -192,17 +133,6 @@ class CourseService:
     async def _prompt_variant_selection(
         self, ctx: commands.Context, variants: List[str], listings: Dict[str, str]
     ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
-        """
-        Prompt the user to select from multiple course variants.
-
-        Args:
-            ctx (commands.Context): The command context.
-            variants (List[str]): A list of variant course keys.
-            listings (Dict[str, str]): The course listings with additional information.
-
-        Returns:
-            Tuple[Optional[str], Optional[Dict[str, Any]]]: The selected course key and its data, or (None, None) if canceled.
-        """
         options = [
             f"{REACTION_OPTIONS[i]} **{key}**: {listings.get(key, '')}"
             for i, key in enumerate(variants)
@@ -222,7 +152,7 @@ class CourseService:
                 await msg.clear_reactions()
             except Exception:
                 pass
-            return None, None
+            return (None, None)
         selected_index = REACTION_OPTIONS.index(str(reaction.emoji))
         candidate = variants[selected_index]
         data = await self.course_data_proxy.get_course_data(candidate)
@@ -230,67 +160,48 @@ class CourseService:
             await msg.clear_reactions()
         except Exception:
             pass
-        return candidate, data if data and data.get("course_data") else (None, None)
+        return (candidate, data if data and data.get("course_data") else (None, None))
 
     async def _lookup_course_data(
         self, ctx: commands.Context, formatted: str
     ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
-        """
-        Lookup course data using an exact match, variant matching, or fuzzy matching.
-
-        Args:
-            ctx (commands.Context): The command context.
-            formatted (str): The formatted course key.
-
-        Returns:
-            Tuple[Optional[str], Optional[Dict[str, Any]]]: The course key and its data if found; otherwise, (None, None).
-        """
         listings: Dict[str, str] = (await self.config.course_listings()).get(
             "courses", {}
         )
         if formatted in listings:
             data = await self.course_data_proxy.get_course_data(formatted)
             if data and data.get("course_data"):
-                return formatted, data
+                return (formatted, data)
             log.error(f"Failed to fetch fresh data for perfect match: {formatted}")
-            return formatted, None
+            return (formatted, None)
         if not formatted[-1].isalpha():
-            if variants := self._find_variant_matches(formatted, listings):
+            variants = self._find_variant_matches(formatted, listings)
+            if variants:
                 if len(variants) == 1:
                     candidate = variants[0]
                     data = await self.course_data_proxy.get_course_data(candidate)
                     if data and data.get("course_data"):
-                        return candidate, data
+                        return (candidate, data)
                 else:
                     candidate, data = await self._prompt_variant_selection(
                         ctx, variants, listings
                     )
                     return (candidate, data) if candidate else (None, None)
         candidate, data = await self._fallback_fuzzy_lookup(ctx, formatted)
-        return candidate, data
+        return (candidate, data)
 
     async def _fallback_fuzzy_lookup(
         self, ctx: commands.Context, formatted: str
     ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
-        """
-        Perform a fuzzy lookup for a course key when an exact match is not found.
-
-        Args:
-            ctx (commands.Context): The command context.
-            formatted (str): The formatted course key.
-
-        Returns:
-            Tuple[Optional[str], Optional[Dict[str, Any]]]: The selected course key and its data if found; otherwise, (None, None).
-        """
         listings: Dict[str, str] = (await self.config.course_listings()).get(
             "courses", {}
         )
         if not listings:
             log.debug("Course listings unavailable; cannot perform fuzzy lookup.")
-            return None, None
+            return (None, None)
         matches = process.extract(formatted, listings.keys(), limit=5, score_cutoff=70)
         if not matches:
-            return None, None
+            return (None, None)
         options = [
             f"{REACTION_OPTIONS[i]} **{match[0]}**: {listings.get(match[0], '')}"
             for i, match in enumerate(matches)
@@ -310,7 +221,7 @@ class CourseService:
                 await msg.clear_reactions()
             except Exception:
                 pass
-            return None, None
+            return (None, None)
         selected_index = REACTION_OPTIONS.index(str(reaction.emoji))
         selected = matches[selected_index][0]
         data = await self.course_data_proxy.get_course_data(selected)
@@ -323,18 +234,6 @@ class CourseService:
     async def _wait_for_reaction(
         self, ctx: commands.Context, message: discord.Message, valid_emojis: List[str]
     ) -> Optional[discord.Reaction]:
-        """
-        Wait for a reaction from the user on a specific message.
-
-        Args:
-            ctx (commands.Context): The command context.
-            message (discord.Message): The message to monitor for reactions.
-            valid_emojis (List[str]): A list of acceptable emoji strings.
-
-        Returns:
-            Optional[discord.Reaction]: The reaction received or None if timed out.
-        """
-
         def check(reaction: discord.Reaction, user: discord.User) -> bool:
             return (
                 user == ctx.author
@@ -354,7 +253,6 @@ class CourseService:
     async def course_details(
         self, ctx: commands.Context, course_code: str
     ) -> Optional[discord.Embed]:
-        # Optionally, you may check for enablement here too if details should be restricted.
         formatted = format_course_key(course_code)
         if not formatted:
             return None
@@ -366,16 +264,6 @@ class CourseService:
     def _create_course_embed(
         self, course_key: str, course_data: Dict[str, Any]
     ) -> discord.Embed:
-        """
-        Create a Discord embed containing the course details.
-
-        Args:
-            course_key (str): The course key.
-            course_data (Dict[str, Any]): The course data structure containing details.
-
-        Returns:
-            discord.Embed: The formatted embed with course details.
-        """
         log.debug(f"Creating embed for course: {course_key}")
         embed = discord.Embed(
             title=f"Course Details: {course_key}", color=discord.Color.green()
@@ -417,9 +305,10 @@ class CourseService:
     async def list_enrollments(self, ctx: commands.Context) -> None:
         if not await self._check_enabled(ctx):
             return
-        if courses := self.get_user_courses(ctx.author, ctx.guild):
+        user_courses = self.get_user_courses(ctx.author, ctx.guild)
+        if user_courses:
             await ctx.send(
-                "You are enrolled in the following courses:\n" + "\n".join(courses)
+                "You are enrolled in the following courses:\n" + "\n".join(user_courses)
             )
         else:
             await ctx.send("You are not enrolled in any courses.")
@@ -427,7 +316,6 @@ class CourseService:
     async def join_course(self, ctx: commands.Context, course_code: str) -> None:
         if not await self._check_enabled(ctx):
             return
-
         formatted = format_course_key(course_code)
         if not formatted:
             await ctx.send(error(f"Invalid course code: {course_code}."))
@@ -508,10 +396,8 @@ class CourseService:
             await self.logging_channel.send(f"{ctx.author} has joined {candidate}.")
 
     async def leave_course(self, ctx: commands.Context, course_code: str) -> None:
-        # Check if Course Manager is enabled for the guild.
         if not await self._check_enabled(ctx):
             return
-
         formatted = format_course_key(course_code)
         if not formatted:
             await ctx.send(error(f"Invalid course code: {course_code}."))
@@ -537,7 +423,6 @@ class CourseService:
     async def admin_delete_channel(
         self, ctx: commands.Context, channel: discord.TextChannel
     ) -> None:
-        # (Optionally, you could also check enablement here if desired.)
         if channel.category not in self.get_course_categories(ctx.guild):
             await ctx.send(error(f"{channel.mention} is not a course channel."))
             return
@@ -572,13 +457,11 @@ class CourseService:
         log.debug("Clearing stale config entries.")
         stale: List[str] = []
         courses = await self.config.courses.all()
-        stale.extend(
-            course_key
-            for course_key in courses.keys()
+        for course_key in courses.keys():
             if not any(
                 self.get_course_channel(guild, course_key) for guild in self.bot.guilds
-            )
-        )
+            ):
+                stale.append(course_key)
         for course_key in stale:
             await self.config.courses.clear_raw(course_key)
             log.debug(f"Cleared stale entry for course {course_key}")
@@ -654,27 +537,18 @@ class CourseService:
     async def refresh_course_data(
         self, ctx: commands.Context, course_code: str
     ) -> None:
-        """
-        Refresh course data for a given course.
-        Marks the cached data as stale so that the next fetch returns fresh data.
-        """
         if not await self._check_enabled(ctx):
             return
-
         formatted = format_course_key(course_code)
         if not formatted:
             await ctx.send(error(f"Invalid course code: {course_code}."))
             return
-
-        # Mark the existing data as stale.
         async with self.config.courses() as courses:
             if formatted in courses:
                 courses[formatted]["is_fresh"] = False
             else:
                 await ctx.send(error(f"No existing data for course {formatted}."))
                 return
-
-        # Re-fetch data from the external API.
         data = await self.course_data_proxy.get_course_data(formatted)
         if data and data.get("course_data"):
             await ctx.send(success(f"Course data for {formatted} has been refreshed."))
