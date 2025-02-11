@@ -7,6 +7,7 @@ import networkx as nx
 import community as community_louvain
 from redbot.core import Config
 from redbot.core.utils.chat_formatting import error, pagify
+from redbot.core.utils.menus import menu
 from .utils import (
     prune_channel,
     get_categories_by_prefix,
@@ -76,9 +77,11 @@ class ChannelService:
             title = "Text channels in this server:"
         if channels:
             channel_list = "\n".join(channel.name for channel in channels)
-            pages = list(pagify(channel_list, page_length=1900))
-            for page in pages:
-                await ctx.send(f"**{title}**\n{page}")
+            pages = [
+                f"**{title}**\n{page}"
+                for page in pagify(channel_list, page_length=1900)
+            ]
+            await menu(ctx, pages, timeout=60.0, user=ctx.author)
         else:
             await ctx.send("No channels found.")
 

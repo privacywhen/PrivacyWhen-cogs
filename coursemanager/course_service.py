@@ -132,25 +132,53 @@ class CourseService:
     async def _prompt_variant_selection(
         self, ctx: commands.Context, variants: List[str], listings: Dict[str, str]
     ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
-        options = [f"**{key}**: {listings.get(key, '')}" for key in variants]
+        options_list = []
+        emoji_to_result = {}
+        for i, variant in enumerate(variants):
+            emoji = REACTION_OPTIONS[i]
+            option_text = f"{emoji} **{variant}**: {listings.get(variant, '')}"
+            options_list.append(option_text)
+            emoji_to_result[emoji] = variant
+        cancel_emoji = REACTION_OPTIONS[-1]
+        options_list.append(f"{cancel_emoji} Cancel")
+
         prompt = "Multiple course variants found. Please choose one:\n" + "\n".join(
-            options
+            options_list
         )
-        choice = await menu(
-            ctx, [prompt], controls=DEFAULT_CONTROLS, timeout=30.0, user=ctx.author
+
+        controls = {}
+        for emoji, course_key in emoji_to_result.items():
+
+            async def handler(
+                ctx,
+                pages,
+                controls,
+                message,
+                page,
+                timeout,
+                emoji,
+                *,
+                user=None,
+                course_key=course_key,
+            ):
+                return course_key
+
+            controls[emoji] = handler
+
+        async def cancel_handler(
+            ctx, pages, controls, message, page, timeout, emoji, *, user=None
+        ):
+            return None
+
+        controls[cancel_emoji] = cancel_handler
+
+        result = await menu(
+            ctx, [prompt], controls=controls, timeout=30.0, user=ctx.author
         )
-        if not choice or choice == "close":
+        if result is None:
             return (None, None)
-        try:
-            index = int(choice) - 1
-            candidate = variants[index]
-            data = await self.course_data_proxy.get_course_data(candidate)
-            return (
-                candidate,
-                data if data and data.get("course_data") else (None, None),
-            )
-        except (ValueError, IndexError):
-            return (None, None)
+        data = await self.course_data_proxy.get_course_data(result)
+        return (result, data) if data and data.get("course_data") else (None, None)
 
     async def _lookup_course_data(
         self, ctx: commands.Context, formatted: str
@@ -191,53 +219,54 @@ class CourseService:
         matches = process.extract(formatted, listings.keys(), limit=5, score_cutoff=70)
         if not matches:
             return (None, None)
-        options = [
-            f"{REACTION_OPTIONS[i]} **{match[0]}**: {listings.get(match[0], '')}"
-            for i, match in enumerate(matches)
-        ]
-        prompt = (
-            "Course not found. Did you mean:\n"
-            + "\n".join(options)
-            + f"\n{REACTION_OPTIONS[-1]} Cancel"
-        )
-        msg = await ctx.send(prompt)
-        for emoji in REACTION_OPTIONS[: len(matches)]:
-            await msg.add_reaction(emoji)
-        await msg.add_reaction(REACTION_OPTIONS[-1])
-        reaction = await self._wait_for_reaction(ctx, msg, REACTION_OPTIONS)
-        if reaction is None or str(reaction.emoji) == REACTION_OPTIONS[-1]:
-            await self._safe_clear_reactions(msg)
-            return (None, None)
-        selected_index = REACTION_OPTIONS.index(str(reaction.emoji))
-        selected = matches[selected_index][0]
-        data = await self.course_data_proxy.get_course_data(selected)
-        await self._safe_clear_reactions(msg)
-        return (selected, data) if data and data.get("course_data") else (None, None)
 
-    async def _wait_for_reaction(
-        self, ctx: commands.Context, message: discord.Message, valid_emojis: List[str]
-    ) -> Optional[discord.Reaction]:
-        def check(reaction: discord.Reaction, user: discord.User) -> bool:
-            return (
-                user == ctx.author
-                and str(reaction.emoji) in valid_emojis
-                and (reaction.message.id == message.id)
-            )
+        # Build menu options with emoji mapping.
+        options_list = []
+        emoji_to_result = {}
+        for i, match in enumerate(matches):
+            emoji = REACTION_OPTIONS[i]
+            option_text = f"{emoji} **{match[0]}**: {listings.get(match[0], '')}"
+            options_list.append(option_text)
+            emoji_to_result[emoji] = match[0]
+        cancel_emoji = REACTION_OPTIONS[-1]
+        options_list.append(f"{cancel_emoji} Cancel")
 
-        try:
-            reaction, _ = await self.bot.wait_for(
-                "reaction_add", timeout=30.0, check=check
-            )
-            return reaction
-        except asyncio.TimeoutError:
-            log.debug(f"Reaction wait timed out for user {ctx.author}")
+        prompt = "Course not found. Did you mean:\n" + "\n".join(options_list)
+
+        # Create custom control handlers for selection.
+        controls = {}
+        for emoji, course_key in emoji_to_result.items():
+
+            async def handler(
+                ctx,
+                pages,
+                controls,
+                message,
+                page,
+                timeout,
+                emoji,
+                *,
+                user=None,
+                course_key=course_key,
+            ):
+                return course_key
+
+            controls[emoji] = handler
+
+        async def cancel_handler(
+            ctx, pages, controls, message, page, timeout, emoji, *, user=None
+        ):
             return None
 
-    async def _safe_clear_reactions(self, message: discord.Message) -> None:
-        try:
-            await message.clear_reactions()
-        except Exception:
-            pass
+        controls[cancel_emoji] = cancel_handler
+
+        result = await menu(
+            ctx, [prompt], controls=controls, timeout=30.0, user=ctx.author
+        )
+        if result is None:
+            return (None, None)
+        data = await self.course_data_proxy.get_course_data(result)
+        return (result, data) if data and data.get("course_data") else (None, None)
 
     async def course_details(
         self, ctx: commands.Context, course_code: str
@@ -467,25 +496,26 @@ class CourseService:
         log.debug(f"Manual prune triggered by {ctx.author}")
         pruned_channels: List[str] = []
         PRUNE_THRESHOLD = timedelta(days=120)
+
+        enabled_guilds: List[int] = await self.config.enabled_guilds()
+
         for guild in self.bot.guilds:
-            enabled: List[int] = await self.config.enabled_guilds()
-            if guild.id not in enabled:
+            if guild.id not in enabled_guilds:
                 log.debug(
                     f"Skipping guild {guild.name} as Course Manager is not enabled"
                 )
                 continue
+
             for category in self.get_course_categories(guild):
                 for channel in category.channels:
-                    if isinstance(channel, discord.TextChannel):
-                        if await prune_channel(
-                            channel,
-                            PRUNE_THRESHOLD,
-                            "Manually pruned due to inactivity.",
-                        ):
-                            pruned_channels.append(f"{guild.name} - {channel.name}")
-                            log.debug(
-                                f"Channel {channel.name} in guild {guild.name} pruned manually"
-                            )
+                    if isinstance(channel, discord.TextChannel) and await prune_channel(
+                        channel, PRUNE_THRESHOLD, "Manually pruned due to inactivity."
+                    ):
+                        pruned_channels.append(f"{guild.name} - {channel.name}")
+                        log.debug(
+                            f"Channel {channel.name} in guild {guild.name} pruned manually"
+                        )
+
         if pruned_channels:
             await ctx.send(success("Pruned channels:\n" + "\n".join(pruned_channels)))
         else:
@@ -512,10 +542,11 @@ class CourseService:
             courses = cfg["courses"]
             dtm = cfg["date_updated"]
             serialized_courses = "\n".join(courses.keys())
-            pages = list(pagify(serialized_courses, page_length=1500))
-            header = f"{len(courses)} courses cached on {dtm}\n"
-            for page in pages:
-                await ctx.send(header + page)
+            pages = [
+                f"{len(courses)} courses cached on {dtm}\n{page}"
+                for page in pagify(serialized_courses, page_length=1500)
+            ]
+            await menu(ctx, pages, timeout=60.0, user=ctx.author)
         else:
             await ctx.send("Course list not found. Run populate command first.")
 
