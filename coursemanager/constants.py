@@ -22,7 +22,7 @@ GLOBAL_DEFAULTS: Dict[str, Any] = {
 }
 
 COURSE_KEY_PATTERN: re.Pattern = re.compile(
-    r"^\s*([A-Za-z]+)[\s\-_]*(\d+(?:[A-Za-z\d]*\d+)?)([A-Za-z])?\s*$"
+    r"^\s*([A-Za-z]+)[\s\-_]*(\d[A-Za-z0-9]{2}\d)([A-Za-z])?\s*$"
 )
 
 REACTION_OPTIONS: List[str] = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "❌"]
