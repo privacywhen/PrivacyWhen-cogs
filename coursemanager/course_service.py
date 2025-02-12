@@ -88,7 +88,8 @@ class CourseService:
     def get_course_channel(
         self, guild: discord.Guild, course: CourseCode
     ) -> Optional[discord.TextChannel]:
-        target_name = course.channel_name()
+        target_name = course.formatted_channel_name()
+
         channel = next(
             (
                 ch
@@ -109,7 +110,8 @@ class CourseService:
         category: discord.CategoryChannel,
         course: CourseCode,
     ) -> discord.TextChannel:
-        target_name = course.channel_name()
+        target_name = course.formatted_channel_name()
+
         log.debug(
             f"CourseService.create_course_channel: Attempting to create channel '{target_name}' in guild '{guild.name}' under category '{category.name}'"
         )
@@ -343,7 +345,7 @@ class CourseService:
             return
 
         canonical = course_obj.canonical()  # e.g., "SOCWORK-2A06A"
-        channel_name = course_obj.channel_name()  # e.g., "socwork-2a06"
+        channel_name = course_obj.formatted_channel_name()  # e.g., "socwork-2a06"
         log.debug(f"Parsed course code: canonical={canonical}, channel={channel_name}")
 
         user_courses = self.get_user_courses(ctx.author, ctx.guild)
@@ -407,7 +409,7 @@ class CourseService:
 
         user_courses = self.get_user_courses(ctx.author, ctx.guild)
         log.debug(f"User {ctx.author} current courses after lookup: {user_courses}")
-        if candidate_obj.channel_name() in user_courses:
+        if candidate_obj.formatted_channel_name() in user_courses:
             log.debug(
                 f"User {ctx.author} is already enrolled in {candidate_obj.canonical()} after lookup"
             )

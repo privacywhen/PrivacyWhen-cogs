@@ -15,6 +15,7 @@ from .utils import (
 )
 from .course_code import CourseCode
 
+
 log = get_logger("red.channel_service")
 
 
@@ -183,9 +184,7 @@ class ChannelService:
 
                     try:
                         course_obj = CourseCode(channel.name)
-                        normalized = (
-                            course_obj.channel_name()
-                        )  # lower-case and no suffix
+                        normalized = course_obj.formatted_channel_name()
                     except ValueError:
                         normalized = channel.name()
 
@@ -215,7 +214,7 @@ class ChannelService:
                     continue
                 try:
                     course_obj = CourseCode(channel.name)
-                    course_code = course_obj.channel_name()
+                    course_code = course_obj.formatted_channel_name()
                 except ValueError:
                     course_code = channel.name()
 

@@ -93,7 +93,7 @@ class CourseCode:
         """
         return f"{self.department}-{self.code}{self.suffix}"
 
-    def channel_name(self) -> str:
+    def formatted_channel_name(self) -> str:
         """
         Get the version of the course code formatted for Discord channel names.
 
