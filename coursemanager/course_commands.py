@@ -186,3 +186,13 @@ class CourseChannelCog(commands.Cog):
     @dev_course.command(name="populate")
     async def populate_courses(self, ctx: commands.Context) -> None:
         await self.course_service.populate_courses(ctx)
+
+    @dev_course.command(name="printconfig")
+    async def print_config(self, ctx: commands.Context) -> None:
+        print(await self.config.all())
+        await ctx.send(info("Config printed to console."))
+
+    @dev_course.command(name="clearall")
+    async def reset_config(self, ctx: commands.Context) -> None:
+        await self.config.clear_all()
+        await ctx.send(success("All config data cleared."))
