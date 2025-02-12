@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional, Tuple
 import discord
+from datetime import datetime, timezone, timedelta
 from rapidfuzz import process
 from redbot.core import Config, commands
 from redbot.core.utils.chat_formatting import error, info, success, warning, pagify
@@ -13,16 +14,13 @@ log = get_logger("red.course_service")
 
 
 class CourseService:
+
     def __init__(self, bot: commands.Bot, config: Config) -> None:
-        """
-        Initialize the CourseService with a bot instance and configuration.
-        """
         self.bot: commands.Bot = bot
         self.config: Config = config
         self.category_name: str = "COURSES"
         self.max_courses: int = 10
         self.logging_channel: Optional[discord.TextChannel] = None
-        # Set explicit permission overwrite for joined channels.
         self.channel_permissions: discord.PermissionOverwrite = (
             discord.PermissionOverwrite(read_messages=True, send_messages=True)
         )
@@ -694,3 +692,123 @@ class CourseService:
         )
         log.debug(f"Menu selection result: {result}")
         return result
+
+    async def course_details(
+        self, ctx: commands.Context, course_code: str
+    ) -> Optional[discord.Embed]:
+        try:
+            course_obj = CourseCode(course_code)
+        except ValueError:
+            return None
+        # Request detailed data (fetched on demand)
+        data = await self.course_data_proxy.get_course_data(
+            course_obj.canonical(), detailed=True
+        )
+        if not data or (not data.get("data")):
+            return None
+        return self._create_course_embed(course_obj.canonical(), data)
+
+    async def refresh_course_data(
+        self, ctx: commands.Context, course_code: str
+    ) -> None:
+        if not await self._check_enabled(ctx):
+            return
+        try:
+            course_obj = CourseCode(course_code)
+        except ValueError:
+            await ctx.send(error(f"Invalid course code: {course_code}."))
+            return
+        department = course_obj.department
+        code = course_obj.code
+        suffix = course_obj.suffix if course_obj.suffix else "__nosuffix__"
+        async with self.config.courses() as courses:
+            dept_data = courses.get(department, {})
+            course_dict = dept_data.get(code, {})
+            suffix_entry = course_dict.get(suffix, {})
+            if "detailed" in suffix_entry:
+                # Mark detailed data as stale by setting its timestamp very old.
+                suffix_entry["detailed"]["last_updated"] = "1970-01-01T00:00:00"
+                course_dict[suffix] = suffix_entry
+                dept_data[code] = course_dict
+                courses[department] = dept_data
+            else:
+                await ctx.send(
+                    error(
+                        f"No existing detailed data for course {course_obj.canonical()}."
+                    )
+                )
+                return
+        data = await self.course_data_proxy.get_course_data(
+            course_obj.canonical(), detailed=True
+        )
+        if data and data.get("data"):
+            await ctx.send(
+                success(f"Course data for {course_obj.canonical()} has been refreshed.")
+            )
+        else:
+            await ctx.send(
+                error(f"Failed to refresh course data for {course_obj.canonical()}.")
+            )
+
+    async def clear_stale_config(self, ctx: commands.Context) -> None:
+        log.debug("Clearing stale config entries based on caching timestamps.")
+        now = datetime.now(timezone.utc)
+        stale_entries = []
+        courses_config = await self.config.courses.all()
+        # courses_config structure: { department: { course_code: { suffix: { basic, detailed } } } }
+        for department, dept_data in courses_config.items():
+            for course_code, course_entries in dept_data.items():
+                for suffix, data_entry in course_entries.items():
+                    last_updated = None
+                    basic_data = data_entry.get("basic")
+                    detailed_data = data_entry.get("detailed")
+                    if basic_data:
+                        try:
+                            basic_ts = datetime.fromisoformat(
+                                basic_data.get("last_updated")
+                            )
+                            last_updated = (
+                                basic_ts
+                                if last_updated is None or basic_ts < last_updated
+                                else last_updated
+                            )
+                        except Exception:
+                            pass
+                    if detailed_data:
+                        try:
+                            detailed_ts = datetime.fromisoformat(
+                                detailed_data.get("last_updated")
+                            )
+                            last_updated = (
+                                detailed_ts
+                                if last_updated is None or detailed_ts < last_updated
+                                else last_updated
+                            )
+                        except Exception:
+                            pass
+                    if last_updated is None or now - last_updated > timedelta(days=180):
+                        stale_entries.append((department, course_code, suffix))
+        async with self.config.courses() as courses_update:
+            for department, course_code, suffix in stale_entries:
+                dept_data = courses_update.get(department, {})
+                course_dict = dept_data.get(course_code, {})
+                if suffix in course_dict:
+                    del course_dict[suffix]
+                    log.debug(
+                        f"Purged stale entry for {department}-{course_code}-{suffix}"
+                    )
+                if not course_dict:
+                    if course_code in dept_data:
+                        del dept_data[course_code]
+                if not dept_data:
+                    if department in courses_update:
+                        del courses_update[department]
+                else:
+                    courses_update[department] = dept_data
+        if stale_entries:
+            stale_str = ", ".join(
+                [f"{dept}-{course}-{suf}" for dept, course, suf in stale_entries]
+            )
+            await ctx.send(success(f"Cleared stale course entries: {stale_str}"))
+        else:
+            await ctx.send(info("No stale course config entries found."))
