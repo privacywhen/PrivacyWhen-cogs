@@ -2,7 +2,7 @@ from typing import Optional, List
 import discord
 from datetime import datetime, timezone, timedelta
 import logging
-from .constants import COURSE_KEY_PATTERN, REACTION_OPTIONS
+from .constants import COURSE_KEY_PATTERN
 
 
 def get_logger(name: str, level: int = logging.DEBUG) -> logging.Logger:
