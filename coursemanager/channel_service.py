@@ -1,10 +1,7 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
-from itertools import combinations
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional
 import discord
-import networkx as nx
-import community as community_louvain
 from redbot.core import Config
 from redbot.core.utils.chat_formatting import error, pagify
 from redbot.core.utils.menus import menu
@@ -13,7 +10,6 @@ from .utils import (
     get_or_create_category,
     get_logger,
 )
-from .course_code import CourseCode
 
 
 log = get_logger("red.channel_service")
@@ -109,132 +105,6 @@ class ChannelService:
             await ctx.send(
                 error("I do not have permission to manage channel permissions.")
             )
-
-    async def dynamic_grouping_task(self) -> None:
-        await self.bot.wait_until_ready()
-        while not self.bot.is_closed():
-            try:
-                await self.compute_course_groupings()
-            except asyncio.CancelledError:
-                log.info("Dynamic grouping task cancelled.")
-                break
-            except Exception:
-                log.exception("Error computing course groupings")
-            interval: int = await self.config.grouping_interval()
-            await asyncio.sleep(interval)
-
-    async def compute_course_groupings(self) -> None:
-        new_groupings: Dict[int, Dict[str, List[str]]] = {}
-        base: str = await self.config.course_category()
-        for guild in self.bot.guilds:
-            enrollments = await self._gather_enrollments(guild, base)
-            if not enrollments:
-                continue
-
-            edge_counts = self._compute_edge_counts(enrollments)
-            courses_set = {
-                course for courses in enrollments.values() for course in courses
-            }
-            G = nx.Graph()
-            G.add_nodes_from(courses_set)
-
-            grouping_threshold: int = await self.config.grouping_threshold()
-            for (course1, course2), weight in edge_counts.items():
-                if weight >= grouping_threshold:
-                    G.add_edge(course1, course2, weight=weight)
-
-            if G.number_of_edges() > 0:
-                partition: Dict[str, int] = community_louvain.best_partition(
-                    G, weight="weight"
-                )
-            else:
-                partition = {
-                    node: int(node) if node.isdigit() else node for node in G.nodes()
-                }
-            communities: Dict[str, List[str]] = {}
-            for course, community_id in partition.items():
-                communities.setdefault(str(community_id), []).append(course)
-            new_groupings[guild.id] = communities
-
-            target_mapping = self._compute_target_mapping(communities, base)
-            await self._assign_channels_to_categories(guild, target_mapping, base)
-            log.debug(f"Guild {guild.id}: target mapping: {target_mapping}")
-
-        await self.config.course_groups.set(new_groupings)
-        log.debug(f"Updated course groups: {new_groupings}")
-
-    def _compute_edge_counts(
-        self, enrollments: Dict[int, List[str]]
-    ) -> Dict[Tuple[str, str], int]:
-        edge_counter: Dict[Tuple[str, str], int] = {}
-        for courses in enrollments.values():
-            unique_courses = sorted(set(courses))
-            for course_pair in combinations(unique_courses, 2):
-                edge_counter[course_pair] = edge_counter.get(course_pair, 0) + 1
-        return edge_counter
-
-    async def _gather_enrollments(
-        self, guild: discord.Guild, base: str
-    ) -> Dict[int, List[str]]:
-        enrollments: Dict[int, List[str]] = {}
-        course_categories = get_categories_by_prefix(guild, base)
-        for category in course_categories:
-            for channel in category.channels:
-                if isinstance(channel, discord.TextChannel):
-
-                    try:
-                        course_obj = CourseCode(channel.name)
-                        normalized = course_obj.formatted_channel_name()
-                    except ValueError:
-                        normalized = channel.name()
-
-                    async for msg in channel.history(limit=10):
-                        if not msg.author.bot:
-                            enrollments.setdefault(channel.id, []).append(normalized)
-                            break
-        return enrollments
-
-    def _compute_target_mapping(
-        self, communities: Dict[str, List[str]], base: str
-    ) -> Dict[str, str]:
-        target_mapping: Dict[str, str] = {}
-        for community_id, courses in communities.items():
-            target_category = f"{base}-{community_id}" if community_id != "0" else base
-            for course in courses:
-                target_mapping[course] = target_category
-        return target_mapping
-
-    async def _assign_channels_to_categories(
-        self, guild: discord.Guild, target_mapping: Dict[str, str], base: str
-    ) -> None:
-        course_categories = get_categories_by_prefix(guild, base)
-        for category in course_categories:
-            for channel in category.channels:
-                if not isinstance(channel, discord.TextChannel):
-                    continue
-                try:
-                    course_obj = CourseCode(channel.name)
-                    course_code = course_obj.formatted_channel_name()
-                except ValueError:
-                    course_code = channel.name()
-
-                if course_code in target_mapping:
-                    target_cat_name = target_mapping[course_code]
-                    current_cat = channel.category
-                    if current_cat is None or current_cat.name != target_cat_name:
-                        target_category = await get_or_create_category(
-                            guild, target_cat_name
-                        )
-                        if target_category is not None:
-                            try:
-                                await channel.edit(category=target_category)
-                                log.debug(
-                                    f"Moved channel {channel.name} to category {target_cat_name}"
-                                )
-                            except discord.Forbidden:
-                                log.error(
-                                    f"No permission to move channel {channel.name} in guild {guild.name}"
-                                )
 
     async def channel_prune_helper(
         self,
