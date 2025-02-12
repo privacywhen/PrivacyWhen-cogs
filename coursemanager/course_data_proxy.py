@@ -21,10 +21,11 @@ log = get_logger("red.course_data_proxy")
 
 
 class CourseDataProxy:
-    # Basic data is considered stale after 90 days; purge any data older than 180 days.
-    _CACHE_STALE_DAYS_BASIC: int = 90  # ~3 months
+    # Cache thresholds (in days)
+    _CACHE_STALE_DAYS_BASIC: int = 90  # Basic data stale after ~3 months
     _CACHE_EXPIRY_DAYS: int = 240
-    _CACHE_PURGE_DAYS: int = 180  # 6+ months
+    _CACHE_PURGE_DAYS: int = 180  # Purge any data older than 6 months
+
     _TERM_NAMES: List[str] = ["winter", "spring", "fall"]
     _URL_BASE: str = (
         "https://mytimetable.mcmaster.ca/api/class-data?term={term}&course_0_0={course_key}&t={t}&e={e}"
@@ -40,6 +41,8 @@ class CourseDataProxy:
         self.config: Config = config
         self.log: logging.Logger = logger
         self.session: Optional[ClientSession] = None
+        # Optional: in-memory secondary index for composite keys if needed in the future.
+        self._in_memory_index: Optional[Dict[str, Tuple[str, str, str]]] = None
         self.log.debug("CourseDataProxy initialized.")
 
     async def _get_session(self) -> ClientSession:
@@ -49,120 +52,105 @@ class CourseDataProxy:
 
     def _get_course_keys(self, course_code: str) -> Tuple[str, str, str]:
         """
-        Extract the three keys: department, course code, and suffix.
-        If no suffix is provided, use the token "__nosuffix__".
+        Extracts the department, course code, and suffix.
+        If no suffix is provided, returns "__nosuffix__" as the suffix.
         """
         course_obj = CourseCode(course_code)
         department = course_obj.department
         code = course_obj.code
-        suffix = course_obj.suffix if course_obj.suffix else "__nosuffix__"
+        suffix = course_obj.suffix or "__nosuffix__"
         return department, code, suffix
+
+    def _get_cache_entry(
+        self, courses: Dict[str, Any], department: str, code: str, suffix: str, key: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Helper to retrieve a subkey (basic/detailed) from the nested courses config.
+        """
+        return courses.get(department, {}).get(code, {}).get(suffix, {}).get(key)
+
+    async def _update_cache_entry(
+        self, department: str, code: str, suffix: str, key: str, value: Dict[str, Any]
+    ) -> None:
+        """
+        Helper to update a subkey (basic/detailed) in the nested courses config.
+        """
+        async with self.config.courses() as courses_update:
+            dept = courses_update.get(department, {})
+            course_dict = dept.get(code, {})
+            suffix_dict = course_dict.get(suffix, {})
+            suffix_dict[key] = value
+            course_dict[suffix] = suffix_dict
+            dept[code] = course_dict
+            courses_update[department] = dept
+
+    def _is_stale(self, last_updated_str: str, threshold_days: int) -> bool:
+        """
+        Returns True if the given ISO timestamp is older than threshold_days.
+        """
+        try:
+            last_updated = datetime.fromisoformat(last_updated_str)
+            return (datetime.now(timezone.utc) - last_updated) > timedelta(
+                days=threshold_days
+            )
+        except Exception as e:
+            self.log.exception(f"Error checking staleness: {e}")
+            return True
 
     async def get_course_data(
         self, course_code: str, detailed: bool = False
     ) -> Dict[str, Any]:
         """
-        Retrieves course data using a 3-level hierarchical cache:
-          Department → Course Code → Suffix.
-        Data is stored under a subkey:
-          - "basic" for term-start (basic) data including available terms and a "last_updated" timestamp.
-          - "detailed" for on-demand detailed lookups.
-        If cached data is missing or stale (basic data older than 90 days, or detailed data older than 180 days),
-        the code fetches fresh data online.
+        Retrieves course data from the cache (or online if missing/stale).
+        Data is stored in a 3-level hierarchy: Department → Course Code → Suffix,
+        with subkeys "basic" and "detailed". For basic data, metadata includes available terms
+        and a last_updated timestamp.
         """
         department, code, suffix = self._get_course_keys(course_code)
         now = datetime.now(timezone.utc)
         courses = await self.config.courses()
-        dept_entry: Dict[str, Any] = courses.get(department, {})
-        course_entry: Dict[str, Any] = dept_entry.get(code, {})
-        data_entry: Dict[str, Any] = course_entry.get(suffix, {})
 
-        if detailed:
-            detailed_data = data_entry.get("detailed")
-            if detailed_data:
-                try:
-                    last_updated = datetime.fromisoformat(
-                        detailed_data.get("last_updated")
-                    )
-                    if now - last_updated < timedelta(days=self._CACHE_PURGE_DAYS):
-                        self.log.debug(f"Using cached detailed data for {course_code}")
-                        return detailed_data
-                except Exception as e:
-                    self.log.exception(
-                        f"Error parsing detailed last_updated timestamp for {course_code}: {e}"
-                    )
-            self.log.debug(f"Fetching detailed data for {course_code}")
-            soup, error_msg = await self._fetch_course_online(course_code)
-            if soup:
-                processed_data = self._process_course_data(soup)
-                new_detailed = {"data": processed_data, "last_updated": now.isoformat()}
-                # Update the nested cache while preserving any basic data.
-                async with self.config.courses() as courses_update:
-                    dept = courses_update.get(department, {})
-                    course_dict = dept.get(code, {})
-                    suffix_dict = course_dict.get(suffix, {})
-                    suffix_dict["detailed"] = new_detailed
-                    course_dict[suffix] = suffix_dict
-                    dept[code] = course_dict
-                    courses_update[department] = dept
-                self.log.debug(f"Fetched and cached detailed data for {course_code}")
-                return new_detailed
+        key = "detailed" if detailed else "basic"
+        cached = self._get_cache_entry(courses, department, code, suffix, key)
+        threshold = self._CACHE_PURGE_DAYS if detailed else self._CACHE_STALE_DAYS_BASIC
+
+        if cached and not self._is_stale(cached.get("last_updated", ""), threshold):
+            self.log.debug(f"Using cached {key} data for {course_code}")
+            return cached
+
+        self.log.debug(f"Fetching {key} data for {course_code}")
+        soup, error_msg = await self._fetch_course_online(course_code)
+        if soup:
+            processed_data = self._process_course_data(soup)
+            if detailed:
+                new_entry = {
+                    "cached_course_data": processed_data,
+                    "last_updated": now.isoformat(),
+                }
             else:
-                self.log.error(
-                    f"Error fetching detailed data for {course_code}: {error_msg}"
-                )
-                # Fallback to basic data if available
-                basic_data = data_entry.get("basic")
-                if basic_data:
-                    self.log.debug(f"Falling back to basic data for {course_code}")
-                    return basic_data
-                return {}
-        else:
-            basic_data = data_entry.get("basic")
-            if basic_data:
-                try:
-                    last_updated = datetime.fromisoformat(
-                        basic_data.get("last_updated")
-                    )
-                    if now - last_updated < timedelta(
-                        days=self._CACHE_STALE_DAYS_BASIC
-                    ):
-                        self.log.debug(f"Using cached basic data for {course_code}")
-                        return basic_data
-                except Exception as e:
-                    self.log.exception(
-                        f"Error parsing basic last_updated timestamp for {course_code}: {e}"
-                    )
-            self.log.debug(f"Fetching basic data for {course_code}")
-            soup, error_msg = await self._fetch_course_online(course_code)
-            if soup:
-                processed_data = self._process_course_data(soup)
-                new_basic = {
-                    "data": processed_data,
+                new_entry = {
+                    "cached_course_data": processed_data,
                     "available_terms": self._determine_term_order(),
                     "last_updated": now.isoformat(),
                 }
-                async with self.config.courses() as courses_update:
-                    dept = courses_update.get(department, {})
-                    course_dict = dept.get(code, {})
-                    suffix_dict = course_dict.get(suffix, {})
-                    suffix_dict["basic"] = new_basic
-                    course_dict[suffix] = suffix_dict
-                    dept[code] = course_dict
-                    courses_update[department] = dept
-                self.log.debug(f"Fetched and cached basic data for {course_code}")
-                return new_basic
-            elif error_msg:
-                self.log.error(
-                    f"Error fetching basic data for {course_code}: {error_msg}"
-                )
-                return {}
+
+            await self._update_cache_entry(department, code, suffix, key, new_entry)
+            self.log.debug(f"Fetched and cached {key} data for {course_code}")
+            return new_entry
+        else:
+            self.log.error(f"Error fetching {key} data for {course_code}: {error_msg}")
+            if basic := self._get_cache_entry(
+                courses, department, code, suffix, "basic"
+            ):
+                if detailed:
+                    self.log.debug(f"Falling back to basic data for {course_code}")
+                    return basic
             return {}
 
     async def _fetch_course_online(
         self, course_code: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
-        """Fetches course data online by trying multiple term IDs in order."""
+        """Fetch course data online by iterating over term IDs."""
         normalized = CourseCode(course_code).canonical()
         self.log.debug(f"Fetching online data for {normalized}")
         term_order = self._determine_term_order()
@@ -374,6 +362,21 @@ class CourseDataProxy:
             course_info = course.get("info", "").replace("<br/>", " ")
             courses_dict[normalized_course_code] = course_info
         return courses_dict
+
+    async def force_mark_stale(self, course_code: str, detailed: bool = True) -> bool:
+        """
+        Force-marks a course's cached data as stale by setting its last_updated to a very old timestamp.
+        Returns True if the entry existed and was updated.
+        """
+        department, code, suffix = self._get_course_keys(course_code)
+        key = "detailed" if detailed else "basic"
+        courses = await self.config.courses()
+        if entry := self._get_cache_entry(courses, department, code, suffix, key):
+            entry["last_updated"] = "1970-01-01T00:00:00"
+            await self._update_cache_entry(department, code, suffix, key, entry)
+            self.log.debug(f"Marked {key} data for {course_code} as stale.")
+            return True
+        return False
 
     async def close(self) -> None:
         if self.session:
