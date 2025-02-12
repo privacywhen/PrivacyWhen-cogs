@@ -387,8 +387,7 @@ class CourseDataProxy:
         if not offering:
             return description, prerequisites, antirequisites
 
-        raw_description = offering.get("desc", "")
-        if raw_description:
+        if raw_description := offering.get("desc", ""):
             # Split the raw description by <br> tags (case-insensitive)
             desc_lines = [
                 line.strip()
