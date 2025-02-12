@@ -7,7 +7,11 @@ from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from bs4 import BeautifulSoup
 from redbot.core import Config
-from aiohttp import ClientConnectionError, ClientResponseError, ClientSession
+from aiohttp import (
+    ClientConnectionError,
+    ClientResponseError,
+    ClientSession,
+)
 from .utils import get_logger
 from .course_code import CourseCode
 
@@ -22,7 +26,8 @@ class CourseDataProxy:
         "https://mytimetable.mcmaster.ca/api/class-data?term={term}&course_0_0={course_key}&t={t}&e={e}"
     )
     _LISTING_URL: str = (
-        "https://mytimetable.mcmaster.ca/api/courses/suggestions?cams=MCMSTiMCMST_MCMSTiSNPOL_MCMSTiMHK_MCMSTiCON_MCMSTiOFF&course_add=*&page_num=-1"
+        "https://mytimetable.mcmaster.ca/api/courses/suggestions?"
+        "cams=MCMSTiMCMST_MCMSTiSNPOL_MCMSTiMHK_MCMSTiCON_MCMSTiOFF&course_add=*&page_num=-1"
     )
 
     def __init__(self, bot, config: Config, logger: logging.Logger) -> None:
@@ -35,6 +40,7 @@ class CourseDataProxy:
         return self.bot.http_session
 
     async def get_course_data(self, course_code: str) -> Dict[str, Any]:
+        # Assume course_code is well-formed; get its canonical representation.
         normalized = CourseCode(course_code).canonical()
         self.log.debug(f"Retrieving course data for {normalized}")
         courses: Dict[str, Any] = await self.config.courses()
@@ -191,7 +197,7 @@ class CourseDataProxy:
             if desc_attr:
                 desc_parts = [
                     part.strip()
-                    for part in re.split("<br\\s*/?>", desc_attr)
+                    for part in re.split(r"<br\s*/?>", desc_attr)
                     if part.strip()
                 ]
                 if desc_parts:
@@ -268,6 +274,7 @@ class CourseDataProxy:
         courses_dict: Dict[str, str] = {}
         for course in courses:
             raw_course_code = course.text.strip()
+            # Assume external data is well-formed.
             normalized_course_code = CourseCode(raw_course_code).canonical()
             course_info = course.get("info", "").replace("<br/>", " ")
             courses_dict[normalized_course_code] = course_info
