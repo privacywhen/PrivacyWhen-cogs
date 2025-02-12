@@ -22,9 +22,6 @@ class CourseChannelCog(commands.Cog):
         self.config.register_global(**GLOBAL_DEFAULTS)
         self.channel_service: ChannelService = ChannelService(bot, self.config)
         self.course_service: CourseService = CourseService(bot, self.config)
-        self._grouping_task: Optional[asyncio.Task] = self.bot.loop.create_task(
-            self.channel_service.dynamic_grouping_task()
-        )
         self._prune_task: Optional[asyncio.Task] = self.bot.loop.create_task(
             self.channel_service.auto_channel_prune()
         )
