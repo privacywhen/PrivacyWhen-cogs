@@ -14,17 +14,22 @@ log = get_logger("red.course_service")
 
 class CourseService:
     def __init__(self, bot: commands.Bot, config: Config) -> None:
+        """
+        Initialize the CourseService with a bot instance and configuration.
+        """
         self.bot: commands.Bot = bot
         self.config: Config = config
         self.category_name: str = "COURSES"
         self.max_courses: int = 10
         self.logging_channel: Optional[discord.TextChannel] = None
+        # Set explicit permission overwrite for joined channels.
         self.channel_permissions: discord.PermissionOverwrite = (
             discord.PermissionOverwrite(read_messages=True, send_messages=True)
         )
         self.course_data_proxy: CourseDataProxy = CourseDataProxy(self.config, log)
 
     async def _check_enabled(self, ctx: commands.Context) -> bool:
+        """Check if the Course Manager is enabled for the current guild."""
         enabled: List[int] = await self.config.enabled_guilds()
         if ctx.guild.id not in enabled:
             await ctx.send(
@@ -36,6 +41,7 @@ class CourseService:
         return True
 
     async def enable(self, ctx: commands.Context) -> None:
+        """Enable the Course Manager for the current guild."""
         enabled: List[int] = await self.config.enabled_guilds()
         if ctx.guild.id in enabled:
             await ctx.send("Course Manager is already enabled in this server.")
@@ -45,6 +51,7 @@ class CourseService:
             await ctx.send("Course Manager has been enabled in this server.")
 
     async def disable(self, ctx: commands.Context) -> None:
+        """Disable the Course Manager for the current guild."""
         enabled: List[int] = await self.config.enabled_guilds()
         if ctx.guild.id not in enabled:
             await ctx.send("Course Manager is already disabled in this server.")
@@ -56,6 +63,9 @@ class CourseService:
     def get_course_categories(
         self, guild: discord.Guild
     ) -> List[discord.CategoryChannel]:
+        """
+        Return all categories in the guild that start with the configured course prefix.
+        """
         categories = get_categories_by_prefix(guild, self.category_name)
         log.debug(
             f"Found {len(categories)} categories with prefix '{self.category_name}' in guild '{guild.name}'"
@@ -63,6 +73,9 @@ class CourseService:
         return categories
 
     def get_category(self, guild: discord.Guild) -> Optional[discord.CategoryChannel]:
+        """
+        Return the course category that exactly matches the configured category name.
+        """
         category = next(
             (
                 cat
@@ -82,6 +95,9 @@ class CourseService:
     def get_course_channel(
         self, guild: discord.Guild, course: CourseCode
     ) -> Optional[discord.TextChannel]:
+        """
+        Return the course channel for a given CourseCode in the guild.
+        """
         target_name = course.formatted_channel_name()
         channel = next(
             (
@@ -103,6 +119,9 @@ class CourseService:
         category: discord.CategoryChannel,
         course: CourseCode,
     ) -> discord.TextChannel:
+        """
+        Create a new course channel under the given category.
+        """
         target_name = course.formatted_channel_name()
         log.debug(
             f"Attempting to create channel '{target_name}' in guild '{guild.name}' under category '{category.name}'"
@@ -117,18 +136,33 @@ class CourseService:
         log.debug(f"Created channel '{channel.name}' in guild '{guild.name}'")
         return channel
 
+    def _has_joined(self, user: discord.Member, channel: discord.TextChannel) -> bool:
+        """
+        Determine if the user has explicitly joined the channel by checking if an explicit permission overwrite
+        is present that grants both read_messages and send_messages.
+        """
+        overwrite = channel.overwrites_for(user)
+        return overwrite.read_messages is True and overwrite.send_messages is True
+
     def get_user_courses(self, user: discord.Member, guild: discord.Guild) -> List[str]:
-        courses = [
+        """
+        Return a list of course channel names that the user has explicitly joined.
+        Only channels where an explicit overwrite (from the join command) exists are counted.
+        """
+        joined_courses = [
             channel.name
             for category in self.get_course_categories(guild)
             for channel in category.channels
             if isinstance(channel, discord.TextChannel)
-            and channel.permissions_for(user).read_messages
+            and self._has_joined(user, channel)
         ]
-        log.debug(f"User '{user}' has access to courses: {courses}")
-        return courses
+        log.debug(f"User '{user}' has joined courses: {joined_courses}")
+        return joined_courses
 
     def _find_variant_matches(self, base: str, listings: dict) -> List[str]:
+        """
+        Find all keys in the course listings that start with the given base string and are longer than the base.
+        """
         variants = [
             key for key in listings if key.startswith(base) and len(key) > len(base)
         ]
@@ -138,6 +172,9 @@ class CourseService:
     async def _prompt_variant_selection(
         self, ctx: commands.Context, variants: List[str], listings: dict
     ) -> Tuple[Optional[CourseCode], Any]:
+        """
+        Prompt the user to select one of multiple course variant matches.
+        """
         options = [(variant, listings.get(variant, "")) for variant in variants]
         log.debug(f"Prompting variant selection with options: {options}")
         result = await self._menu_select_option(
@@ -163,6 +200,10 @@ class CourseService:
     async def _lookup_course_data(
         self, ctx: commands.Context, course: CourseCode
     ) -> Tuple[Optional[CourseCode], Any]:
+        """
+        Look up course data for a given CourseCode. This first checks for a perfect match, then variant matches,
+        and finally falls back to fuzzy lookup.
+        """
         canonical = course.canonical()
         log.debug(f"Looking up course data for '{canonical}'")
         listings: dict = (await self.config.course_listings()).get("courses", {})
@@ -201,6 +242,9 @@ class CourseService:
     async def _fallback_fuzzy_lookup(
         self, ctx: commands.Context, canonical: str
     ) -> Tuple[Optional[CourseCode], Any]:
+        """
+        Use fuzzy matching to suggest possible course keys when an exact match is not found.
+        """
         listings: dict = (await self.config.course_listings()).get("courses", {})
         if not listings:
             log.debug("No course listings available for fuzzy lookup")
@@ -231,6 +275,9 @@ class CourseService:
     async def course_details(
         self, ctx: commands.Context, course_code: str
     ) -> Optional[discord.Embed]:
+        """
+        Return a formatted embed containing course details for the given course code.
+        """
         try:
             course_obj = CourseCode(course_code)
         except ValueError:
@@ -243,6 +290,9 @@ class CourseService:
     def _create_course_embed(
         self, course_key: str, course_data: Dict[str, Any]
     ) -> discord.Embed:
+        """
+        Create and return a Discord embed that summarizes the course details.
+        """
         log.debug(f"Creating embed for course: {course_key}")
         embed = discord.Embed(
             title=f"Course Details: {course_key}", color=discord.Color.green()
@@ -284,6 +334,11 @@ class CourseService:
     async def grant_course_channel_access(
         self, ctx: commands.Context, course_code: str
     ) -> None:
+        """
+        Grant the user access to the course channel specified by course_code.
+        This method checks for existing membership, ensures limits are not exceeded,
+        and creates/looks up the channel as needed.
+        """
         log.debug(
             f"grant_course_channel_access invoked by {ctx.author} in guild '{ctx.guild.name}' with course_code '{course_code}'"
         )
@@ -298,11 +353,10 @@ class CourseService:
             return
 
         canonical = course_obj.canonical()
-        channel_name = course_obj.formatted_channel_name()
-        log.debug(f"Parsed course code: canonical={canonical}, channel={channel_name}")
+        log.debug(f"Parsed course code: canonical={canonical}")
 
         user_courses = self.get_user_courses(ctx.author, ctx.guild)
-        log.debug(f"User {ctx.author} current courses: {user_courses}")
+        log.debug(f"User {ctx.author} current joined courses: {user_courses}")
 
         if len(user_courses) >= self.max_courses:
             log.debug(
@@ -323,6 +377,7 @@ class CourseService:
                     info(f"You are already joined in {canonical}."), delete_after=120
                 )
                 return
+            # Grant access to existing channel.
             if await self._grant_access(ctx, channel, canonical):
                 return
 
@@ -336,6 +391,7 @@ class CourseService:
             await ctx.send(error(f"No valid course data found for {canonical}."))
             return
 
+        # Re-check membership after lookup
         user_courses = self.get_user_courses(ctx.author, ctx.guild)
         if candidate_obj.formatted_channel_name() in user_courses:
             log.debug(
@@ -381,6 +437,9 @@ class CourseService:
     async def _grant_access(
         self, ctx: commands.Context, channel: discord.TextChannel, canonical: str
     ) -> bool:
+        """
+        Set the appropriate permissions on the channel for the user and notify them.
+        """
         try:
             await channel.set_permissions(
                 ctx.author, overwrite=self.channel_permissions
@@ -404,6 +463,9 @@ class CourseService:
     async def revoke_course_channel_access(
         self, ctx: commands.Context, course_code: str
     ) -> None:
+        """
+        Revoke the user's access to a course channel.
+        """
         if not await self._check_enabled(ctx):
             return
         try:
@@ -433,6 +495,9 @@ class CourseService:
     async def admin_delete_channel(
         self, ctx: commands.Context, channel: discord.TextChannel
     ) -> None:
+        """
+        Allow an admin to delete a course channel.
+        """
         if not channel.category or channel.category not in self.get_course_categories(
             ctx.guild
         ):
@@ -451,6 +516,9 @@ class CourseService:
     async def set_logging(
         self, ctx: commands.Context, channel: discord.TextChannel
     ) -> None:
+        """
+        Set the logging channel where join/leave events are reported.
+        """
         self.logging_channel = channel
         log.debug(f"Logging channel set to {channel.name} by admin {ctx.author}")
         await ctx.send(success(f"Logging channel set to {channel.mention}."))
@@ -458,6 +526,9 @@ class CourseService:
     async def set_term_code(
         self, ctx: commands.Context, term_name: str, term_id: int
     ) -> None:
+        """
+        Set the term code for a given term name.
+        """
         async with self.config.term_codes() as term_codes:
             term_codes[term_name.lower()] = term_id
         log.debug(f"Set term code for {term_name} to {term_id}")
@@ -466,6 +537,9 @@ class CourseService:
         )
 
     async def clear_stale_config(self, ctx: commands.Context) -> None:
+        """
+        Clear stale course configuration entries that do not have an associated channel.
+        """
         log.debug("Clearing stale config entries.")
         stale: List[str] = []
         courses_config = await self.config.courses.all()
@@ -488,6 +562,7 @@ class CourseService:
             await ctx.send(info("No stale course config entries found."))
 
     async def clear_courses(self, ctx: commands.Context) -> None:
+        """Clear all course data and course listings from the configuration."""
         await self.config.courses.set({})
         await self.config.course_listings.set({})
         log.debug(f"All course data and course listings cleared by {ctx.author}")
@@ -498,6 +573,9 @@ class CourseService:
         )
 
     async def list_all_courses(self, ctx: commands.Context) -> None:
+        """
+        List all courses cached in the configuration using a paginated menu.
+        """
         cfg = await self.config.course_listings.all()
         if "courses" in cfg:
             courses = cfg["courses"]
@@ -512,6 +590,9 @@ class CourseService:
             await ctx.send("Course list not found. Run populate command first.")
 
     async def populate_courses(self, ctx: commands.Context) -> None:
+        """
+        Populate the course listings by fetching data from the course data proxy.
+        """
         course_count = await self.course_data_proxy.update_course_listing()
         if course_count and int(course_count) > 0:
             await ctx.send(info(f"Fetched and cached {course_count} courses"))
@@ -521,6 +602,9 @@ class CourseService:
     async def refresh_course_data(
         self, ctx: commands.Context, course_code: str
     ) -> None:
+        """
+        Refresh the course data for a given course.
+        """
         if not await self._check_enabled(ctx):
             return
         try:
@@ -544,10 +628,14 @@ class CourseService:
     async def _menu_select_option(
         self, ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
     ) -> Optional[str]:
+        """
+        Present an emoji-based menu using custom controls and return the user's selection.
+        Each control handler calls close_menu() to clear reactions once a selection is made.
+        """
         cancel_emoji = REACTION_OPTIONS[-1]
         emoji_to_option = {}
         option_lines = []
-
+        # Limit options to available emojis (excluding cancel)
         for i, (option, description) in enumerate(options):
             if i >= len(REACTION_OPTIONS) - 1:
                 break
