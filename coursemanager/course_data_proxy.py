@@ -11,6 +11,7 @@ from aiohttp import (
     ClientConnectionError,
     ClientResponseError,
     ClientSession,
+    ClientTimeout,
 )
 from .utils import get_logger
 from .course_code import CourseCode
@@ -30,14 +31,16 @@ class CourseDataProxy:
         "cams=MCMSTiMCMST_MCMSTiSNPOL_MCMSTiMHK_MCMSTiCON_MCMSTiOFF&course_add=*&page_num=-1"
     )
 
-    def __init__(self, bot, config: Config, logger: logging.Logger) -> None:
-        self.bot = bot
+    def __init__(self, config: Config, logger: logging.Logger) -> None:
         self.config: Config = config
         self.log: logging.Logger = logger
-        self.log.debug("CourseDataProxy initialized with built-in HTTP session.")
+        self.session: Optional[ClientSession] = None
+        self.log.debug("CourseDataProxy initialized.")
 
     async def _get_session(self) -> ClientSession:
-        return self.bot.http_session
+        if self.session is None or self.session.closed:
+            self.session = ClientSession(timeout=ClientTimeout(total=15))
+        return self.session
 
     async def get_course_data(self, course_code: str) -> Dict[str, Any]:
         # Assume course_code is well-formed; get its canonical representation.
@@ -279,3 +282,7 @@ class CourseDataProxy:
             course_info = course.get("info", "").replace("<br/>", " ")
             courses_dict[normalized_course_code] = course_info
         return courses_dict
+
+    async def close(self) -> None:
+        if self.session:
+            await self.session.close()
