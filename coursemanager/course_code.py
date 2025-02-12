@@ -1,6 +1,4 @@
 """
-Module: course_code.py
-
 This module provides a unified approach to parsing, normalizing, and converting course codes.
 The CourseCode class extracts and standardizes course code information, ensuring consistency
 across the codebase.

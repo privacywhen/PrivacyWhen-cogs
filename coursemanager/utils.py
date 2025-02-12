@@ -2,7 +2,6 @@ from typing import Optional, List
 import discord
 from datetime import datetime, timezone, timedelta
 import logging
-from .constants import COURSE_KEY_PATTERN
 
 
 def get_logger(name: str, level: int = logging.DEBUG) -> logging.Logger:
@@ -17,37 +16,6 @@ def get_logger(name: str, level: int = logging.DEBUG) -> logging.Logger:
 
 
 logger = get_logger(__name__)
-
-
-def format_course_key(course_key_raw: str) -> Optional[str]:
-    match = COURSE_KEY_PATTERN.match(course_key_raw)
-    if not match:
-        logger.debug(
-            f"format_course_key: Failed to match pattern for input '{course_key_raw}'"
-        )
-        return None
-    subject, number, suffix = match.groups()
-    formatted = (
-        f"{subject.upper()}-{number.upper()}{(suffix.upper() if suffix else '')}"
-    )
-    logger.debug(f"format_course_key: Converted '{course_key_raw}' to '{formatted}'")
-    return formatted
-
-
-def get_channel_name(course_key: str) -> str:
-    formatted = format_course_key(course_key)
-    if formatted is None:
-        logger.debug(
-            f"get_channel_name: No formatted value for '{course_key}', returning lower-case raw value"
-        )
-        return course_key.lower()
-    if formatted[-1].isalpha():
-        formatted = formatted[:-1]
-    channel_name = formatted.lower()
-    logger.debug(
-        f"get_channel_name: Generated channel name '{channel_name}' from course key '{course_key}'"
-    )
-    return channel_name
 
 
 def get_categories_by_prefix(

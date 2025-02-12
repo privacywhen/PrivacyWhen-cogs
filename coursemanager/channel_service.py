@@ -14,6 +14,7 @@ from .utils import (
     get_or_create_category,
     get_logger,
 )
+from .course_code import CourseCode
 
 log = get_logger("red.channel_service")
 
@@ -180,11 +181,18 @@ class ChannelService:
         for category in course_categories:
             for channel in category.channels:
                 if isinstance(channel, discord.TextChannel):
+
+                    try:
+                        course_obj = CourseCode(channel.name)
+                        normalized = (
+                            course_obj.channel_name()
+                        )  # lower-case and no suffix
+                    except ValueError:
+                        normalized = channel.name()
+
                     async for msg in channel.history(limit=10):
                         if not msg.author.bot:
-                            enrollments.setdefault(channel.id, []).append(
-                                channel.name.upper()
-                            )
+                            enrollments.setdefault(channel.id, []).append(normalized)
                             break
         return enrollments
 
@@ -195,7 +203,7 @@ class ChannelService:
         for community_id, courses in communities.items():
             target_category = f"{base}-{community_id}" if community_id != "0" else base
             for course in courses:
-                target_mapping[course.upper()] = target_category
+                target_mapping[course()] = target_category
         return target_mapping
 
     async def _assign_channels_to_categories(
@@ -206,7 +214,12 @@ class ChannelService:
             for channel in category.channels:
                 if not isinstance(channel, discord.TextChannel):
                     continue
-                course_code = channel.name.upper()
+                try:
+                    course_obj = CourseCode(channel.name)
+                    course_code = course_obj.channel_name()
+                except ValueError:
+                    course_code = channel.name()
+
                 if course_code in target_mapping:
                     target_cat_name = target_mapping[course_code]
                     current_cat = channel.category

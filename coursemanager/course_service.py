@@ -1,5 +1,4 @@
 import asyncio
-import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 import discord
@@ -9,14 +8,13 @@ from redbot.core.utils.chat_formatting import error, info, success, warning, pag
 from redbot.core.utils.menus import menu, DEFAULT_CONTROLS
 from .course_data_proxy import CourseDataProxy
 from .utils import (
-    format_course_key,
-    get_channel_name,
     prune_channel,
     get_categories_by_prefix,
     get_or_create_category,
     get_logger,
 )
 from .constants import REACTION_OPTIONS
+from .course_code import CourseCode
 
 log = get_logger("red.course_service")
 
@@ -91,9 +89,9 @@ class CourseService:
         return category
 
     def get_course_channel(
-        self, guild: discord.Guild, course_key: str
+        self, guild: discord.Guild, course: CourseCode
     ) -> Optional[discord.TextChannel]:
-        target_name = get_channel_name(course_key)
+        target_name = course.channel_name()
         channel = next(
             (
                 ch
@@ -103,20 +101,18 @@ class CourseService:
             ),
             None,
         )
-        if channel:
-            log.debug(
-                f"CourseService.get_course_channel: Found course channel '{channel.name}' for course key '{course_key}' in guild '{guild.name}'"
-            )
-        else:
-            log.debug(
-                f"CourseService.get_course_channel: No course channel '{target_name}' found for course key '{course_key}' in guild '{guild.name}'"
-            )
+        log.debug(
+            f"CourseService.get_course_channel: {'Found' if channel else 'No'} course channel '{target_name}' for course '{course.canonical()}' in guild '{guild.name}'"
+        )
         return channel
 
     async def create_course_channel(
-        self, guild: discord.Guild, category: discord.CategoryChannel, course_key: str
+        self,
+        guild: discord.Guild,
+        category: discord.CategoryChannel,
+        course: CourseCode,
     ) -> discord.TextChannel:
-        target_name = get_channel_name(course_key)
+        target_name = course.channel_name()
         log.debug(
             f"CourseService.create_course_channel: Attempting to create channel '{target_name}' in guild '{guild.name}' under category '{category.name}'"
         )
@@ -134,7 +130,7 @@ class CourseService:
 
     def get_user_courses(self, user: discord.Member, guild: discord.Guild) -> list:
         courses = [
-            channel.name.upper()
+            channel.name
             for category in self.get_course_categories(guild)
             for channel in category.channels
             if isinstance(channel, discord.TextChannel)
@@ -156,7 +152,7 @@ class CourseService:
 
     async def _prompt_variant_selection(
         self, ctx: commands.Context, variants: list, listings: dict
-    ) -> tuple:
+    ) -> Tuple[Optional[CourseCode], Any]:
         options = [(variant, listings.get(variant, "")) for variant in variants]
         log.debug(
             f"CourseService._prompt_variant_selection: Options for selection: {options}"
@@ -171,67 +167,81 @@ class CourseService:
         log.debug(
             f"CourseService._prompt_variant_selection: Data valid for candidate '{result}': {bool(data and data.get('course_data'))}"
         )
-        return (result, data) if data and data.get("course_data") else (None, None)
+        try:
+            candidate_obj = CourseCode(result)
+        except ValueError:
+            candidate_obj = None
+        return (
+            (candidate_obj, data)
+            if candidate_obj and data and data.get("course_data")
+            else (None, None)
+        )
 
-    async def _lookup_course_data(self, ctx: commands.Context, formatted: str) -> tuple:
+    async def _lookup_course_data(
+        self, ctx: commands.Context, course: CourseCode
+    ) -> Tuple[Optional[CourseCode], Any]:
+        canonical = course.canonical()
         log.debug(
-            f"CourseService._lookup_course_data: Looking up course data for '{formatted}'"
+            f"CourseService._lookup_course_data: Looking up course data for '{canonical}'"
         )
         listings: dict = (await self.config.course_listings()).get("courses", {})
-        if formatted in listings:
+        if canonical in listings:
             log.debug(
-                f"CourseService._lookup_course_data: Found perfect match for '{formatted}' in listings"
+                f"CourseService._lookup_course_data: Found perfect match for '{canonical}' in listings"
             )
-            data = await self.course_data_proxy.get_course_data(formatted)
+            data = await self.course_data_proxy.get_course_data(canonical)
             if data and data.get("course_data"):
                 log.debug(
-                    f"CourseService._lookup_course_data: Fresh data retrieved for '{formatted}'"
+                    f"CourseService._lookup_course_data: Fresh data retrieved for '{canonical}'"
                 )
-                return (formatted, data)
+                return (course, data)
             log.error(
-                f"CourseService._lookup_course_data: Failed to fetch fresh data for '{formatted}'"
+                f"CourseService._lookup_course_data: Failed to fetch fresh data for '{canonical}'"
             )
-            return (formatted, None)
-        if not formatted[-1].isalpha():
-            variants = self._find_variant_matches(formatted, listings)
-            if variants:
+            return (course, None)
+        if not canonical[-1].isalpha():
+            if variants := self._find_variant_matches(canonical, listings):
                 if len(variants) == 1:
                     candidate = variants[0]
                     log.debug(
-                        f"CourseService._lookup_course_data: Single variant '{candidate}' found for '{formatted}'"
+                        f"CourseService._lookup_course_data: Single variant '{candidate}' found for '{canonical}'"
                     )
                     data = await self.course_data_proxy.get_course_data(candidate)
                     if data and data.get("course_data"):
-                        return (candidate, data)
+                        try:
+                            candidate_obj = CourseCode(candidate)
+                        except ValueError:
+                            candidate_obj = None
+                        return (candidate_obj, data)
                 else:
-                    candidate, data = await self._prompt_variant_selection(
+                    candidate_obj, data = await self._prompt_variant_selection(
                         ctx, variants, listings
                     )
                     log.debug(
-                        f"CourseService._lookup_course_data: Variant selection returned candidate '{candidate}'"
+                        f"CourseService._lookup_course_data: Variant selection returned candidate '{candidate_obj}'"
                     )
-                    return (candidate, data) if candidate else (None, None)
+                    return (candidate_obj, data) if candidate_obj else (None, None)
         log.debug(
-            f"CourseService._lookup_course_data: Falling back to fuzzy lookup for '{formatted}'"
+            f"CourseService._lookup_course_data: Falling back to fuzzy lookup for '{canonical}'"
         )
-        candidate, data = await self._fallback_fuzzy_lookup(ctx, formatted)
+        candidate, data = await self._fallback_fuzzy_lookup(ctx, canonical)
         log.debug(
             f"CourseService._lookup_course_data: Fuzzy lookup returned candidate '{candidate}'"
         )
         return (candidate, data)
 
     async def _fallback_fuzzy_lookup(
-        self, ctx: commands.Context, formatted: str
-    ) -> tuple:
+        self, ctx: commands.Context, canonical: str
+    ) -> Tuple[Optional[CourseCode], Any]:
         listings: dict = (await self.config.course_listings()).get("courses", {})
         if not listings:
             log.debug(
                 "CourseService._fallback_fuzzy_lookup: No course listings available for fuzzy lookup"
             )
             return (None, None)
-        matches = process.extract(formatted, listings.keys(), limit=5, score_cutoff=70)
+        matches = process.extract(canonical, listings.keys(), limit=5, score_cutoff=70)
         log.debug(
-            f"CourseService._fallback_fuzzy_lookup: Fuzzy matches for '{formatted}': {matches}"
+            f"CourseService._fallback_fuzzy_lookup: Fuzzy matches for '{canonical}': {matches}"
         )
         if not matches:
             return (None, None)
@@ -246,18 +256,27 @@ class CourseService:
         log.debug(
             f"CourseService._fallback_fuzzy_lookup: Retrieved course data for candidate '{result}': {bool(data and data.get('course_data'))}"
         )
-        return (result, data) if data and data.get("course_data") else (None, None)
+        try:
+            candidate_obj = CourseCode(result)
+        except ValueError:
+            candidate_obj = None
+        return (
+            (candidate_obj, data)
+            if candidate_obj and data and data.get("course_data")
+            else (None, None)
+        )
 
     async def course_details(
         self, ctx: commands.Context, course_code: str
     ) -> Optional[discord.Embed]:
-        formatted = format_course_key(course_code)
-        if not formatted:
+        try:
+            course_obj = CourseCode(course_code)
+        except ValueError:
             return None
-        candidate, data = await self._lookup_course_data(ctx, formatted)
+        candidate, data = await self._lookup_course_data(ctx, course_obj)
         if not candidate or not data or not data.get("course_data"):
             return None
-        return self._create_course_embed(candidate, data)
+        return self._create_course_embed(candidate.canonical(), data)
 
     def _create_course_embed(
         self, course_key: str, course_data: Dict[str, Any]
@@ -315,30 +334,30 @@ class CourseService:
             f"join_course invoked by {ctx.author} in guild '{ctx.guild.name}' with course_code '{course_code}'"
         )
 
-        # Check if Course Manager is enabled for this guild
         if not await self._check_enabled(ctx):
             log.debug("Course Manager is disabled for this guild.")
             return
 
-        # Format the provided course code
-        formatted = format_course_key(course_code)
-        if not formatted:
+        try:
+            course_obj = CourseCode(course_code)
+        except ValueError:
             log.debug(f"Course code formatting failed for input '{course_code}'")
             await ctx.send(error(f"Invalid course code: {course_code}."))
             return
-        log.debug(f"Formatted course code: {formatted}")
 
-        # Retrieve the courses the user is currently enrolled in
+        canonical = course_obj.canonical()  # e.g., "SOCWORK-2A06A"
+        channel_name = course_obj.channel_name()  # e.g., "socwork-2a06"
+        log.debug(f"Parsed course code: canonical={canonical}, channel={channel_name}")
+
         user_courses = self.get_user_courses(ctx.author, ctx.guild)
         log.debug(f"User {ctx.author} current courses: {user_courses}")
 
-        # Try to get an existing course channel
-        channel = self.get_course_channel(ctx.guild, formatted)
+        channel = self.get_course_channel(ctx.guild, course_obj)
         if channel:
             log.debug(f"Found existing course channel: {channel.name}")
-            if formatted.upper() in user_courses:
-                log.debug(f"User {ctx.author} is already enrolled in {formatted}")
-                await ctx.send(info(f"You are already enrolled in {formatted}."))
+            if channel.name in user_courses:
+                log.debug(f"User {ctx.author} is already enrolled in {canonical}")
+                await ctx.send(info(f"You are already enrolled in {canonical}."))
                 return
             if len(user_courses) >= self.max_courses:
                 log.debug(
@@ -366,38 +385,38 @@ class CourseService:
                 )
                 return
             await ctx.send(
-                success(f"You have successfully joined {formatted}."), delete_after=120
+                success(f"You have successfully joined {canonical}."), delete_after=120
             )
             if self.logging_channel:
-                await self.logging_channel.send(f"{ctx.author} has joined {formatted}.")
+                await self.logging_channel.send(f"{ctx.author} has joined {canonical}.")
             log.debug("join_course completed using existing channel.")
             return
 
-        # No channel exists yet; look up course data and potentially create the channel
         log.debug(
-            f"No existing course channel for {formatted}. Proceeding with lookup and potential creation."
+            f"No existing course channel for {canonical}. Proceeding with lookup and potential creation."
         )
         async with ctx.typing():
-            candidate, data = await self._lookup_course_data(ctx, formatted)
+            candidate_obj, data = await self._lookup_course_data(ctx, course_obj)
         log.debug(
-            f"Lookup result: candidate = {candidate}, data valid = {bool(data and data.get('course_data'))}"
+            f"Lookup result: candidate = {candidate_obj}, data valid = {bool(data and data.get('course_data'))}"
         )
 
-        if not candidate or not data or (not data.get("course_data")):
+        if not candidate_obj or not data or (not data.get("course_data")):
             log.debug(
-                f"Course data lookup failed for {formatted}. Candidate: {candidate}, data: {data}"
+                f"Course data lookup failed for {canonical}. Candidate: {candidate_obj}, data: {data}"
             )
-            await ctx.send(error(f"No valid course data found for {formatted}."))
+            await ctx.send(error(f"No valid course data found for {canonical}."))
             return
 
-        # Update the user's courses list after lookup
         user_courses = self.get_user_courses(ctx.author, ctx.guild)
         log.debug(f"User {ctx.author} current courses after lookup: {user_courses}")
-        if candidate.upper() in user_courses:
+        if candidate_obj.channel_name() in user_courses:
             log.debug(
-                f"User {ctx.author} is already enrolled in {candidate} after lookup"
+                f"User {ctx.author} is already enrolled in {candidate_obj.canonical()} after lookup"
             )
-            await ctx.send(info(f"You are already enrolled in {candidate}."))
+            await ctx.send(
+                info(f"You are already enrolled in {candidate_obj.canonical()}.")
+            )
             return
         if len(user_courses) >= self.max_courses:
             log.debug(
@@ -410,7 +429,6 @@ class CourseService:
             )
             return
 
-        # Get or create the courses category
         category = self.get_category(ctx.guild)
         if category is None:
             log.debug("Course category not found. Attempting to create one.")
@@ -425,16 +443,16 @@ class CourseService:
             return
         log.debug(f"Using course category: {category.name}")
 
-        # Check for an existing channel for the candidate course; if none, create one
-        channel = self.get_course_channel(ctx.guild, candidate)
+        channel = self.get_course_channel(ctx.guild, candidate_obj)
         if not channel:
             log.debug(
-                f"Course channel for {candidate} not found; creating a new channel."
+                f"Course channel for {candidate_obj.canonical()} not found; creating a new channel."
             )
-            channel = await self.create_course_channel(ctx.guild, category, candidate)
+            channel = await self.create_course_channel(
+                ctx.guild, category, candidate_obj
+            )
             log.debug(f"New course channel created: {channel.name}")
 
-        # Try to set permissions for the user on the channel
         try:
             await channel.set_permissions(
                 ctx.author, overwrite=self.channel_permissions
@@ -451,26 +469,30 @@ class CourseService:
             )
             return
 
-        # Confirm successful enrollment
         await ctx.send(
-            success(f"You have successfully joined {candidate}."), delete_after=120
+            success(f"You have successfully joined {candidate_obj.canonical()}."),
+            delete_after=120,
         )
         if self.logging_channel:
-            await self.logging_channel.send(f"{ctx.author} has joined {candidate}.")
+            await self.logging_channel.send(
+                f"{ctx.author} has joined {candidate_obj.canonical()}."
+            )
         log.debug(
-            f"join_course completed successfully for user {ctx.author} joining {candidate}"
+            f"join_course completed successfully for user {ctx.author} joining {candidate_obj.canonical()}"
         )
 
     async def leave_course(self, ctx: commands.Context, course_code: str) -> None:
         if not await self._check_enabled(ctx):
             return
-        formatted = format_course_key(course_code)
-        if not formatted:
+        try:
+            course_obj = CourseCode(course_code)
+        except ValueError:
             await ctx.send(error(f"Invalid course code: {course_code}."))
             return
-        channel = self.get_course_channel(ctx.guild, formatted)
+        canonical = course_obj.canonical()
+        channel = self.get_course_channel(ctx.guild, course_obj)
         if not channel:
-            await ctx.send(error(f"You are not a member of {formatted}."))
+            await ctx.send(error(f"You are not a member of {canonical}."))
             return
         try:
             await channel.set_permissions(ctx.author, overwrite=None)
@@ -481,10 +503,10 @@ class CourseService:
             )
             return
         await ctx.send(
-            success(f"You have successfully left {formatted}."), delete_after=120
+            success(f"You have successfully left {canonical}."), delete_after=120
         )
         if self.logging_channel:
-            await self.logging_channel.send(f"{ctx.author} has left {formatted}.")
+            await self.logging_channel.send(f"{ctx.author} has left {canonical}.")
 
     async def admin_delete_channel(
         self, ctx: commands.Context, channel: discord.TextChannel
@@ -528,8 +550,9 @@ class CourseService:
             for course_key in courses.keys()
             if not any(
                 (
-                    self.get_course_channel(guild, course_key)
+                    self.get_course_channel(guild, CourseCode(course_key))
                     for guild in self.bot.guilds
+                    if CourseCode(course_key)  # if valid
                 )
             )
         )
@@ -611,21 +634,23 @@ class CourseService:
     ) -> None:
         if not await self._check_enabled(ctx):
             return
-        formatted = format_course_key(course_code)
-        if not formatted:
+        try:
+            course_obj = CourseCode(course_code)
+        except ValueError:
             await ctx.send(error(f"Invalid course code: {course_code}."))
             return
+        canonical = course_obj.canonical()
         async with self.config.courses() as courses:
-            if formatted in courses:
-                courses[formatted]["is_fresh"] = False
+            if canonical in courses:
+                courses[canonical]["is_fresh"] = False
             else:
-                await ctx.send(error(f"No existing data for course {formatted}."))
+                await ctx.send(error(f"No existing data for course {canonical}."))
                 return
-        data = await self.course_data_proxy.get_course_data(formatted)
+        data = await self.course_data_proxy.get_course_data(canonical)
         if data and data.get("course_data"):
-            await ctx.send(success(f"Course data for {formatted} has been refreshed."))
+            await ctx.send(success(f"Course data for {canonical} has been refreshed."))
         else:
-            await ctx.send(error(f"Failed to refresh course data for {formatted}."))
+            await ctx.send(error(f"Failed to refresh course data for {canonical}."))
 
     async def _menu_select_option(
         self, ctx: commands.Context, options: list, prompt_prefix: str

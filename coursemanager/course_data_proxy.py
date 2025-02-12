@@ -14,6 +14,7 @@ from aiohttp import (
     ClientTimeout,
 )
 from .utils import get_logger
+from .course_code import CourseCode
 
 log = get_logger("red.course_data_proxy")
 
@@ -23,7 +24,7 @@ class CourseDataProxy:
     _CACHE_EXPIRY_DAYS: int = 240
     _TERM_NAMES: List[str] = ["winter", "spring", "fall"]
     _URL_BASE: str = (
-        "https://mytimetable.mcmaster.ca/api/class-data?term={term}&course_0_0={course_key_formatted}&t={t}&e={e}"
+        "https://mytimetable.mcmaster.ca/api/class-data?term={term}&course_0_0={course_key}&t={t}&e={e}"
     )
     _LISTING_URL: str = (
         "https://mytimetable.mcmaster.ca/api/courses/suggestions?"
@@ -41,15 +42,17 @@ class CourseDataProxy:
             self.session = ClientSession(timeout=ClientTimeout(total=15))
         return self.session
 
-    async def get_course_data(self, course_key_formatted: str) -> Dict[str, Any]:
-        self.log.debug(f"Retrieving course data for {course_key_formatted}")
+    async def get_course_data(self, course_code: str) -> Dict[str, Any]:
+        # Assume course_code is well-formed; get its canonical representation.
+        normalized = CourseCode(course_code).canonical()
+        self.log.debug(f"Retrieving course data for {normalized}")
         courses: Dict[str, Any] = await self.config.courses()
-        course_data = courses.get(course_key_formatted)
+        course_data = courses.get(normalized)
         if not course_data or not course_data.get("is_fresh", False):
             self.log.debug(
-                f"Course data missing/stale for {course_key_formatted}; fetching online."
+                f"Course data missing/stale for {normalized}; fetching online."
             )
-            soup, error_msg = await self._fetch_course_online(course_key_formatted)
+            soup, error_msg = await self._fetch_course_online(normalized)
             if soup:
                 processed_data = self._process_course_data(soup)
                 new_data = {
@@ -58,26 +61,24 @@ class CourseDataProxy:
                     "is_fresh": True,
                 }
                 async with self.config.courses() as courses_update:
-                    courses_update[course_key_formatted] = new_data
-                self.log.debug(f"Fetched and cached data for {course_key_formatted}")
+                    courses_update[normalized] = new_data
+                self.log.debug(f"Fetched and cached data for {normalized}")
                 course_data = new_data
             elif error_msg:
-                self.log.error(
-                    f"Error fetching data for {course_key_formatted}: {error_msg}"
-                )
+                self.log.error(f"Error fetching data for {normalized}: {error_msg}")
                 return {}
         else:
-            self.log.debug(f"Using cached data for {course_key_formatted}")
+            self.log.debug(f"Using cached data for {normalized}")
         return course_data or {}
 
     async def _fetch_course_online(
-        self, course_key_formatted: str
+        self, normalized_course: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
-        self.log.debug(f"Fetching online data for {course_key_formatted}")
+        self.log.debug(f"Fetching online data for {normalized_course}")
         term_order = self._determine_term_order()
         self.log.debug(f"Term order: {term_order}")
         soup, error_message = await self._fetch_data_with_retries(
-            term_order, course_key_formatted
+            term_order, normalized_course
         )
         return (soup, None) if soup else (None, error_message)
 
@@ -92,9 +93,9 @@ class CourseDataProxy:
         return term_order
 
     async def _fetch_data_with_retries(
-        self, term_order: List[str], course_key_formatted: str
+        self, term_order: List[str], normalized_course: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
-        max_retries: int = 1
+        max_retries: int = 3
         retry_delay: int = 5
         url: Optional[str] = None
         for term_name in term_order:
@@ -103,7 +104,7 @@ class CourseDataProxy:
                 self.log.debug(f"Term ID not found for term: {term_name}")
                 continue
             self.log.debug(f"Using term '{term_name}' with ID {term_id}")
-            url = self._build_url(term_id, course_key_formatted)
+            url = self._build_url(term_id, normalized_course)
             self.log.debug(f"Built URL: {url}")
             for retry_count in range(max_retries):
                 self.log.debug(f"Attempt {retry_count + 1} for URL: {url}")
@@ -115,9 +116,7 @@ class CourseDataProxy:
                     elif error_message:
                         self.log.debug(f"Received error: {error_message}")
                         if "not found" in error_message.lower():
-                            self.log.error(f"Course not found: {course_key_formatted}")
-                            return (None, error_message)
-                        if retry_count == max_retries - 3:
+                            self.log.error(f"Course not found: {normalized_course}")
                             return (None, error_message)
                         self.log.debug(f"Retrying in {retry_delay} seconds...")
                         await asyncio.sleep(retry_delay)
@@ -145,10 +144,10 @@ class CourseDataProxy:
         self.log.debug(f"Term ID for {term_name}: {term_id}")
         return term_id
 
-    def _build_url(self, term_id: int, course_key_formatted: str) -> str:
+    def _build_url(self, term_id: int, normalized_course: str) -> str:
         t, e = self._generate_time_code()
         url = self._URL_BASE.format(
-            term=term_id, course_key_formatted=course_key_formatted, t=t, e=e
+            term=term_id, course_key=normalized_course, t=t, e=e
         )
         self.log.debug(f"Generated URL with t={t}, e={e}: {url}")
         return url
@@ -276,13 +275,10 @@ class CourseDataProxy:
         courses = soup.find_all("rs")
         self.log.debug(f"Processing soup: found {len(courses)} course listing entries.")
         courses_dict: Dict[str, str] = {}
-        regex = re.compile(r"^\s*([A-Z]+)[\s\-]+(\d+[A-Z\d]*)\s*$")
         for course in courses:
-            raw_course_code = course.text.strip().upper()
-            match = regex.match(raw_course_code)
-            normalized_course_code = (
-                f"{match[1]}-{match[2]}" if match else raw_course_code
-            )
+            raw_course_code = course.text.strip()
+            # Assume external data is well-formed.
+            normalized_course_code = CourseCode(raw_course_code).canonical()
             course_info = course.get("info", "").replace("<br/>", " ")
             courses_dict[normalized_course_code] = course_info
         return courses_dict
