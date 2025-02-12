@@ -1,11 +1,9 @@
-import asyncio
-from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 import discord
 from rapidfuzz import process
 from redbot.core import Config, commands
 from redbot.core.utils.chat_formatting import error, info, success, warning, pagify
-from redbot.core.utils.menus import menu, DEFAULT_CONTROLS
+from redbot.core.utils.menus import menu
 from .course_data_proxy import CourseDataProxy
 from .utils import (
     get_categories_by_prefix,
