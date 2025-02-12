@@ -1,3 +1,4 @@
+# course_commands.py
 import asyncio
 from typing import Optional
 import discord
@@ -12,6 +13,7 @@ log = get_logger("red.course_channel_cog")
 
 
 class CourseChannelCog(commands.Cog):
+
     def __init__(self, bot: commands.Bot) -> None:
         self.bot: commands.Bot = bot
         self.config: Config = Config.get_conf(
@@ -20,7 +22,6 @@ class CourseChannelCog(commands.Cog):
         self.config.register_global(**GLOBAL_DEFAULTS)
         self.channel_service: ChannelService = ChannelService(bot, self.config)
         self.course_service: CourseService = CourseService(bot, self.config)
-        # Tie background tasks to the bot’s loop
         self._grouping_task: Optional[asyncio.Task] = self.bot.loop.create_task(
             self.channel_service.dynamic_grouping_task()
         )
@@ -112,22 +113,17 @@ class CourseChannelCog(commands.Cog):
     @course.command(name="join")
     @commands.cooldown(1, 5, commands.BucketType.user)
     async def join_course(self, ctx: commands.Context, *, course_code: str) -> None:
-        await self.course_service.join_course(ctx, course_code)
+        await self.course_service.grant_course_channel_access(ctx, course_code)
 
     @course.command(name="leave")
     @commands.cooldown(1, 5, commands.BucketType.user)
     async def leave_course(self, ctx: commands.Context, *, course_code: str) -> None:
-        await self.course_service.leave_course(ctx, course_code)
+        await self.course_service.revoke_course_channel_access(ctx, course_code)
 
     @course.command(name="refresh")
     @commands.cooldown(1, 5, commands.BucketType.user)
     async def refresh_course(self, ctx: commands.Context, *, course_code: str) -> None:
         await self.course_service.refresh_course_data(ctx, course_code)
-
-    @course.command(name="list")
-    @commands.cooldown(1, 5, commands.BucketType.user)
-    async def list_enrollments(self, ctx: commands.Context) -> None:
-        await self.course_service.list_enrollments(ctx)
 
     @course.command(name="details")
     @commands.cooldown(1, 5, commands.BucketType.user)

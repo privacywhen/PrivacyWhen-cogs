@@ -1,3 +1,4 @@
+# course_service.py
 from typing import Any, Dict, List, Optional, Tuple
 import discord
 from rapidfuzz import process
@@ -5,11 +6,7 @@ from redbot.core import Config, commands
 from redbot.core.utils.chat_formatting import error, info, success, warning, pagify
 from redbot.core.utils.menus import menu
 from .course_data_proxy import CourseDataProxy
-from .utils import (
-    get_categories_by_prefix,
-    get_or_create_category,
-    get_logger,
-)
+from .utils import get_categories_by_prefix, get_or_create_category, get_logger
 from .constants import REACTION_OPTIONS
 from .course_code import CourseCode
 
@@ -17,6 +14,7 @@ log = get_logger("red.course_service")
 
 
 class CourseService:
+
     def __init__(self, bot: commands.Bot, config: Config) -> None:
         self.bot: commands.Bot = bot
         self.config: Config = config
@@ -89,7 +87,6 @@ class CourseService:
         self, guild: discord.Guild, course: CourseCode
     ) -> Optional[discord.TextChannel]:
         target_name = course.formatted_channel_name()
-
         channel = next(
             (
                 ch
@@ -100,7 +97,7 @@ class CourseService:
             None,
         )
         log.debug(
-            f"CourseService.get_course_channel: {'Found' if channel else 'No'} course channel '{target_name}' for course '{course.canonical()}' in guild '{guild.name}'"
+            f"CourseService.get_course_channel: {('Found' if channel else 'No')} course channel '{target_name}' for course '{course.canonical()}' in guild '{guild.name}'"
         )
         return channel
 
@@ -111,7 +108,6 @@ class CourseService:
         course: CourseCode,
     ) -> discord.TextChannel:
         target_name = course.formatted_channel_name()
-
         log.debug(
             f"CourseService.create_course_channel: Attempting to create channel '{target_name}' in guild '{guild.name}' under category '{category.name}'"
         )
@@ -273,7 +269,7 @@ class CourseService:
         except ValueError:
             return None
         candidate, data = await self._lookup_course_data(ctx, course_obj)
-        if not candidate or not data or not data.get("course_data"):
+        if not candidate or not data or (not data.get("course_data")):
             return None
         return self._create_course_embed(candidate.canonical(), data)
 
@@ -318,53 +314,42 @@ class CourseService:
             )
         return embed
 
-    async def list_enrollments(self, ctx: commands.Context) -> None:
-        if not await self._check_enabled(ctx):
-            return
-        if user_courses := self.get_user_courses(ctx.author, ctx.guild):
-            await ctx.send(
-                "You are enrolled in the following courses:\n" + "\n".join(user_courses)
-            )
-        else:
-            await ctx.send("You are not enrolled in any courses.")
-
-    async def join_course(self, ctx: commands.Context, course_code: str) -> None:
+    async def grant_course_channel_access(
+        self, ctx: commands.Context, course_code: str
+    ) -> None:
         log.debug(
-            f"join_course invoked by {ctx.author} in guild '{ctx.guild.name}' with course_code '{course_code}'"
+            f"grant_course_channel_access invoked by {ctx.author} in guild '{ctx.guild.name}' with course_code '{course_code}'"
         )
-
         if not await self._check_enabled(ctx):
             log.debug("Course Manager is disabled for this guild.")
             return
-
         try:
             course_obj = CourseCode(course_code)
         except ValueError:
             log.debug(f"Course code formatting failed for input '{course_code}'")
             await ctx.send(error(f"Invalid course code: {course_code}."))
             return
-
-        canonical = course_obj.canonical()  # e.g., "SOCWORK-2A06A"
-        channel_name = course_obj.formatted_channel_name()  # e.g., "socwork-2a06"
+        canonical = course_obj.canonical()
+        channel_name = course_obj.formatted_channel_name()
         log.debug(f"Parsed course code: canonical={canonical}, channel={channel_name}")
-
         user_courses = self.get_user_courses(ctx.author, ctx.guild)
-        log.debug(f"User {ctx.author} current courses: {user_courses}")
-
+        log.debug(f"User {ctx.author} current course channel accesses: {user_courses}")
         channel = self.get_course_channel(ctx.guild, course_obj)
         if channel:
             log.debug(f"Found existing course channel: {channel.name}")
             if channel.name in user_courses:
-                log.debug(f"User {ctx.author} is already enrolled in {canonical}")
-                await ctx.send(info(f"You are already enrolled in {canonical}."))
+                log.debug(f"User {ctx.author} already has access to {canonical}")
+                await ctx.send(
+                    info(f"You are already joined in {canonical}."), delete_after=120
+                )
                 return
             if len(user_courses) >= self.max_courses:
                 log.debug(
-                    f"User {ctx.author} has reached the maximum courses limit: {len(user_courses)}"
+                    f"User {ctx.author} has reached the maximum channel access limit: {len(user_courses)}"
                 )
                 await ctx.send(
                     error(
-                        f"You have reached the maximum limit of {self.max_courses} courses."
+                        f"You have reached the maximum limit of {self.max_courses} course channels."
                     )
                 )
                 return
@@ -388,9 +373,8 @@ class CourseService:
             )
             if self.logging_channel:
                 await self.logging_channel.send(f"{ctx.author} has joined {canonical}.")
-            log.debug("join_course completed using existing channel.")
+            log.debug("grant_course_channel_access completed using existing channel.")
             return
-
         log.debug(
             f"No existing course channel for {canonical}. Proceeding with lookup and potential creation."
         )
@@ -399,35 +383,35 @@ class CourseService:
         log.debug(
             f"Lookup result: candidate = {candidate_obj}, data valid = {bool(data and data.get('course_data'))}"
         )
-
         if not candidate_obj or not data or (not data.get("course_data")):
             log.debug(
                 f"Course data lookup failed for {canonical}. Candidate: {candidate_obj}, data: {data}"
             )
             await ctx.send(error(f"No valid course data found for {canonical}."))
             return
-
         user_courses = self.get_user_courses(ctx.author, ctx.guild)
-        log.debug(f"User {ctx.author} current courses after lookup: {user_courses}")
+        log.debug(
+            f"User {ctx.author} current course channel accesses after lookup: {user_courses}"
+        )
         if candidate_obj.formatted_channel_name() in user_courses:
             log.debug(
-                f"User {ctx.author} is already enrolled in {candidate_obj.canonical()} after lookup"
+                f"User {ctx.author} already has access to {candidate_obj.canonical()} after lookup"
             )
             await ctx.send(
-                info(f"You are already enrolled in {candidate_obj.canonical()}.")
+                info(f"You are already joined in {candidate_obj.canonical()}."),
+                delete_after=120,
             )
             return
         if len(user_courses) >= self.max_courses:
             log.debug(
-                f"User {ctx.author} has reached the maximum courses limit: {len(user_courses)} after lookup"
+                f"User {ctx.author} has reached the maximum channel access limit: {len(user_courses)} after lookup"
             )
             await ctx.send(
                 error(
-                    f"You have reached the maximum limit of {self.max_courses} courses."
+                    f"You have reached the maximum limit of {self.max_courses} course channels."
                 )
             )
             return
-
         category = self.get_category(ctx.guild)
         if category is None:
             log.debug("Course category not found. Attempting to create one.")
@@ -441,7 +425,6 @@ class CourseService:
             )
             return
         log.debug(f"Using course category: {category.name}")
-
         channel = self.get_course_channel(ctx.guild, candidate_obj)
         if not channel:
             log.debug(
@@ -451,7 +434,6 @@ class CourseService:
                 ctx.guild, category, candidate_obj
             )
             log.debug(f"New course channel created: {channel.name}")
-
         try:
             await channel.set_permissions(
                 ctx.author, overwrite=self.channel_permissions
@@ -467,7 +449,6 @@ class CourseService:
                 error("I don't have permission to manage channel permissions.")
             )
             return
-
         await ctx.send(
             success(f"You have successfully joined {candidate_obj.canonical()}."),
             delete_after=120,
@@ -477,10 +458,12 @@ class CourseService:
                 f"{ctx.author} has joined {candidate_obj.canonical()}."
             )
         log.debug(
-            f"join_course completed successfully for user {ctx.author} joining {candidate_obj.canonical()}"
+            f"grant_course_channel_access completed successfully for user {ctx.author} for {candidate_obj.canonical()}"
         )
 
-    async def leave_course(self, ctx: commands.Context, course_code: str) -> None:
+    async def revoke_course_channel_access(
+        self, ctx: commands.Context, course_code: str
+    ) -> None:
         if not await self._check_enabled(ctx):
             return
         try:
@@ -545,13 +528,15 @@ class CourseService:
         stale: List[str] = []
         courses = await self.config.courses.all()
         stale.extend(
-            course_key
-            for course_key in courses.keys()
-            if not any(
-                (
-                    self.get_course_channel(guild, CourseCode(course_key))
-                    for guild in self.bot.guilds
-                    if CourseCode(course_key)  # if valid
+            (
+                course_key
+                for course_key in courses.keys()
+                if not any(
+                    (
+                        self.get_course_channel(guild, CourseCode(course_key))
+                        for guild in self.bot.guilds
+                        if CourseCode(course_key)
+                    )
                 )
             )
         )
