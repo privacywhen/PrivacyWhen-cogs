@@ -117,7 +117,7 @@ class CourseDataProxy:
                         if "not found" in error_message.lower():
                             self.log.error(f"Course not found: {course_key_formatted}")
                             return (None, error_message)
-                        if retry_count == max_retries - 1:
+                        if retry_count == max_retries - 3:
                             return (None, error_message)
                         self.log.debug(f"Retrying in {retry_delay} seconds...")
                         await asyncio.sleep(retry_delay)
