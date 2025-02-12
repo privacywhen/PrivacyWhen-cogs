@@ -156,37 +156,32 @@ class ChannelService:
                     f"Failed to delete channel '{channel.name}' in guild '{guild.name}': {e}"
                 )
 
-    async def auto_channel_prune(self) -> None:
-        # Retrieve the inactivity threshold (in days) from config and convert to a timedelta.
-        prune_threshold_days: int = await self.config.prune_threshold_days()
-        prune_threshold = timedelta(days=prune_threshold_days)
-        # Retrieve the prune interval from the config.
-        prune_interval: int = await self.config.channel_prune_interval()
 
-        await self.bot.wait_until_ready()
-        log.debug("Auto-channel-prune task started.")
-
+async def auto_channel_prune(self) -> None:
+    prune_threshold_days: int = await self.config.prune_threshold_days()
+    prune_threshold = timedelta(days=prune_threshold_days)
+    prune_interval: int = await self.config.channel_prune_interval()
+    await self.bot.wait_until_ready()
+    log.debug("Auto-channel-prune task started.")
+    try:
         while not self.bot.is_closed():
             log.debug(
                 f"Auto-channel-prune cycle started at {datetime.now(timezone.utc)}"
             )
             enabled_guilds: List[int] = await self.config.enabled_guilds()
-
-            # Iterate over each guild where the course manager is enabled.
             for guild in self.bot.guilds:
                 if guild.id not in enabled_guilds:
                     continue
-
                 base_category: str = await self.config.course_category()
-                # For each category matching the course prefix...
                 for category in get_categories_by_prefix(guild, base_category):
                     for channel in category.channels:
                         if not isinstance(channel, discord.TextChannel):
                             continue
-
                         await self.channel_prune_helper(guild, channel, prune_threshold)
-
             log.debug(
                 f"Auto-channel-prune cycle complete. Sleeping for {prune_interval} seconds."
             )
             await asyncio.sleep(prune_interval)
+    except asyncio.CancelledError:
+        log.debug("Auto-channel-prune task cancelled.")
+        raise

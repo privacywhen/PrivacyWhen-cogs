@@ -45,8 +45,6 @@ class CourseChannelCog(commands.Cog):
 
     def cog_unload(self) -> None:
         log.debug("Unloading CourseChannelCog; cancelling background tasks.")
-        if self._grouping_task:
-            self._grouping_task.cancel()
         if self._prune_task:
             self._prune_task.cancel()
 
