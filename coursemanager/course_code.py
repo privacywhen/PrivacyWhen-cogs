@@ -9,6 +9,9 @@ Example:
     cc = CourseCode("socwork-2a06a")
     print(cc.canonical())    # Output: "SOCWORK-2A06A"
     print(cc.channel_name()) # Output: "socwork-2a06"
+    print(cc.department)     # Output: "SOCWORK"
+    print(cc.code)           # Output: "2A06" (the core code)
+    print(cc.suffix)         # Output: "A" (if present)
 """
 
 import re
@@ -34,10 +37,7 @@ class CourseCode:
         Raises:
             ValueError: If the provided input does not match the expected course code pattern.
         """
-        self.raw = raw
-        self.department = ""
-        self.code = ""
-        self.suffix = ""
+        self._raw = raw
         self._parse()
 
     def _parse(self) -> None:
@@ -49,12 +49,40 @@ class CourseCode:
 
         The components are normalized to uppercase for consistency.
         """
-        match = self._pattern.match(self.raw)
+        match = self._pattern.match(self._raw)
         if not match:
-            raise ValueError(f"Invalid course code format: '{self.raw}'")
-        self.department = match.group(1).upper()
-        self.code = match.group(2).upper()
-        self.suffix = match.group(3).upper() if match.group(3) else ""
+            raise ValueError(f"Invalid course code format: '{self._raw}'")
+        self._department = match.group(1).upper()
+        self._code = match.group(2).upper()
+        self._suffix = match.group(3).upper() if match.group(3) else ""
+
+    @property
+    def raw(self) -> str:
+        """
+        The original raw course code input.
+        """
+        return self._raw
+
+    @property
+    def department(self) -> str:
+        """
+        The department portion of the course code, normalized to uppercase.
+        """
+        return self._department
+
+    @property
+    def code(self) -> str:
+        """
+        The core course code (the numeric/alphanumeric segment), normalized to uppercase.
+        """
+        return self._code
+
+    @property
+    def suffix(self) -> str:
+        """
+        The optional suffix of the course code (if present), normalized to uppercase.
+        """
+        return self._suffix
 
     def canonical(self) -> str:
         """
@@ -77,3 +105,9 @@ class CourseCode:
             str: The course code suitable for channel names (e.g., "socwork-2a06").
         """
         return f"{self.department.lower()}-{self.code.lower()}"
+
+    def __str__(self) -> str:
+        """
+        Return the canonical representation when the CourseCode object is printed.
+        """
+        return self.canonical()
