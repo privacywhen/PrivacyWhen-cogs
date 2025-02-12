@@ -646,7 +646,16 @@ class CourseService:
         for emoji, opt in emoji_to_option.items():
 
             async def handler(
-                ctx, pages, controls, message, page, timeout, emoji, *, opt=opt
+                ctx,
+                pages,
+                controls,
+                message,
+                page,
+                timeout,
+                emoji,
+                *,
+                opt=opt,
+                user=None,
             ):
                 log.debug(
                     f"CourseService._menu_select_option.handler: Option '{opt}' selected via emoji '{emoji}'"
