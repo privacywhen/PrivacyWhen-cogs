@@ -31,8 +31,7 @@ class CourseService:
         """
         Retrieve course listings from config and return the 'courses' dictionary.
         """
-        listings = (await self.config.course_listings()).get("courses", {})
-        return listings
+        return (await self.config.course_listings()).get("courses", {})
 
     def _is_valid_course_data(self, data: Any) -> bool:
         """
@@ -201,8 +200,7 @@ class CourseService:
             return (course, None)
         # Variant selection if course code does not end with an alphabet
         if not canonical[-1].isalpha():
-            variants = self._find_variant_matches(canonical, listings)
-            if variants:
+            if variants := self._find_variant_matches(canonical, listings):
                 if len(variants) == 1:
                     candidate = variants[0]
                     log.debug(f"Single variant '{candidate}' found for '{canonical}'")
