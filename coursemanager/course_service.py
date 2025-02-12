@@ -497,11 +497,6 @@ class CourseService:
             )
         )
 
-    async def list_courses(self, ctx: commands.Context) -> None:
-        cfg = await self.config.courses.all()
-        serialized = "\n".join(list(cfg))
-        await ctx.send(serialized)
-
     async def list_all_courses(self, ctx: commands.Context) -> None:
         cfg = await self.config.course_listings.all()
         if "courses" in cfg:

@@ -156,17 +156,9 @@ class CourseChannelCog(commands.Cog):
     ) -> None:
         await self.course_service.set_term_code(ctx, term_name, term_id)
 
-    @dev_course.command(name="clearstale")
-    async def clear_stale_config(self, ctx: commands.Context) -> None:
-        await self.course_service.clear_stale_config(ctx)
-
     @dev_course.command(name="clearcourses")
     async def clear_courses(self, ctx: commands.Context) -> None:
         await self.course_service.clear_courses(ctx)
-
-    @dev_course.command(name="list")
-    async def list_courses(self, ctx: commands.Context) -> None:
-        await self.course_service.list_courses(ctx)
 
     @dev_course.command(name="listall")
     async def list_all_courses(self, ctx: commands.Context) -> None:
