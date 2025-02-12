@@ -28,7 +28,7 @@ class CourseService:
                 discord.Permissions(446676945984), discord.Permissions(0)
             )
         )
-        self.course_data_proxy: CourseDataProxy = CourseDataProxy(self.config, log)
+        self.course_data_proxy: CourseDataProxy = CourseDataProxy(bot, self.config, log)
 
     async def _check_enabled(self, ctx: commands.Context) -> bool:
         enabled: List[int] = await self.config.enabled_guilds()
