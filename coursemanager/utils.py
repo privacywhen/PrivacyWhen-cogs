@@ -1,6 +1,5 @@
 from typing import Optional, List
 import discord
-from datetime import datetime, timezone, timedelta
 import logging
 
 
@@ -28,31 +27,6 @@ def get_categories_by_prefix(
         f"get_categories_by_prefix: Found {len(matching)} categories in guild '{guild.name}' with prefix '{prefix}'"
     )
     return matching
-
-
-async def prune_channel(
-    channel: discord.TextChannel, threshold: timedelta, reason: str
-) -> bool:
-    try:
-        last_user_message = None
-        async for msg in channel.history(limit=10):
-            if not msg.author.bot:
-                last_user_message = msg
-                break
-        last_activity = (
-            last_user_message.created_at if last_user_message else channel.created_at
-        )
-        if datetime.now(timezone.utc) - last_activity > threshold:
-            logger.info(
-                f"Pruning channel '{channel.name}' in guild '{channel.guild.name}' (last activity: {last_activity})"
-            )
-            await channel.delete(reason=reason)
-            return True
-    except Exception:
-        logger.exception(
-            f"Error pruning channel '{channel.name}' in guild '{channel.guild.name}'"
-        )
-    return False
 
 
 async def get_or_create_category(

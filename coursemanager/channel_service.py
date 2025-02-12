@@ -9,7 +9,6 @@ from redbot.core import Config
 from redbot.core.utils.chat_formatting import error, pagify
 from redbot.core.utils.menus import menu
 from .utils import (
-    prune_channel,
     get_categories_by_prefix,
     get_or_create_category,
     get_logger,
@@ -203,7 +202,7 @@ class ChannelService:
         for community_id, courses in communities.items():
             target_category = f"{base}-{community_id}" if community_id != "0" else base
             for course in courses:
-                target_mapping[course()] = target_category
+                target_mapping[course] = target_category
         return target_mapping
 
     async def _assign_channels_to_categories(
@@ -238,32 +237,87 @@ class ChannelService:
                                     f"No permission to move channel {channel.name} in guild {guild.name}"
                                 )
 
-    async def auto_prune_task(self) -> None:
+    async def channel_prune_helper(
+        self,
+        guild: discord.Guild,
+        channel: discord.TextChannel,
+        prune_threshold: timedelta,
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        last_activity = None
+
+        # Use channel.last_message if available and its author is not a bot.
+        if channel.last_message and not channel.last_message.author.bot:
+            last_activity = channel.last_message.created_at
+            log.debug(f"Using channel.last_message for {channel.name}: {last_activity}")
+        else:
+            # Retrieve the number of messages to check from the config.
+            prune_history_limit: int = await self.config.channel_prune_history_limit()
+            async for message in channel.history(limit=prune_history_limit):
+                if not message.author.bot:
+                    last_activity = message.created_at
+                    log.debug(
+                        f"Found non-bot message in {channel.name} at {last_activity}"
+                    )
+                    break
+
+        # If no non-bot message is found, fall back on the channel's creation date.
+        if last_activity is None:
+            last_activity = channel.created_at
+            log.debug(
+                f"No non-bot messages found in {channel.name}. Using channel.created_at: {last_activity}"
+            )
+
+        inactivity_duration = now - last_activity
+        log.debug(
+            f"Channel '{channel.name}' inactivity duration: {inactivity_duration}"
+        )
+
+        # Delete the channel if it has been inactive longer than the threshold.
+        if inactivity_duration > prune_threshold:
+            log.info(
+                f"Pruning channel '{channel.name}' in guild '{guild.name}'. "
+                f"Inactive for {inactivity_duration} (threshold: {prune_threshold})."
+            )
+            try:
+                # Instead of retrieving the reason from config, we now hardcode it.
+                await channel.delete(reason="Auto-pruned due to inactivity.")
+            except Exception as e:
+                log.exception(
+                    f"Failed to delete channel '{channel.name}' in guild '{guild.name}': {e}"
+                )
+
+    async def auto_channel_prune(self) -> None:
+        # Retrieve the inactivity threshold (in days) from config and convert to a timedelta.
         prune_threshold_days: int = await self.config.prune_threshold_days()
-        PRUNE_THRESHOLD = timedelta(days=prune_threshold_days)
-        PRUNE_INTERVAL = 2628000  # seconds (approx. one month)
+        prune_threshold = timedelta(days=prune_threshold_days)
+        # Retrieve the prune interval from the config.
+        prune_interval: int = await self.config.channel_prune_interval()
+
         await self.bot.wait_until_ready()
-        log.debug("Auto-prune task started.")
+        log.debug("Auto-channel-prune task started.")
+
         while not self.bot.is_closed():
-            log.debug(f"Auto-prune cycle started at {datetime.now(timezone.utc)}")
-            enabled_guilds = await self.config.enabled_guilds()
+            log.debug(
+                f"Auto-channel-prune cycle started at {datetime.now(timezone.utc)}"
+            )
+            enabled_guilds: List[int] = await self.config.enabled_guilds()
+
+            # Iterate over each guild where the course manager is enabled.
             for guild in self.bot.guilds:
                 if guild.id not in enabled_guilds:
                     continue
+
                 base_category: str = await self.config.course_category()
+                # For each category matching the course prefix...
                 for category in get_categories_by_prefix(guild, base_category):
                     for channel in category.channels:
-                        if isinstance(channel, discord.TextChannel):
-                            pruned = await prune_channel(
-                                channel,
-                                PRUNE_THRESHOLD,
-                                reason="Auto-pruned due to inactivity.",
-                            )
-                            if pruned:
-                                log.debug(
-                                    f"Channel {channel.name} in guild {guild.name} pruned during auto-prune cycle"
-                                )
+                        if not isinstance(channel, discord.TextChannel):
+                            continue
+
+                        await self.channel_prune_helper(guild, channel, prune_threshold)
+
             log.debug(
-                f"Auto-prune cycle complete. Sleeping for {PRUNE_INTERVAL} seconds."
+                f"Auto-channel-prune cycle complete. Sleeping for {prune_interval} seconds."
             )
-            await asyncio.sleep(PRUNE_INTERVAL)
+            await asyncio.sleep(prune_interval)

@@ -167,10 +167,6 @@ class CourseChannelCog(commands.Cog):
     async def clear_stale_config(self, ctx: commands.Context) -> None:
         await self.course_service.clear_stale_config(ctx)
 
-    @dev_course.command(name="prune")
-    async def manual_prune(self, ctx: commands.Context) -> None:
-        await self.course_service.manual_prune(ctx)
-
     @dev_course.command(name="clearcourses")
     async def clear_courses(self, ctx: commands.Context) -> None:
         await self.course_service.clear_courses(ctx)

@@ -8,7 +8,6 @@ from redbot.core.utils.chat_formatting import error, info, success, warning, pag
 from redbot.core.utils.menus import menu, DEFAULT_CONTROLS
 from .course_data_proxy import CourseDataProxy
 from .utils import (
-    prune_channel,
     get_categories_by_prefix,
     get_or_create_category,
     get_logger,
@@ -563,35 +562,6 @@ class CourseService:
             await ctx.send(success(f"Cleared stale config entries: {', '.join(stale)}"))
         else:
             await ctx.send(info("No stale course config entries found."))
-
-    async def manual_prune(self, ctx: commands.Context) -> None:
-        log.debug(f"Manual prune triggered by {ctx.author}")
-        pruned_channels: List[str] = []
-        PRUNE_THRESHOLD = timedelta(days=120)
-
-        enabled_guilds: List[int] = await self.config.enabled_guilds()
-
-        for guild in self.bot.guilds:
-            if guild.id not in enabled_guilds:
-                log.debug(
-                    f"Skipping guild {guild.name} as Course Manager is not enabled"
-                )
-                continue
-
-            for category in self.get_course_categories(guild):
-                for channel in category.channels:
-                    if isinstance(channel, discord.TextChannel) and await prune_channel(
-                        channel, PRUNE_THRESHOLD, "Manually pruned due to inactivity."
-                    ):
-                        pruned_channels.append(f"{guild.name} - {channel.name}")
-                        log.debug(
-                            f"Channel {channel.name} in guild {guild.name} pruned manually"
-                        )
-
-        if pruned_channels:
-            await ctx.send(success("Pruned channels:\n" + "\n".join(pruned_channels)))
-        else:
-            await ctx.send(info("No inactive channels to prune."))
 
     async def clear_courses(self, ctx: commands.Context) -> None:
         await self.config.courses.set({})
