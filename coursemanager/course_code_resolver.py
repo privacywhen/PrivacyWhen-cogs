@@ -42,19 +42,25 @@ class CourseCodeResolver:
             canonical, list(self.course_listings.keys()), limit=5, score_cutoff=70
         )
         log.debug(f"Fuzzy matches for '{canonical}': {matches}")
+
         if not matches:
             return (None, None)
+
         selected = await self.prompt_variant_selection(
             ctx, [match[0] for match in matches], self.course_listings
         )
-        if selected:
-            try:
-                candidate_obj = CourseCode(selected)
-            except ValueError:
-                candidate_obj = None
-            data = self.course_listings.get(selected)
-            return (candidate_obj, data) if candidate_obj else (None, None)
-        return (None, None)
+
+        # If user cancels (selected = None), return immediately
+        if selected is None:
+            return (None, None)
+
+        try:
+            candidate_obj = CourseCode(selected)
+        except ValueError:
+            candidate_obj = None
+
+        data = self.course_listings.get(selected)
+        return (candidate_obj, data) if candidate_obj else (None, None)
 
     @log_entry_exit(log)
     async def resolve_course_code(
