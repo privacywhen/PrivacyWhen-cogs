@@ -1,3 +1,4 @@
+# course_code_resolver.py
 from typing import Any, Dict, List, Optional, Tuple
 from rapidfuzz import process
 from redbot.core import commands
@@ -10,8 +11,8 @@ log = get_logger("red.course_code_resolver")
 class CourseCodeResolver:
     FUZZY_LIMIT: int = 5
     FUZZY_SCORE_CUTOFF: int = 70
-    # Margin (difference in score) to auto-select the best candidate
-    SCORE_MARGIN: int = 20
+    # Minimum score difference required for auto-selection over the next candidate.
+    SCORE_MARGIN: int = 10
 
     def __init__(
         self, course_listings: Dict[str, Any], course_data_proxy: Any = None
@@ -21,6 +22,10 @@ class CourseCodeResolver:
 
     @log_entry_exit(log)
     def find_variant_matches(self, canonical: str) -> List[str]:
+        """
+        Find all keys in the course listings that start with the canonical course code
+        and are longer than the canonical version.
+        """
         variants = [
             key
             for key in self.course_listings
@@ -33,6 +38,9 @@ class CourseCodeResolver:
     async def prompt_variant_selection(
         self, ctx: commands.Context, variants: List[str]
     ) -> Optional[str]:
+        """
+        Prompt the user to choose a variant among the provided options.
+        """
         # Prepare (option, description) tuples for the menu prompt.
         options = [
             (variant, self.course_listings.get(variant, "")) for variant in variants
@@ -45,6 +53,9 @@ class CourseCodeResolver:
         return selected
 
     def _parse_course_code(self, raw: str) -> Optional[CourseCode]:
+        """
+        Attempt to parse a raw course code string into a CourseCode object.
+        """
         try:
             return CourseCode(raw)
         except ValueError:
@@ -56,66 +67,79 @@ class CourseCodeResolver:
         self, ctx: commands.Context, canonical: str
     ) -> Tuple[Optional[CourseCode], Optional[Dict[str, Any]]]:
         """
-        Attempt to resolve a course code using fuzzy matching.
-        - Uses process.extractOne to get the top candidate.
-        - If multiple candidates are available, compares the top two scores.
-          If the best candidate's score is higher than the second by at least SCORE_MARGIN,
-          it is auto-selected; otherwise, the user is prompted to choose.
+        Resolve a course code using fuzzy matching with the following steps:
+          1. Retrieve fuzzy matches using RapidFuzz.
+          2. Filter out candidates that fail to parse.
+          3. If only one valid candidate exists, return it.
+          4. If multiple valid candidates exist:
+              - Auto-select the best if its score exceeds the runner-up by SCORE_MARGIN.
+              - Otherwise, prompt the user to choose among valid options.
         """
         keys_list = list(self.course_listings.keys())
-
-        # Get the best match with a cutoff score.
-        best_match = process.extractOne(
-            canonical, keys_list, score_cutoff=self.FUZZY_SCORE_CUTOFF
-        )
-        if not best_match:
-            log.debug(f"No fuzzy matches found for '{canonical}'.")
-            return (None, None)
-
-        best_code, best_score, _ = best_match
-        log.debug(
-            f"Best fuzzy match for '{canonical}': {best_code} with score {best_score}"
-        )
-
-        # Retrieve additional matches to assess ambiguity.
+        # Retrieve fuzzy matches (up to FUZZY_LIMIT) meeting the minimum score cutoff.
         all_matches = process.extract(
             canonical,
             keys_list,
             limit=self.FUZZY_LIMIT,
             score_cutoff=self.FUZZY_SCORE_CUTOFF,
         )
+        log.debug(f"Fuzzy matches for '{canonical}': {all_matches}")
+        if not all_matches:
+            log.debug(f"No fuzzy matches found for '{canonical}'.")
+            return (None, None)
 
-        if len(all_matches) > 1:
-            # Sort matches in descending order by score.
-            sorted_matches = sorted(all_matches, key=lambda x: x[1], reverse=True)
-            second_score = sorted_matches[1][1]
+        # Filter out candidates that cannot be parsed successfully.
+        valid_matches: List[Tuple[str, CourseCode, float]] = []
+        for candidate, score, _ in all_matches:
+            candidate_obj = self._parse_course_code(candidate)
+            if candidate_obj:
+                valid_matches.append((candidate, candidate_obj, score))
+            else:
+                log.debug(f"Candidate '{candidate}' failed parsing and is skipped.")
+
+        if not valid_matches:
+            log.debug("No valid candidates after filtering fuzzy matches.")
+            return (None, None)
+
+        # Sort the valid matches in descending order by score.
+        valid_matches.sort(key=lambda x: x[2], reverse=True)
+        best_candidate, best_obj, best_score = valid_matches[0]
+        log.debug(
+            f"Best valid fuzzy match for '{canonical}': {best_candidate} with score {best_score}"
+        )
+
+        # Decide based on the number of valid candidates.
+        if len(valid_matches) == 1:
+            # Only one valid candidate remains.
+            selected = best_candidate
+            log.debug(f"Only one valid fuzzy match found: {selected}")
+        else:
+            # More than one valid candidate exists.
+            second_score = valid_matches[1][2]
             log.debug(f"Second best score for '{canonical}' is {second_score}")
-
             if best_score - second_score >= self.SCORE_MARGIN:
-                # The top match is clearly superior.
-                selected = best_code
+                # Top candidate is clearly superior.
+                selected = best_candidate
                 log.debug(
                     f"Auto-selected best fuzzy match '{selected}' with score {best_score} "
                     f"(margin {best_score - second_score} >= {self.SCORE_MARGIN})."
                 )
             else:
-                # Scores are close; prompt the user to choose.
-                matched_codes = [match[0] for match in sorted_matches]
-                selected = await self.prompt_variant_selection(ctx, matched_codes)
+                # Scores are close; prompt the user using only valid candidate strings.
+                candidate_options = [candidate for candidate, _, _ in valid_matches]
+                selected = await self.prompt_variant_selection(ctx, candidate_options)
                 if not selected:
                     log.debug(
                         "No selection made by the user during fuzzy lookup prompt."
                     )
                     return (None, None)
-        else:
-            # Only one match is available.
-            selected = best_code
-            log.debug(f"Only one fuzzy match found: {selected}")
 
-        # Attempt to parse the selected code.
+        # Return the parsed candidate and its associated data.
         candidate_obj = self._parse_course_code(selected)
         if candidate_obj is None:
-            log.debug(f"Failed to parse selected fuzzy match '{selected}'.")
+            log.debug(
+                f"Failed to parse the selected candidate '{selected}' after user selection."
+            )
             return (None, None)
         data = self.course_listings.get(selected)
         return (candidate_obj, data)
@@ -125,8 +149,10 @@ class CourseCodeResolver:
         self, ctx: commands.Context, course: CourseCode
     ) -> Tuple[Optional[CourseCode], Optional[Dict[str, Any]]]:
         """
-        Resolve a course code by first checking for an exact match,
-        then for simple variants, and finally falling back to fuzzy matching.
+        Resolve a course code by checking for:
+          - An exact match in the course listings.
+          - Variants that start with the canonical code.
+          - Fuzzy matches as a last resort.
         """
         canonical = course.canonical()
         log.debug(f"Resolving course code for canonical: {canonical}")
