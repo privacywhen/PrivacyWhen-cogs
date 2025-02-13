@@ -48,7 +48,7 @@ class CourseDataProxy:
     _LISTING_URL: str = (
         "https://mytimetable.mcmaster.ca/api/courses/suggestions?cams=MCMSTiMCMST_MCMSTiSNPOL_MCMSTiMHK_MCMSTiCON_MCMSTiOFF&course_add=*&page_num=-1"
     )
-    _MAX_RETRIES: int = 3
+    _MAX_RETRIES: int = 1
     _BASE_DELAY: float = 2
     _PARSER: str = "lxml-xml"
     _BR_REGEX = re.compile(r"<br\s*/?>", flags=re.IGNORECASE)
