@@ -1,6 +1,5 @@
 from typing import Any, Dict, List, Optional, Tuple
 import discord
-from datetime import datetime, timezone, timedelta
 from rapidfuzz import process
 from redbot.core import Config, commands
 from redbot.core.utils.chat_formatting import error, info, success, warning, pagify
