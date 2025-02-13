@@ -1,7 +1,7 @@
 from typing import Any, Dict, Optional, List
 import discord
 import logging
-from .course_code import CourseCode
+from redbot.core import commands
 from .course_code_resolver import CourseCodeResolver
 from .course_data_proxy import CourseDataProxy
 
@@ -59,7 +59,7 @@ async def validate_and_resolve_course_code(
     raw_input: str,
     listings: Dict[str, Any],
     course_data_proxy: CourseDataProxy,
-) -> Optional[CourseCode]:
+) -> Optional["CourseCode"]:
     """
     Validate and resolve a course code string into a canonical CourseCode instance.
 
@@ -80,6 +80,8 @@ async def validate_and_resolve_course_code(
         Optional[CourseCode]: A canonical CourseCode instance if resolution
                               succeeds, or None if no valid code can be found.
     """
+    from .course_code import CourseCode
+
     resolver = CourseCodeResolver(listings, course_data_proxy=course_data_proxy)
 
     try:

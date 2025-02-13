@@ -47,6 +47,7 @@ class CourseChannelCog(commands.Cog):
         log.debug("Unloading CourseChannelCog; cancelling background tasks.")
         if self._prune_task:
             self._prune_task.cancel()
+        self.bot.loop.create_task(self.course_service.course_data_proxy.close())
 
     @commands.group(name="course", invoke_without_command=True)
     async def course(self, ctx: commands.Context) -> None:

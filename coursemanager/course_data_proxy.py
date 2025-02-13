@@ -376,21 +376,14 @@ class CourseDataProxy:
     def _parse_offering(
         self, offering: Optional["bs4.element.Tag"]
     ) -> Tuple[str, str, str]:
-        """
-        Parse an offering element to extract description, prerequisites, and antirequisites.
-
-        :param offering: BeautifulSoup Tag representing the offering.
-        :return: A tuple (description, prerequisites, antirequisites)
-        """
-        description, prerequisites, antirequisites = "", "", ""
+        description, prerequisites, antirequisites = ("", "", "")
         if not offering:
-            return description, prerequisites, antirequisites
-
+            return (description, prerequisites, antirequisites)
         if raw_description := offering.get("desc", ""):
-            # Split the raw description by <br> tags (case-insensitive)
+            # Use a precompiled regex (added as a class attribute _BR_REGEX) to split on <br> tags.
             desc_lines = [
                 line.strip()
-                for line in re.split(r"<br\s*/?>", raw_description, flags=re.IGNORECASE)
+                for line in self._BR_REGEX.split(raw_description)
                 if line.strip()
             ]
             if desc_lines:
@@ -403,7 +396,7 @@ class CourseDataProxy:
                     antirequisites = (
                         line.split(":", 1)[1].strip() if ":" in line else ""
                     )
-        return description, prerequisites, antirequisites
+        return (description, prerequisites, antirequisites)
 
     async def update_course_listing(self) -> Optional[str]:
         """
@@ -489,9 +482,7 @@ class CourseDataProxy:
         return False
 
     async def close(self) -> None:
-        """
-        Close the HTTP session.
-        """
         if self.session:
             await self.session.close()
+            self.session = None
             self.log.debug("HTTP session closed.")
