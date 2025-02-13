@@ -49,7 +49,6 @@ class CourseChannelCog(commands.Cog):
             self._prune_task.cancel()
         self.bot.loop.create_task(self.course_service.course_data_proxy.close())
 
-    @log_entry_exit(log)
     @commands.group(name="course", invoke_without_command=True)
     async def course(self, ctx: commands.Context) -> None:
         """Base command for course management."""
