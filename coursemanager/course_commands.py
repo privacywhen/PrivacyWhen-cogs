@@ -8,7 +8,7 @@ from redbot.core.utils.chat_formatting import error, info, success, warning
 from .channel_service import ChannelService
 from .course_service import CourseService
 from .constants import GLOBAL_DEFAULTS
-from .logger_util import get_logger
+from .logger_util import get_logger, log_entry_exit
 
 log = get_logger("red.course_channel_cog")
 
@@ -49,6 +49,7 @@ class CourseChannelCog(commands.Cog):
             self._prune_task.cancel()
         self.bot.loop.create_task(self.course_service.course_data_proxy.close())
 
+    @log_entry_exit(log)
     @commands.group(name="course", invoke_without_command=True)
     async def course(self, ctx: commands.Context) -> None:
         """Base command for course management."""

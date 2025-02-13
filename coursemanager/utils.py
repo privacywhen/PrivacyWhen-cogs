@@ -1,13 +1,16 @@
 from typing import Any, Dict, Optional, List, Tuple
 import discord
 from redbot.core import commands
+
+from coursemanager.course_code import CourseCode
 from .course_code_resolver import CourseCodeResolver
 from .course_data_proxy import CourseDataProxy
-from .logger_util import get_logger
+from .logger_util import get_logger, log_entry_exit
 
 log = get_logger("red.utils")
 
 
+@log_entry_exit(log)
 def get_categories_by_prefix(
     guild: discord.Guild, prefix: str
 ) -> List[discord.CategoryChannel]:
@@ -20,6 +23,7 @@ def get_categories_by_prefix(
     return matching
 
 
+@log_entry_exit(log)
 async def get_or_create_category(
     guild: discord.Guild, category_name: str
 ) -> Optional[discord.CategoryChannel]:
@@ -42,6 +46,7 @@ async def get_or_create_category(
     return category
 
 
+@log_entry_exit(log)
 async def validate_and_resolve_course_code(
     ctx: commands.Context,
     raw_input: str,
@@ -93,6 +98,7 @@ async def validate_and_resolve_course_code(
     return course_obj
 
 
+@log_entry_exit(log)
 async def menu_select_option(
     ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
 ) -> Optional[str]:

@@ -9,7 +9,7 @@ from .utils import (
     get_or_create_category,
     validate_and_resolve_course_code,
 )
-from .logger_util import get_logger
+from .logger_util import get_logger, log_entry_exit
 from .course_code import CourseCode
 
 log = get_logger("red.course_service")
@@ -28,12 +28,15 @@ class CourseService:
         )
         self.course_data_proxy: CourseDataProxy = CourseDataProxy(self.config, log)
 
+    @log_entry_exit(log)
     async def _get_course_listings(self) -> Dict[str, str]:
         return (await self.config.course_listings()).get("courses", {})
 
+    @log_entry_exit(log)
     def _is_valid_course_data(self, data: Any) -> bool:
         return bool(data and data.get("cached_course_data"))
 
+    @log_entry_exit(log)
     async def _check_enabled(self, ctx: commands.Context) -> bool:
         enabled_guilds: List[int] = await self.config.enabled_guilds()
         if ctx.guild.id not in enabled_guilds:
@@ -63,6 +66,7 @@ class CourseService:
             await self.config.enabled_guilds.set(enabled_guilds)
             await ctx.send("Course Manager has been disabled in this server.")
 
+    @log_entry_exit(log)
     def get_course_categories(
         self, guild: discord.Guild
     ) -> List[discord.CategoryChannel]:
@@ -72,6 +76,7 @@ class CourseService:
         )
         return categories
 
+    @log_entry_exit(log)
     def get_category(self, guild: discord.Guild) -> Optional[discord.CategoryChannel]:
         category = next(
             (
@@ -89,6 +94,7 @@ class CourseService:
             )
         return category
 
+    @log_entry_exit(log)
     def get_course_channel(
         self, guild: discord.Guild, course: CourseCode
     ) -> Optional[discord.TextChannel]:
@@ -107,6 +113,7 @@ class CourseService:
         )
         return channel
 
+    @log_entry_exit(log)
     async def create_course_channel(
         self,
         guild: discord.Guild,
@@ -127,10 +134,12 @@ class CourseService:
         log.debug(f"Created channel '{channel.name}' in guild '{guild.name}'")
         return channel
 
+    @log_entry_exit(log)
     def _has_joined(self, user: discord.Member, channel: discord.TextChannel) -> bool:
         overwrite = channel.overwrites_for(user)
         return overwrite.read_messages is True and overwrite.send_messages is True
 
+    @log_entry_exit(log)
     def get_user_courses(self, user: discord.Member, guild: discord.Guild) -> List[str]:
         joined_courses = [
             channel.name
@@ -142,6 +151,7 @@ class CourseService:
         log.debug(f"User '{user}' has joined courses: {joined_courses}")
         return joined_courses
 
+    @log_entry_exit(log)
     async def _lookup_course_data(
         self, ctx: commands.Context, course: CourseCode
     ) -> Tuple[Optional[CourseCode], Any]:
@@ -164,6 +174,7 @@ class CourseService:
         resolved_course, data = await resolver.resolve_course_code(ctx, course)
         return (resolved_course, data)
 
+    @log_entry_exit(log)
     async def course_details(
         self, ctx: commands.Context, course_code: str
     ) -> Optional[discord.Embed]:
@@ -181,6 +192,7 @@ class CourseService:
             return None
         return self._create_course_embed(course_obj.canonical(), data)
 
+    @log_entry_exit(log)
     def _create_course_embed(
         self, course_key: str, course_data: Dict[str, Any]
     ) -> discord.Embed:
@@ -221,6 +233,7 @@ class CourseService:
             )
         return embed
 
+    @log_entry_exit(log)
     async def grant_course_channel_access(
         self, ctx: commands.Context, course_code: str
     ) -> None:
@@ -313,6 +326,7 @@ class CourseService:
             )
         await self._grant_access(ctx, channel, candidate_obj.canonical())
 
+    @log_entry_exit(log)
     async def _grant_access(
         self, ctx: commands.Context, channel: discord.TextChannel, canonical: str
     ) -> bool:
@@ -336,6 +350,7 @@ class CourseService:
             await self.logging_channel.send(f"{ctx.author} has joined {canonical}.")
         return True
 
+    @log_entry_exit(log)
     async def revoke_course_channel_access(
         self, ctx: commands.Context, course_code: str
     ) -> None:
@@ -370,6 +385,7 @@ class CourseService:
         if self.logging_channel:
             await self.logging_channel.send(f"{ctx.author} has left {canonical}.")
 
+    @log_entry_exit(log)
     async def set_logging(
         self, ctx: commands.Context, channel: discord.TextChannel
     ) -> None:
@@ -377,6 +393,7 @@ class CourseService:
         log.debug(f"Logging channel set to {channel.name} by admin {ctx.author}")
         await ctx.send(success(f"Logging channel set to {channel.mention}."))
 
+    @log_entry_exit(log)
     async def set_term_code(
         self, ctx: commands.Context, term_name: str, term_id: int
     ) -> None:
@@ -387,6 +404,7 @@ class CourseService:
             success(f"Term code for {term_name.capitalize()} set to: {term_id}")
         )
 
+    @log_entry_exit(log)
     async def list_all_courses(self, ctx: commands.Context) -> None:
         cfg = await self.config.course_listings.all()
         if "courses" in cfg:
@@ -401,6 +419,7 @@ class CourseService:
         else:
             await ctx.send("Course list not found. Run populate command first.")
 
+    @log_entry_exit(log)
     async def populate_courses(self, ctx: commands.Context) -> None:
         course_count = await self.course_data_proxy.update_course_listing()
         if course_count and int(course_count) > 0:
@@ -408,6 +427,7 @@ class CourseService:
         else:
             await ctx.send(warning("0 courses fetched. Check console log"))
 
+    @log_entry_exit(log)
     async def refresh_course_data(
         self, ctx: commands.Context, course_code: str
     ) -> None:
@@ -443,6 +463,7 @@ class CourseService:
                 error(f"Failed to refresh course data for {course_obj.canonical()}.")
             )
 
+    @log_entry_exit(log)
     async def _menu_select_option(
         self, ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
     ) -> Optional[str]:

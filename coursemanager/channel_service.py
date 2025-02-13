@@ -9,7 +9,7 @@ from .utils import (
     get_categories_by_prefix,
     get_or_create_category,
 )
-from .logger_util import get_logger
+from .logger_util import get_logger, log_entry_exit
 
 
 log = get_logger("red.channel_service")
@@ -20,12 +20,14 @@ class ChannelService:
         self.bot: discord.Client = bot
         self.config: Config = config
 
+    @log_entry_exit(log)
     async def set_default_category(
         self, ctx: discord.ext.commands.Context, category_name: str
     ) -> None:
         await self.config.default_category.set(category_name)
         log.debug(f"Default category set to {category_name}")
 
+    @log_entry_exit(log)
     async def create_channel(
         self,
         ctx: discord.ext.commands.Context,
@@ -51,6 +53,7 @@ class ChannelService:
                 error("I do not have permission to create a channel in that category.")
             )
 
+    @log_entry_exit(log)
     async def channel_prune_helper(
         self,
         guild: discord.Guild,
@@ -101,6 +104,7 @@ class ChannelService:
                     f"Failed to delete channel '{channel.name}' in guild '{guild.name}': {e}"
                 )
 
+    @log_entry_exit(log)
     async def auto_channel_prune(self) -> None:
         prune_threshold_days: int = await self.config.prune_threshold_days()
         prune_threshold = timedelta(days=prune_threshold_days)

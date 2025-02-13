@@ -2,7 +2,7 @@ from typing import Any, List, Optional, Tuple
 from rapidfuzz import process
 from redbot.core import commands
 from .course_code import CourseCode
-from .logger_util import get_logger
+from .logger_util import get_logger, log_entry_exit
 
 log = get_logger("red.course_code_resolver")
 
@@ -12,6 +12,7 @@ class CourseCodeResolver:
         self.course_listings = course_listings
         self.course_data_proxy = course_data_proxy
 
+    @log_entry_exit(log)
     def find_variant_matches(self, base: str) -> List[str]:
         variants = [
             key
@@ -21,6 +22,7 @@ class CourseCodeResolver:
         log.debug(f"For base '{base}', found variant matches: {variants}")
         return variants
 
+    @log_entry_exit(log)
     async def prompt_variant_selection(
         self, ctx: commands.Context, variants: List[str], listings: dict
     ) -> Optional[str]:
@@ -32,6 +34,7 @@ class CourseCodeResolver:
         log.debug(f"User selected variant: {result}")
         return result
 
+    @log_entry_exit(log)
     async def fallback_fuzzy_lookup(
         self, ctx: commands.Context, canonical: str
     ) -> Tuple[Optional[CourseCode], Optional[dict]]:
@@ -53,6 +56,7 @@ class CourseCodeResolver:
             return (candidate_obj, data) if candidate_obj else (None, None)
         return (None, None)
 
+    @log_entry_exit(log)
     async def resolve_course_code(
         self, ctx: commands.Context, course: CourseCode
     ) -> Tuple[Optional[CourseCode], Optional[dict]]:
@@ -80,6 +84,7 @@ class CourseCodeResolver:
                     return (candidate_obj, data) if candidate_obj else (None, None)
         return await self.fallback_fuzzy_lookup(ctx, canonical)
 
+    @log_entry_exit(log)
     async def _menu_select_option(
         self, ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
     ) -> Optional[str]:
