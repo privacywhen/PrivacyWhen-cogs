@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import discord
 from redbot.core import Config, commands
 from redbot.core.utils.chat_formatting import error, info, success, warning, pagify
-from redbot.core.utils.menus import menu, close_menu
+from redbot.core.utils.menus import menu
 from .course_data_proxy import CourseDataProxy
 from .utils import (
     get_categories_by_prefix,
@@ -10,7 +10,6 @@ from .utils import (
     get_logger,
     validate_and_resolve_course_code,
 )
-from .constants import REACTION_OPTIONS
 from .course_code import CourseCode
 
 log = get_logger("red.course_service")

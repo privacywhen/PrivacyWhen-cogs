@@ -2,9 +2,7 @@ from typing import Any, List, Optional, Tuple
 from rapidfuzz import process
 from redbot.core import commands
 from .course_code import CourseCode
-from .constants import REACTION_OPTIONS
 from .utils import get_logger
-from redbot.core.utils.menus import menu, close_menu
 
 log = get_logger("red.course_code_resolver")
 

@@ -8,13 +8,13 @@ It handles fetching, caching, and parsing of course information using BeautifulS
 import asyncio
 import logging
 import random
-import re
 from math import floor
 from time import time
 from datetime import date, datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from bs4 import BeautifulSoup
+import bs4
 from redbot.core import Config
 from aiohttp import (
     ClientConnectionError,
