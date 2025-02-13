@@ -2,7 +2,7 @@ from typing import Any, Dict, Optional, List, Tuple
 import discord
 from redbot.core import commands
 
-from coursemanager.course_code import CourseCode
+from .course_code import CourseCode
 from .course_code_resolver import CourseCodeResolver
 from .course_data_proxy import CourseDataProxy
 from .logger_util import get_logger, log_entry_exit
@@ -85,7 +85,7 @@ async def validate_and_resolve_course_code(
             f"Failed to parse '{raw_input}' using CourseCode. Attempting to resolve using CourseCodeResolver."
         )
         # Fallback: try to resolve the raw input.
-        resolved, _ = await resolver.fallback_fuzzy_lookup(ctx, raw_input)
+        resolved, _ = await resolver.fallback_fuzzy_lookup(ctx, raw_input.strip)
         if not resolved:
             return None
         course_obj = resolved
