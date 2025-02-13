@@ -51,9 +51,9 @@ class CourseCode:
         match = self._pattern.match(self._raw)
         if not match:
             raise ValueError(f"Invalid course code format: '{self._raw}'")
-        self._department = match.group(1).upper()
-        self._code = match.group(2).upper()
-        self._suffix = match.group(3).upper() if match.group(3) else ""
+        self._department: str = match.group(1).upper()
+        self._code: str = match.group(2).upper()
+        self._suffix: str = match.group(3).upper() if match.group(3) else ""
 
     @property
     def raw(self) -> str:

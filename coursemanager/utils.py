@@ -1,6 +1,8 @@
 from typing import Any, Dict, List, Optional, Tuple
+
 import discord
 from redbot.core import commands
+
 from .course_code import CourseCode
 from .course_code_resolver import CourseCodeResolver
 from .course_data_proxy import CourseDataProxy
@@ -12,7 +14,7 @@ log = get_logger("red.utils")
 def get_categories_by_prefix(
     guild: discord.Guild, prefix: str
 ) -> List[discord.CategoryChannel]:
-    matching = [
+    matching: List[discord.CategoryChannel] = [
         cat for cat in guild.categories if cat.name.upper().startswith(prefix.upper())
     ]
     log.debug(
@@ -53,7 +55,7 @@ async def validate_and_resolve_course_code(
 
     resolver = CourseCodeResolver(listings, course_data_proxy=course_data_proxy)
     try:
-        course_obj = CourseCode(raw_input)
+        course_obj: CourseCode = CourseCode(raw_input)
     except ValueError:
         log.debug(
             f"Failed to parse '{raw_input}' using CourseCode. Attempting to resolve using CourseCodeResolver."

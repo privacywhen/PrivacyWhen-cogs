@@ -1,18 +1,19 @@
-# course_service.py
-from typing import Any, Dict, List, Optional, Tuple
 import time
+from typing import Any, Dict, List, Optional, Tuple
+
 import discord
 from redbot.core import Config, commands
 from redbot.core.utils.chat_formatting import error, info, success, warning, pagify
 from redbot.core.utils.menus import menu
+
 from .course_data_proxy import CourseDataProxy
+from .course_code import CourseCode
+from .logger_util import get_logger, log_entry_exit
 from .utils import (
     get_categories_by_prefix,
     get_or_create_category,
     validate_and_resolve_course_code,
 )
-from .logger_util import get_logger, log_entry_exit
-from .course_code import CourseCode
 
 log = get_logger("red.course.service")
 
@@ -24,24 +25,18 @@ class CourseService:
         self.category_name: str = "COURSES"
         self.max_courses: int = 10
         self.logging_channel: Optional[discord.TextChannel] = None
-        self.channel_permissions: discord.PermissionOverwrite = (
-            discord.PermissionOverwrite(read_messages=True, send_messages=True)
-        )
         self.course_data_proxy: CourseDataProxy = CourseDataProxy(self.config, log)
-        # In-memory cache for course listings with TTL
         self._listings_cache: Optional[Dict[str, str]] = None
         self._listings_cache_time: float = 0.0
-        self._listings_ttl: float = 60.0  # seconds
+        self._listings_ttl: float = 60.0
 
     async def _get_course_listings(self) -> Dict[str, str]:
-        """Retrieve course listings using an in-memory TTL cache to reduce config I/O."""
-        now = time.monotonic()
+        now: float = time.monotonic()
         if (
             self._listings_cache is not None
-            and (now - self._listings_cache_time) < self._listings_ttl
+            and now - self._listings_cache_time < self._listings_ttl
         ):
             return self._listings_cache
-
         data = await self.config.course_listings()
         self._listings_cache = data.get("courses", {})
         self._listings_cache_time = now
@@ -108,7 +103,7 @@ class CourseService:
     def get_course_channel(
         self, guild: discord.Guild, course: CourseCode
     ) -> Optional[discord.TextChannel]:
-        target_name = course.formatted_channel_name()
+        target_name: str = course.formatted_channel_name()
         channel = next(
             (
                 ch
@@ -129,7 +124,7 @@ class CourseService:
         category: discord.CategoryChannel,
         course: CourseCode,
     ) -> discord.TextChannel:
-        target_name = course.formatted_channel_name()
+        target_name: str = course.formatted_channel_name()
         log.debug(
             f"Creating channel '{target_name}' in guild '{guild.name}' under category '{category.name}'"
         )
@@ -137,7 +132,7 @@ class CourseService:
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
             guild.me: discord.PermissionOverwrite(administrator=True),
         }
-        channel = await guild.create_text_channel(
+        channel: discord.TextChannel = await guild.create_text_channel(
             target_name, overwrites=overwrites, category=category
         )
         log.debug(f"Created channel '{channel.name}' in guild '{guild.name}'")
@@ -166,7 +161,6 @@ class CourseService:
     async def _resolve_category(
         self, guild: discord.Guild, ctx: commands.Context
     ) -> Optional[discord.CategoryChannel]:
-        """Resolve or create the courses category."""
         category = self.get_category(guild)
         if category is None:
             category = await get_or_create_category(guild, self.category_name)
@@ -179,33 +173,30 @@ class CourseService:
     async def _lookup_course_data(
         self, ctx: commands.Context, course: CourseCode
     ) -> Tuple[Optional[CourseCode], Any]:
-        canonical = course.canonical()
+        canonical: str = course.canonical()
         log.debug(f"Looking up course data for '{canonical}'")
         listings = await self._get_course_listings()
-
         if canonical in listings:
             log.debug(f"Found perfect match for '{canonical}' in listings")
             data = await self.course_data_proxy.get_course_data(canonical)
             if self._is_valid_course_data(data):
                 log.debug(f"Fresh data retrieved for '{canonical}'")
-                return course, data
+                return (course, data)
             log.error(f"Failed to fetch fresh data for '{canonical}'")
-            return course, None
-
-        # Local import to avoid circular dependency issues.
+            return (course, None)
         from .course_code_resolver import CourseCodeResolver
 
         resolver = CourseCodeResolver(
             listings, course_data_proxy=self.course_data_proxy
         )
         resolved_course, data = await resolver.resolve_course_code(ctx, course)
-        return resolved_course, data
+        return (resolved_course, data)
 
     async def course_details(
         self, ctx: commands.Context, course_code: str
     ) -> Optional[discord.Embed]:
         listings = await self._get_course_listings()
-        course_obj = await validate_and_resolve_course_code(
+        course_obj: Optional[CourseCode] = await validate_and_resolve_course_code(
             ctx, course_code, listings, self.course_data_proxy
         )
         if course_obj is None:
@@ -265,22 +256,18 @@ class CourseService:
         )
         if not await self._check_enabled(ctx):
             return
-
-        guild = ctx.guild
-        user = ctx.author
-
+        guild: discord.Guild = ctx.guild
+        user: discord.Member = ctx.author
         listings = await self._get_course_listings()
-        course_obj = await validate_and_resolve_course_code(
+        course_obj: Optional[CourseCode] = await validate_and_resolve_course_code(
             ctx, course_code, listings, self.course_data_proxy
         )
         if course_obj is None:
             log.debug(f"Could not resolve course code '{course_code}'")
             await ctx.send(error(f"Invalid course code: {course_code}."))
             return
-
-        canonical = course_obj.canonical()
+        canonical: str = course_obj.canonical()
         log.debug(f"Parsed course code: canonical={canonical}")
-
         if self._user_channel_limit_reached(user, guild):
             log.debug(f"User {user} reached max channels limit: {self.max_courses}")
             await ctx.send(
@@ -289,8 +276,6 @@ class CourseService:
                 )
             )
             return
-
-        # Check if a channel already exists for the course.
         channel = self.get_course_channel(guild, course_obj)
         if channel:
             if self._has_joined(user, channel):
@@ -300,19 +285,15 @@ class CourseService:
                 return
             if await self._grant_access(ctx, channel, canonical):
                 return
-
         log.debug(
             f"No existing channel for {canonical}. Proceeding with lookup and creation."
         )
         async with ctx.typing():
             candidate_obj, data = await self._lookup_course_data(ctx, course_obj)
-
         if not candidate_obj or not self._is_valid_course_data(data):
             log.debug(f"Course data lookup failed for {canonical}.")
             await ctx.send(error(f"No valid course data found for {canonical}."))
             return
-
-        # Recheck the user's channel list after asynchronous operations.
         if candidate_obj.formatted_channel_name() in self.get_user_courses(user, guild):
             log.debug(
                 f"User {user} already has access to {candidate_obj.canonical()} after lookup"
@@ -322,7 +303,6 @@ class CourseService:
                 delete_after=120,
             )
             return
-
         if self._user_channel_limit_reached(user, guild):
             log.debug(
                 f"User {user} reached max channels limit after lookup: {self.max_courses}"
@@ -333,17 +313,13 @@ class CourseService:
                 )
             )
             return
-
         category = await self._resolve_category(guild, ctx)
         if category is None:
             return
-
-        # In case the channel was concurrently created, re-check.
         channel = self.get_course_channel(guild, candidate_obj)
         if not channel:
             log.debug(f"Creating new channel for {candidate_obj.canonical()}")
             channel = await self.create_course_channel(guild, category, candidate_obj)
-
         await self._grant_access(ctx, channel, candidate_obj.canonical())
 
     async def _grant_access(
@@ -351,7 +327,10 @@ class CourseService:
     ) -> bool:
         try:
             await channel.set_permissions(
-                ctx.author, overwrite=self.channel_permissions
+                ctx.author,
+                overwrite=discord.PermissionOverwrite(
+                    read_messages=True, send_messages=True
+                ),
             )
             log.debug(f"Granted access for {ctx.author} on channel {channel.name}")
         except discord.Forbidden as e:
@@ -374,15 +353,15 @@ class CourseService:
     ) -> None:
         if not await self._check_enabled(ctx):
             return
-        guild = ctx.guild
+        guild: discord.Guild = ctx.guild
         listings = await self._get_course_listings()
-        course_obj = await validate_and_resolve_course_code(
+        course_obj: Optional[CourseCode] = await validate_and_resolve_course_code(
             ctx, course_code, listings, self.course_data_proxy
         )
         if course_obj is None:
             await ctx.send(error(f"Invalid course code: {course_code}."))
             return
-        canonical = course_obj.canonical()
+        canonical: str = course_obj.canonical()
         channel = self.get_course_channel(guild, course_obj)
         if not channel:
             await ctx.send(error(f"You are not a member of {canonical}."))
@@ -433,7 +412,6 @@ class CourseService:
 
     async def populate_courses(self, ctx: commands.Context) -> None:
         course_count = await self.course_data_proxy.update_course_listing()
-        # Invalidate the cache after updating.
         self._listings_cache = None
         if course_count and int(course_count) > 0:
             await ctx.send(info(f"Fetched and cached {course_count} courses"))
@@ -446,7 +424,7 @@ class CourseService:
         if not await self._check_enabled(ctx):
             return
         listings = await self._get_course_listings()
-        course_obj = await validate_and_resolve_course_code(
+        course_obj: Optional[CourseCode] = await validate_and_resolve_course_code(
             ctx, course_code, listings, self.course_data_proxy
         )
         if course_obj is None:
