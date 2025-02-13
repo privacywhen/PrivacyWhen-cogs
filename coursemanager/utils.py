@@ -3,7 +3,7 @@ import discord
 from redbot.core import commands
 from .course_code_resolver import CourseCodeResolver
 from .course_data_proxy import CourseDataProxy
-from logger_util import get_logger
+from .logger_util import get_logger
 
 log = get_logger("red.utils")
 

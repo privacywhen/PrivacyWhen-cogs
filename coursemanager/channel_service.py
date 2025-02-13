@@ -9,7 +9,7 @@ from .utils import (
     get_categories_by_prefix,
     get_or_create_category,
 )
-from logger_util import get_logger
+from .logger_util import get_logger
 
 
 log = get_logger("red.channel_service")

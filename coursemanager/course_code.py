@@ -13,7 +13,7 @@ Example:
 """
 
 import re
-from logger_util import get_logger
+from .logger_util import get_logger
 
 log = get_logger("red.course_code")
 

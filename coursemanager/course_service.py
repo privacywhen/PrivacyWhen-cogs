@@ -9,7 +9,7 @@ from .utils import (
     get_or_create_category,
     validate_and_resolve_course_code,
 )
-from logger_util import get_logger
+from .logger_util import get_logger
 from .course_code import CourseCode
 
 log = get_logger("red.course_service")
