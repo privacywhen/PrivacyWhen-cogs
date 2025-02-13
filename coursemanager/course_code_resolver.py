@@ -7,8 +7,6 @@ from redbot.core.utils.menus import menu, close_menu
 from .constants import REACTION_OPTIONS
 
 log = get_logger("red.course_code_resolver")
-
-# Type alias for fuzzy match entries
 FuzzyMatch = Tuple[str, CourseCode, float]
 
 
@@ -22,8 +20,9 @@ class CourseCodeResolver:
     ) -> None:
         self.course_listings = course_listings
         self.course_data_proxy = course_data_proxy
-        # Cache the listing keys for improved performance in fuzzy lookups.
-        self._listing_keys: List[str] = list(course_listings.keys())
+        # Note: Instead of caching the keys at initialization,
+        # we now recompute them on each fuzzy lookup to avoid stale data.
+        # self._listing_keys = list(course_listings.keys())
 
     def find_variant_matches(self, canonical: str) -> List[str]:
         variants = [
@@ -37,6 +36,7 @@ class CourseCodeResolver:
     async def prompt_variant_selection(
         self, ctx: commands.Context, variants: List[str]
     ) -> Optional[str]:
+        # Build options as tuples of (course_key, description)
         options = [
             (variant, self.course_listings.get(variant, "")) for variant in variants
         ]
@@ -55,8 +55,8 @@ class CourseCodeResolver:
     async def fallback_fuzzy_lookup(
         self, ctx: commands.Context, canonical: str
     ) -> Tuple[Optional[CourseCode], Optional[Dict[str, Any]]]:
-        # Use the cached listing keys for performance.
-        keys_list = self._listing_keys
+        # Recompute keys each time to ensure they’re up to date
+        keys_list = list(self.course_listings.keys())
         all_matches = process.extract(
             canonical,
             keys_list,
@@ -67,8 +67,7 @@ class CourseCodeResolver:
 
         valid_matches: List[FuzzyMatch] = []
         for candidate, score, _ in all_matches:
-            candidate_obj = self._parse_course_code(candidate)
-            if candidate_obj:
+            if candidate_obj := self._parse_course_code(candidate):
                 valid_matches.append((candidate, candidate_obj, score))
             else:
                 log.debug(f"Candidate '{candidate}' failed parsing and is skipped.")
@@ -77,34 +76,49 @@ class CourseCodeResolver:
             log.debug("No valid candidates after filtering fuzzy matches.")
             return (None, None)
 
-        # Sort matches descending by score.
+        # Sort matches by score (highest first)
         valid_matches.sort(key=lambda x: x[2], reverse=True)
         best_candidate, best_obj, best_score = valid_matches[0]
         log.debug(
             f"Best valid fuzzy match for '{canonical}': {best_candidate} with score {best_score}"
         )
 
-        if (
-            len(valid_matches) == 1
-            or valid_matches[0][2] - valid_matches[1][2] >= self.SCORE_MARGIN
+        # Auto-select if only one candidate or the best score is decisively better
+        if len(valid_matches) == 1 or (
+            len(valid_matches) > 1
+            and valid_matches[0][2] - valid_matches[1][2] >= self.SCORE_MARGIN
         ):
-            selected = best_candidate
-            log.debug(f"Auto-selected candidate '{selected}' (score: {best_score})")
+            selected_candidate = best_candidate
+            selected_obj = best_obj
+            log.debug(
+                f"Auto-selected candidate '{selected_candidate}' (score: {best_score})"
+            )
         else:
+            # Prompt the user to select among close matches.
             candidate_options = [candidate for candidate, _, _ in valid_matches]
-            selected = await self.prompt_variant_selection(ctx, candidate_options)
-            if not selected:
+            selected_candidate = await self.prompt_variant_selection(
+                ctx, candidate_options
+            )
+            if not selected_candidate:
                 log.debug("No selection made by the user during fuzzy lookup prompt.")
                 return (None, None)
-
-        candidate_obj = self._parse_course_code(selected)
-        if candidate_obj is None:
-            log.debug(
-                f"Failed to parse the selected candidate '{selected}' after user selection."
+            # Try to find the already parsed CourseCode in our matches.
+            selected_obj = next(
+                (
+                    obj
+                    for candidate, obj, _ in valid_matches
+                    if candidate == selected_candidate
+                ),
+                self._parse_course_code(selected_candidate),
             )
-            return (None, None)
-        data = self.course_listings.get(selected)
-        return (candidate_obj, data)
+            if selected_obj is None:
+                log.debug(
+                    f"Failed to parse the selected candidate '{selected_candidate}' after user selection."
+                )
+                return (None, None)
+
+        data = self.course_listings.get(selected_candidate)
+        return (selected_obj, data)
 
     async def resolve_course_code(
         self, ctx: commands.Context, course: CourseCode
@@ -116,8 +130,8 @@ class CourseCodeResolver:
             log.debug(f"Exact match found for '{canonical}'.")
             return (course, self.course_listings[canonical])
 
-        variants = self.find_variant_matches(canonical)
-        if variants:
+        if variants := self.find_variant_matches(canonical):
+            # Auto-select if only one variant; otherwise prompt.
             selected_code = (
                 variants[0]
                 if len(variants) == 1
@@ -148,12 +162,11 @@ class CourseCodeResolver:
     async def interactive_course_selector(
         ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
     ) -> Optional[str]:
-        """
-        Presents a reaction-based menu to the user to select an option.
-        """
         cancel_emoji = REACTION_OPTIONS[-1]
         max_options = len(REACTION_OPTIONS) - 1
         limited_options = options[:max_options]
+
+        # Build the display lines for each option.
         option_lines = [
             f"{REACTION_OPTIONS[i]} **{option}**: {description}"
             for i, (option, description) in enumerate(limited_options)
@@ -162,7 +175,6 @@ class CourseCodeResolver:
         prompt = f"{prompt_prefix}\n" + "\n".join(option_lines)
         log.debug(f"Prompting menu with:\n{prompt}")
 
-        # Define a factory for creating option handlers.
         def create_handler(selected_option: str, emoji: str) -> Callable[..., Any]:
             async def handler(
                 ctx: commands.Context,
@@ -190,7 +202,6 @@ class CourseCodeResolver:
 
             return handler
 
-        # Build control handlers for each option.
         controls: Dict[str, Any] = {
             emoji: create_handler(option, emoji)
             for emoji, (option, _) in zip(REACTION_OPTIONS, limited_options)
@@ -214,7 +225,6 @@ class CourseCodeResolver:
             return None
 
         controls[cancel_emoji] = cancel_handler
-
         result = await menu(
             ctx, [prompt], controls=controls, timeout=30.0, user=ctx.author
         )
