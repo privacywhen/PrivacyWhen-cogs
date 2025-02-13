@@ -27,7 +27,6 @@ class CourseCodeResolver:
         log.debug(f"For canonical '{canonical}', found variant matches: {variants}")
         return variants
 
-    @log_entry_exit(log)
     async def prompt_variant_selection(
         self, ctx: commands.Context, variants: List[str]
     ) -> Optional[str]:
