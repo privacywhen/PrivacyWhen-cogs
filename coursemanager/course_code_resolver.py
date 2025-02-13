@@ -61,8 +61,7 @@ class CourseCodeResolver:
         canonical = course.canonical()
         if canonical in self.course_listings:
             return (course, self.course_listings[canonical])
-        variants = self.find_variant_matches(canonical)
-        if variants:
+        if variants := self.find_variant_matches(canonical):
             if len(variants) == 1:
                 try:
                     candidate_obj = CourseCode(variants[0])
