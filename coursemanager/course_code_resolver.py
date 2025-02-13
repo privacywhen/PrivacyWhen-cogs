@@ -3,7 +3,8 @@ from rapidfuzz import process
 from redbot.core import commands
 from .course_code import CourseCode
 from .logger_util import get_logger, log_entry_exit
-from .utils import interactive_course_selector
+from redbot.core.utils.menus import menu, close_menu
+from .constants import REACTION_OPTIONS
 
 log = get_logger("red.course_code_resolver")
 
@@ -135,4 +136,73 @@ class CourseCodeResolver:
         self, ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
     ) -> Optional[str]:
         # Delegates to the shared utility function.
-        return await interactive_course_selector(ctx, options, prompt_prefix)
+        return await self.interactive_course_selector(ctx, options, prompt_prefix)
+
+    async def interactive_course_selector(
+        ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
+    ) -> Optional[str]:
+
+        cancel_emoji = REACTION_OPTIONS[-1]
+        max_options = len(REACTION_OPTIONS) - 1
+        # Limit the options to available reaction slots (reserve one for cancel)
+        limited_options = options[:max_options]
+
+        # Build the prompt with emoji labels and descriptions.
+        option_lines = [
+            f"{REACTION_OPTIONS[i]} **{option}**: {description}"
+            for i, (option, description) in enumerate(limited_options)
+        ]
+        option_lines.append(f"{cancel_emoji} Cancel")
+        prompt = f"{prompt_prefix}\n" + "\n".join(option_lines)
+        log.debug(f"Prompting menu with:\n{prompt}")
+
+        # Create handler functions for each reaction.
+        def create_handler(selected_option: str, emoji: str):
+            async def handler(
+                ctx,
+                pages,
+                controls,
+                message,
+                page,
+                timeout,
+                reacted_emoji,
+                *,
+                user=None,
+            ):
+                log.debug(f"Option '{selected_option}' selected via emoji '{emoji}'")
+                await close_menu(
+                    ctx,
+                    pages,
+                    controls,
+                    message,
+                    page,
+                    timeout,
+                    reacted_emoji,
+                    user=user,
+                )
+                return selected_option
+
+            return handler
+
+        # Map each reaction emoji to its corresponding handler.
+        controls: Dict[str, Any] = {
+            emoji: create_handler(option, emoji)
+            for emoji, (option, _) in zip(REACTION_OPTIONS, limited_options)
+        }
+
+        async def cancel_handler(
+            ctx, pages, controls, message, page, timeout, emoji, *, user=None
+        ):
+            log.debug("User cancelled the menu")
+            await close_menu(
+                ctx, pages, controls, message, page, timeout, emoji, user=user
+            )
+            return None
+
+        controls[cancel_emoji] = cancel_handler
+
+        result = await menu(
+            ctx, [prompt], controls=controls, timeout=30.0, user=ctx.author
+        )
+        log.debug(f"Menu selection result: {result}")
+        return result
