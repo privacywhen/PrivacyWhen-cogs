@@ -51,61 +51,6 @@ class ChannelService:
                 error("I do not have permission to create a channel in that category.")
             )
 
-    async def delete_channel(
-        self, ctx: discord.ext.commands.Context, channel: discord.TextChannel
-    ) -> None:
-        try:
-            await channel.delete()
-            await ctx.send(f"Channel **{channel.name}** deleted.")
-        except discord.Forbidden:
-            await ctx.send(error("I do not have permission to delete that channel."))
-
-    async def list_channels(
-        self,
-        ctx: discord.ext.commands.Context,
-        category: Optional[discord.CategoryChannel] = None,
-    ) -> None:
-        if category:
-            channels = category.channels
-            title = f"Channels in category **{category.name}**:"
-        else:
-            guild: discord.Guild = ctx.guild
-            channels = guild.text_channels
-            title = "Text channels in this server:"
-        if channels:
-            channel_list = "\n".join(channel.name for channel in channels)
-            pages = [
-                f"**{title}**\n{page}"
-                for page in pagify(channel_list, page_length=1900)
-            ]
-            await menu(ctx, pages, timeout=60.0, user=ctx.author)
-        else:
-            await ctx.send("No channels found.")
-
-    async def set_channel_permission(
-        self,
-        ctx: discord.ext.commands.Context,
-        channel: discord.TextChannel,
-        member: discord.Member,
-        allow: bool,
-    ) -> None:
-        try:
-            if allow:
-                overwrite = discord.PermissionOverwrite(
-                    read_messages=True, send_messages=True
-                )
-            else:
-                overwrite = discord.PermissionOverwrite(read_messages=False)
-            action = "granted" if allow else "removed"
-            await channel.set_permissions(member, overwrite=overwrite)
-            await ctx.send(
-                f"Permissions for {member.mention} {action} in {channel.mention}."
-            )
-        except discord.Forbidden:
-            await ctx.send(
-                error("I do not have permission to manage channel permissions.")
-            )
-
     async def channel_prune_helper(
         self,
         guild: discord.Guild,
@@ -157,36 +102,32 @@ class ChannelService:
                 )
 
     async def auto_channel_prune(self) -> None:
-        # Retrieve the inactivity threshold (in days) from config and convert to a timedelta.
         prune_threshold_days: int = await self.config.prune_threshold_days()
         prune_threshold = timedelta(days=prune_threshold_days)
-        # Retrieve the prune interval from the config.
         prune_interval: int = await self.config.channel_prune_interval()
-
         await self.bot.wait_until_ready()
         log.debug("Auto-channel-prune task started.")
-
-        while not self.bot.is_closed():
-            log.debug(
-                f"Auto-channel-prune cycle started at {datetime.now(timezone.utc)}"
-            )
-            enabled_guilds: List[int] = await self.config.enabled_guilds()
-
-            # Iterate over each guild where the course manager is enabled.
-            for guild in self.bot.guilds:
-                if guild.id not in enabled_guilds:
-                    continue
-
-                base_category: str = await self.config.course_category()
-                # For each category matching the course prefix...
-                for category in get_categories_by_prefix(guild, base_category):
-                    for channel in category.channels:
-                        if not isinstance(channel, discord.TextChannel):
-                            continue
-
-                        await self.channel_prune_helper(guild, channel, prune_threshold)
-
-            log.debug(
-                f"Auto-channel-prune cycle complete. Sleeping for {prune_interval} seconds."
-            )
-            await asyncio.sleep(prune_interval)
+        try:
+            while not self.bot.is_closed():
+                log.debug(
+                    f"Auto-channel-prune cycle started at {datetime.now(timezone.utc)}"
+                )
+                enabled_guilds: List[int] = await self.config.enabled_guilds()
+                for guild in self.bot.guilds:
+                    if guild.id not in enabled_guilds:
+                        continue
+                    base_category: str = await self.config.course_category()
+                    for category in get_categories_by_prefix(guild, base_category):
+                        for channel in category.channels:
+                            if not isinstance(channel, discord.TextChannel):
+                                continue
+                            await self.channel_prune_helper(
+                                guild, channel, prune_threshold
+                            )
+                log.debug(
+                    f"Auto-channel-prune cycle complete. Sleeping for {prune_interval} seconds."
+                )
+                await asyncio.sleep(prune_interval)
+        except asyncio.CancelledError:
+            log.debug("Auto-channel-prune task cancelled.")
+            raise

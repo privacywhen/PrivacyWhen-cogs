@@ -13,6 +13,7 @@ GLOBAL_DEFAULTS: Dict[str, Any] = {
     # Channel pruning configuration:
     "channel_prune_history_limit": 10,  # Number of messages to check for user activity in a channel
     "channel_prune_interval": 2628000,  # Interval (in seconds) between auto-prune cycles (~30 days)
+    "prune_threshold_days": 7,
 }
 
 REACTION_OPTIONS: List[str] = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "❌"]
