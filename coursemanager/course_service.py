@@ -4,7 +4,12 @@ from redbot.core import Config, commands
 from redbot.core.utils.chat_formatting import error, info, success, warning, pagify
 from redbot.core.utils.menus import menu, close_menu
 from .course_data_proxy import CourseDataProxy
-from .utils import get_categories_by_prefix, get_or_create_category, get_logger
+from .utils import (
+    get_categories_by_prefix,
+    get_or_create_category,
+    get_logger,
+    validate_and_resolve_course_code,
+)
 from .constants import REACTION_OPTIONS
 from .course_code import CourseCode
 
@@ -12,6 +17,7 @@ log = get_logger("red.course_service")
 
 
 class CourseService:
+
     def __init__(self, bot: commands.Bot, config: Config) -> None:
         self.bot: commands.Bot = bot
         self.config: Config = config
@@ -24,15 +30,9 @@ class CourseService:
         self.course_data_proxy: CourseDataProxy = CourseDataProxy(self.config, log)
 
     async def _get_course_listings(self) -> Dict[str, str]:
-        """
-        Retrieve course listings from config and return the 'courses' dictionary.
-        """
         return (await self.config.course_listings()).get("courses", {})
 
     def _is_valid_course_data(self, data: Any) -> bool:
-        """
-        Returns True if the provided course data is valid (i.e. has non-empty 'cached_course_data').
-        """
         return bool(data and data.get("cached_course_data"))
 
     async def _check_enabled(self, ctx: commands.Context) -> bool:
@@ -104,7 +104,7 @@ class CourseService:
             None,
         )
         log.debug(
-            f"{'Found' if channel else 'No'} course channel '{target_name}' for course '{course.canonical()}' in guild '{guild.name}'"
+            f"{('Found' if channel else 'No')} course channel '{target_name}' for course '{course.canonical()}' in guild '{guild.name}'"
         )
         return channel
 
@@ -168,9 +168,12 @@ class CourseService:
     async def course_details(
         self, ctx: commands.Context, course_code: str
     ) -> Optional[discord.Embed]:
-        try:
-            course_obj = CourseCode(course_code)
-        except ValueError:
+        # Resolve the course code as early as possible.
+        listings = await self._get_course_listings()
+        course_obj = await validate_and_resolve_course_code(
+            ctx, course_code, listings, self.course_data_proxy
+        )
+        if course_obj is None:
             return None
         data = await self.course_data_proxy.get_course_data(
             course_obj.canonical(), detailed=True
@@ -227,16 +230,19 @@ class CourseService:
         )
         if not await self._check_enabled(ctx):
             return
-        try:
-            course_obj = CourseCode(course_code)
-        except ValueError:
-            log.debug(f"Invalid course code formatting for input '{course_code}'")
+
+        # Resolve the raw course code immediately.
+        listings = await self._get_course_listings()
+        course_obj = await validate_and_resolve_course_code(
+            ctx, course_code, listings, self.course_data_proxy
+        )
+        if course_obj is None:
+            log.debug(f"Could not resolve course code '{course_code}'")
             await ctx.send(error(f"Invalid course code: {course_code}."))
             return
 
         canonical = course_obj.canonical()
         log.debug(f"Parsed course code: canonical={canonical}")
-
         user_courses = self.get_user_courses(ctx.author, ctx.guild)
         log.debug(f"User {ctx.author} current joined courses: {user_courses}")
         if len(user_courses) >= self.max_courses:
@@ -249,7 +255,6 @@ class CourseService:
                 )
             )
             return
-
         channel = self.get_course_channel(ctx.guild, course_obj)
         if channel:
             if channel.name in user_courses:
@@ -260,7 +265,6 @@ class CourseService:
                 return
             if await self._grant_access(ctx, channel, canonical):
                 return
-
         log.debug(
             f"No existing channel for {canonical}. Proceeding with lookup and creation."
         )
@@ -270,7 +274,6 @@ class CourseService:
             log.debug(f"Course data lookup failed for {canonical}.")
             await ctx.send(error(f"No valid course data found for {canonical}."))
             return
-
         user_courses = self.get_user_courses(ctx.author, ctx.guild)
         if candidate_obj.formatted_channel_name() in user_courses:
             log.debug(
@@ -291,7 +294,6 @@ class CourseService:
                 )
             )
             return
-
         category = self.get_category(ctx.guild)
         if category is None:
             log.debug("Course category not found. Attempting to create one.")
@@ -304,7 +306,6 @@ class CourseService:
                 error("I don't have permission to create the courses category.")
             )
             return
-
         channel = self.get_course_channel(ctx.guild, candidate_obj)
         if not channel:
             log.debug(f"Creating new channel for {candidate_obj.canonical()}")
@@ -341,11 +342,16 @@ class CourseService:
     ) -> None:
         if not await self._check_enabled(ctx):
             return
-        try:
-            course_obj = CourseCode(course_code)
-        except ValueError:
+
+        # Resolve the course code first.
+        listings = await self._get_course_listings()
+        course_obj = await validate_and_resolve_course_code(
+            ctx, course_code, listings, self.course_data_proxy
+        )
+        if course_obj is None:
             await ctx.send(error(f"Invalid course code: {course_code}."))
             return
+
         canonical = course_obj.canonical()
         channel = self.get_course_channel(ctx.guild, course_obj)
         if not channel:
@@ -408,11 +414,16 @@ class CourseService:
     ) -> None:
         if not await self._check_enabled(ctx):
             return
-        try:
-            course_obj = CourseCode(course_code)
-        except ValueError:
+
+        # Resolve the course code first.
+        listings = await self._get_course_listings()
+        course_obj = await validate_and_resolve_course_code(
+            ctx, course_code, listings, self.course_data_proxy
+        )
+        if course_obj is None:
             await ctx.send(error(f"Invalid course code: {course_code}."))
             return
+
         marked = await self.course_data_proxy.force_mark_stale(
             course_obj.canonical(), detailed=True
         )
@@ -434,10 +445,7 @@ class CourseService:
             )
 
     async def _menu_select_option(
-        self,
-        ctx: commands.Context,
-        options: List[Tuple[str, str]],
-        prompt_prefix: str,
+        self, ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
     ) -> Optional[str]:
         cancel_emoji = REACTION_OPTIONS[-1]
         limited_options = options[: len(REACTION_OPTIONS) - 1]
@@ -451,6 +459,7 @@ class CourseService:
         controls = {}
 
         def make_handler(emoji: str, opt: str):
+
             async def handler(
                 ctx,
                 pages,
