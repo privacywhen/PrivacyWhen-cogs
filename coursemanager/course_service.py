@@ -1,6 +1,5 @@
 from typing import Any, Dict, List, Optional, Tuple
 import discord
-from rapidfuzz import process
 from redbot.core import Config, commands
 from redbot.core.utils.chat_formatting import error, info, success, warning, pagify
 from redbot.core.utils.menus import menu, close_menu
@@ -19,13 +18,11 @@ class CourseService:
         self.category_name: str = "COURSES"
         self.max_courses: int = 10
         self.logging_channel: Optional[discord.TextChannel] = None
-        # Default permission overwrites for course channels.
         self.channel_permissions: discord.PermissionOverwrite = (
             discord.PermissionOverwrite(read_messages=True, send_messages=True)
         )
         self.course_data_proxy: CourseDataProxy = CourseDataProxy(self.config, log)
 
-    # ─── HELPER METHODS ─────────────────────────────────────────────────────────
     async def _get_course_listings(self) -> Dict[str, str]:
         """
         Retrieve course listings from config and return the 'courses' dictionary.
@@ -38,7 +35,6 @@ class CourseService:
         """
         return bool(data and data.get("cached_course_data"))
 
-    # ─── ENABLE/DISABLE COMMANDS ───────────────────────────────────────────────
     async def _check_enabled(self, ctx: commands.Context) -> bool:
         enabled_guilds: List[int] = await self.config.enabled_guilds()
         if ctx.guild.id not in enabled_guilds:
@@ -68,7 +64,6 @@ class CourseService:
             await self.config.enabled_guilds.set(enabled_guilds)
             await ctx.send("Course Manager has been disabled in this server.")
 
-    # ─── CHANNEL AND CATEGORY LOOKUPS ───────────────────────────────────────────
     def get_course_categories(
         self, guild: discord.Guild
     ) -> List[discord.CategoryChannel]:
@@ -123,7 +118,6 @@ class CourseService:
         log.debug(
             f"Attempting to create channel '{target_name}' in guild '{guild.name}' under category '{category.name}'"
         )
-        # Overwrites: hide channel by default and grant bot administrator permissions.
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
             guild.me: discord.PermissionOverwrite(administrator=True),
@@ -149,46 +143,12 @@ class CourseService:
         log.debug(f"User '{user}' has joined courses: {joined_courses}")
         return joined_courses
 
-    # ─── COURSE DATA LOOKUP AND VARIANT SELECTION ────────────────────────────────
-    def _find_variant_matches(self, base: str, listings: dict) -> List[str]:
-        variants = [
-            key for key in listings if key.startswith(base) and len(key) > len(base)
-        ]
-        log.debug(f"For base '{base}', found variant matches: {variants}")
-        return variants
-
-    async def _prompt_variant_selection(
-        self, ctx: commands.Context, variants: List[str], listings: dict
-    ) -> Tuple[Optional[CourseCode], Any]:
-        options = [(variant, listings.get(variant, "")) for variant in variants]
-        log.debug(f"Prompting variant selection with options: {options}")
-        result = await self._menu_select_option(
-            ctx, options, "Multiple course variants found. Please choose one:"
-        )
-        log.debug(f"User selected variant: {result}")
-        if result is None:
-            return (None, None)
-        data = await self.course_data_proxy.get_course_data(result)
-        log.debug(
-            f"Data validity for candidate '{result}': {self._is_valid_course_data(data)}"
-        )
-        try:
-            candidate_obj = CourseCode(result)
-        except ValueError:
-            candidate_obj = None
-        return (
-            (candidate_obj, data)
-            if candidate_obj and self._is_valid_course_data(data)
-            else (None, None)
-        )
-
     async def _lookup_course_data(
         self, ctx: commands.Context, course: CourseCode
     ) -> Tuple[Optional[CourseCode], Any]:
         canonical = course.canonical()
         log.debug(f"Looking up course data for '{canonical}'")
         listings = await self._get_course_listings()
-        # Perfect match check
         if canonical in listings:
             log.debug(f"Found perfect match for '{canonical}' in listings")
             data = await self.course_data_proxy.get_course_data(canonical)
@@ -197,62 +157,14 @@ class CourseService:
                 return (course, data)
             log.error(f"Failed to fetch fresh data for '{canonical}'")
             return (course, None)
-        # Variant selection if course code does not end with an alphabet
-        if not canonical[-1].isalpha():
-            if variants := self._find_variant_matches(canonical, listings):
-                if len(variants) == 1:
-                    candidate = variants[0]
-                    log.debug(f"Single variant '{candidate}' found for '{canonical}'")
-                    data = await self.course_data_proxy.get_course_data(candidate)
-                    if self._is_valid_course_data(data):
-                        try:
-                            candidate_obj = CourseCode(candidate)
-                        except ValueError:
-                            candidate_obj = None
-                        return (candidate_obj, data)
-                else:
-                    candidate_obj, data = await self._prompt_variant_selection(
-                        ctx, variants, listings
-                    )
-                    log.debug(f"Variant selection returned candidate '{candidate_obj}'")
-                    return (candidate_obj, data) if candidate_obj else (None, None)
-        # Fallback: fuzzy lookup
-        log.debug(f"Falling back to fuzzy lookup for '{canonical}'")
-        candidate, data = await self._fallback_fuzzy_lookup(ctx, canonical)
-        log.debug(f"Fuzzy lookup returned candidate '{candidate}'")
-        return (candidate, data)
+        from .course_code_resolver import CourseCodeResolver
 
-    async def _fallback_fuzzy_lookup(
-        self, ctx: commands.Context, canonical: str
-    ) -> Tuple[Optional[CourseCode], Any]:
-        listings = await self._get_course_listings()
-        if not listings:
-            log.debug("No course listings available for fuzzy lookup")
-            return (None, None)
-        matches = process.extract(canonical, listings.keys(), limit=5, score_cutoff=70)
-        log.debug(f"Fuzzy matches for '{canonical}': {matches}")
-        if not matches:
-            return (None, None)
-        options = [(match[0], listings.get(match[0], "")) for match in matches]
-        result = await self._menu_select_option(
-            ctx, options, "Course not found. Did you mean:"
+        resolver = CourseCodeResolver(
+            listings, course_data_proxy=self.course_data_proxy
         )
-        log.debug(f"Fuzzy lookup: user selected '{result}'")
-        data = await self.course_data_proxy.get_course_data(result)
-        log.debug(
-            f"Retrieved course data for candidate '{result}': {self._is_valid_course_data(data)}"
-        )
-        try:
-            candidate_obj = CourseCode(result)
-        except ValueError:
-            candidate_obj = None
-        return (
-            (candidate_obj, data)
-            if candidate_obj and self._is_valid_course_data(data)
-            else (None, None)
-        )
+        resolved_course, data = await resolver.resolve_course_code(ctx, course)
+        return (resolved_course, data)
 
-    # ─── EMBED CREATION ────────────────────────────────────────────────────────
     async def course_details(
         self, ctx: commands.Context, course_code: str
     ) -> Optional[discord.Embed]:
@@ -274,7 +186,6 @@ class CourseService:
         embed = discord.Embed(
             title=f"Course Details: {course_key}", color=discord.Color.green()
         )
-        # Safely extract the first course entry.
         data_item = (course_data.get("cached_course_data") or [{}])[0]
         embed.set_footer(
             text=f"Last updated: {course_data.get('last_updated', 'Unknown')}"
@@ -308,7 +219,6 @@ class CourseService:
             )
         return embed
 
-    # ─── COURSE CHANNEL ACCESS MANAGEMENT ───────────────────────────────────────
     async def grant_course_channel_access(
         self, ctx: commands.Context, course_code: str
     ) -> None:
@@ -348,7 +258,6 @@ class CourseService:
                     info(f"You are already joined in {canonical}."), delete_after=120
                 )
                 return
-            # Attempt to grant access to an existing channel.
             if await self._grant_access(ctx, channel, canonical):
                 return
 
@@ -362,7 +271,6 @@ class CourseService:
             await ctx.send(error(f"No valid course data found for {canonical}."))
             return
 
-        # Recheck user channels after lookup.
         user_courses = self.get_user_courses(ctx.author, ctx.guild)
         if candidate_obj.formatted_channel_name() in user_courses:
             log.debug(
@@ -464,7 +372,6 @@ class CourseService:
         log.debug(f"Logging channel set to {channel.name} by admin {ctx.author}")
         await ctx.send(success(f"Logging channel set to {channel.mention}."))
 
-    # ─── CONFIGURATION AND DATA MAINTENANCE ──────────────────────────────────────
     async def set_term_code(
         self, ctx: commands.Context, term_name: str, term_id: int
     ) -> None:
@@ -526,8 +433,6 @@ class CourseService:
                 error(f"Failed to refresh course data for {course_obj.canonical()}.")
             )
 
-    # ─── MENU UTILITY ──────────────────────────────────────────────────────────
-
     async def _menu_select_option(
         self,
         ctx: commands.Context,
@@ -535,7 +440,6 @@ class CourseService:
         prompt_prefix: str,
     ) -> Optional[str]:
         cancel_emoji = REACTION_OPTIONS[-1]
-        # Limit options to available reaction emojis except cancel
         limited_options = options[: len(REACTION_OPTIONS) - 1]
         option_lines = [
             f"{REACTION_OPTIONS[i]} **{option}**: {description}"
@@ -573,7 +477,6 @@ class CourseService:
 
             return handler
 
-        # Build controls using a dictionary comprehension
         emoji_to_option = {
             REACTION_OPTIONS[i]: option for i, (option, _) in enumerate(limited_options)
         }
