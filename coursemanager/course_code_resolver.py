@@ -3,6 +3,7 @@ from rapidfuzz import process
 from redbot.core import commands
 from .course_code import CourseCode
 from .logger_util import get_logger, log_entry_exit
+from .utils import interactive_course_selector
 
 log = get_logger("red.course_code_resolver")
 
@@ -134,6 +135,4 @@ class CourseCodeResolver:
         self, ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
     ) -> Optional[str]:
         # Delegates to the shared utility function.
-        from .utils import menu_select_option
-
-        return await menu_select_option(ctx, options, prompt_prefix)
+        return await interactive_course_selector(ctx, options, prompt_prefix)

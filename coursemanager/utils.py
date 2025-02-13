@@ -69,7 +69,7 @@ async def validate_and_resolve_course_code(
     return course_obj
 
 
-async def menu_select_option(
+async def interactive_course_selector(
     ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
 ) -> Optional[str]:
     from redbot.core.utils.menus import menu, close_menu
