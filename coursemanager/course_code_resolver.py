@@ -47,7 +47,7 @@ class CourseCodeResolver:
             log.error(f"Invalid course code format: {raw}")
             return None
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     async def fallback_fuzzy_lookup(
         self, ctx: commands.Context, canonical: str
     ) -> Tuple[Optional[CourseCode], Optional[Dict[str, Any]]]:
@@ -101,7 +101,7 @@ class CourseCodeResolver:
         data = self.course_listings.get(selected)
         return (candidate_obj, data)
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     async def resolve_course_code(
         self, ctx: commands.Context, course: CourseCode
     ) -> Tuple[Optional[CourseCode], Optional[Dict[str, Any]]]:
@@ -129,7 +129,7 @@ class CourseCodeResolver:
         log.debug("No variants found; proceeding with fuzzy lookup.")
         return await self.fallback_fuzzy_lookup(ctx, canonical)
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     async def _menu_select_option(
         self, ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
     ) -> Optional[str]:

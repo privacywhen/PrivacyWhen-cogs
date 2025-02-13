@@ -76,7 +76,7 @@ class CourseDataProxy:
             self.log.debug("Created new HTTP session.")
         return self.session
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     def _get_course_keys(self, course_code: str) -> Tuple[str, str, str]:
         """
         Extract course keys (department, code, suffix) from the given course code.
@@ -90,7 +90,7 @@ class CourseDataProxy:
         suffix = course_obj.suffix or "__nosuffix__"
         return department, code, suffix
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     def _get_cache_entry(
         self, courses: Dict[str, Any], department: str, code: str, suffix: str, key: str
     ) -> Optional[Dict[str, Any]]:
@@ -106,7 +106,7 @@ class CourseDataProxy:
         """
         return courses.get(department, {}).get(code, {}).get(suffix, {}).get(key)
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     async def _update_cache_entry(
         self, department: str, code: str, suffix: str, key: str, value: Dict[str, Any]
     ) -> None:
@@ -127,7 +127,7 @@ class CourseDataProxy:
             suffix_dict = course_dict.setdefault(suffix, {})
             suffix_dict[key] = value
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     def _is_stale(self, last_updated_str: str, threshold_days: int) -> bool:
         """
         Determine whether a cached entry is stale based on its timestamp.
@@ -145,7 +145,7 @@ class CourseDataProxy:
             self.log.exception(f"Error checking staleness: {e}")
             return True
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     async def get_course_data(
         self, course_code: str, detailed: bool = False
     ) -> Dict[str, Any]:
@@ -190,7 +190,7 @@ class CourseDataProxy:
                     return basic
             return {}
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     async def _fetch_course_online(
         self, course_code: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
@@ -209,7 +209,7 @@ class CourseDataProxy:
         )
         return (soup, None) if soup else (None, error_message)
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     def _determine_term_order(self) -> List[str]:
         """
         Determine the order of terms based on the current date.
@@ -225,7 +225,7 @@ class CourseDataProxy:
         self.log.debug(f"Date: {today}, term order: {term_order}")
         return term_order
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     async def _fetch_data_with_retries(
         self, term_order: List[str], normalized_course: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
@@ -275,7 +275,7 @@ class CourseDataProxy:
             self.log.error(f"Max retries reached for {url}")
         return None, "Error: Max retries reached while fetching course data."
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     async def _get_term_id(self, term_name: str) -> Optional[int]:
         """
         Retrieve the term ID from the configuration.
@@ -289,7 +289,7 @@ class CourseDataProxy:
         self.log.debug(f"Term ID for {term_name}: {term_id}")
         return term_id
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     def _build_url(self, term_id: int, normalized_course: str) -> str:
         """
         Build the API URL for fetching course data.
@@ -305,7 +305,7 @@ class CourseDataProxy:
         self.log.debug(f"Generated URL with t={t}, e={e}: {url}")
         return url
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     def _generate_time_code(self) -> Tuple[int, int]:
         """
         Generate time-based codes used in URL construction.
@@ -317,7 +317,7 @@ class CourseDataProxy:
         self.log.debug(f"Generated time codes: t={t}, e={e}")
         return t, e
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     async def _fetch_single_attempt(
         self, url: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
@@ -352,7 +352,7 @@ class CourseDataProxy:
             self.log.exception(f"Unexpected error during HTTP GET from {url}")
             return None, f"Unexpected error: {e}"
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     def _process_course_data(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
         """
         Parse the BeautifulSoup object to extract course data.
@@ -388,7 +388,7 @@ class CourseDataProxy:
             )
         return processed_courses
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     def _parse_offering(
         self, offering: Optional["bs4.element.Tag"]
     ) -> Tuple[str, str, str]:
@@ -414,7 +414,7 @@ class CourseDataProxy:
                     )
         return (description, prerequisites, antirequisites)
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     async def update_course_listing(self) -> Optional[str]:
         """
         Update the course listings by fetching data from the external API.
@@ -437,7 +437,7 @@ class CourseDataProxy:
             return "0"
         return None
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     async def _fetch_course_listings(
         self,
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
@@ -460,7 +460,7 @@ class CourseDataProxy:
             return None, "Error: Issue occurred while fetching course data."
         return None, None
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     def _process_course_listing(self, soup: BeautifulSoup) -> Dict[str, str]:
         """
         Process the course listings data from BeautifulSoup.
@@ -482,7 +482,7 @@ class CourseDataProxy:
             courses_dict[normalized_course_code] = course_info
         return courses_dict
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     async def force_mark_stale(self, course_code: str, detailed: bool = True) -> bool:
         """
         Force a cached course entry to be marked as stale.
@@ -501,7 +501,7 @@ class CourseDataProxy:
             return True
         return False
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     async def close(self) -> None:
         if self.session:
             await self.session.close()
