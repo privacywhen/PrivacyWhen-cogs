@@ -458,24 +458,6 @@ class CourseService:
         if self.logging_channel:
             await self.logging_channel.send(f"{ctx.author} has left {canonical}.")
 
-    async def admin_delete_channel(
-        self, ctx: commands.Context, channel: discord.TextChannel
-    ) -> None:
-        if not channel.category or channel.category not in self.get_course_categories(
-            ctx.guild
-        ):
-            await ctx.send(error(f"{channel.mention} is not a course channel."))
-            return
-        try:
-            await channel.delete()
-            log.debug(f"Channel {channel.name} deleted by admin {ctx.author}")
-        except discord.Forbidden:
-            await ctx.send(error("I don't have permission to delete that channel."))
-            return
-        await ctx.send(success(f"{channel.name} has been successfully deleted."))
-        if self.logging_channel:
-            await self.logging_channel.send(f"{channel.name} has been deleted.")
-
     async def set_logging(
         self, ctx: commands.Context, channel: discord.TextChannel
     ) -> None:
@@ -492,77 +474,6 @@ class CourseService:
         log.debug(f"Set term code for {term_name} to {term_id}")
         await ctx.send(
             success(f"Term code for {term_name.capitalize()} set to: {term_id}")
-        )
-
-    async def clear_stale_config(self, ctx: commands.Context) -> None:
-        log.debug("Clearing stale config entries based on caching timestamps.")
-        now = datetime.now(timezone.utc)
-        stale_entries = []
-        courses_config = await self.config.courses.all()
-        for department, dept_data in courses_config.items():
-            for course_code, course_entries in dept_data.items():
-                for suffix, data_entry in course_entries.items():
-                    last_updated = None
-                    basic_data = data_entry.get("basic")
-                    detailed_data = data_entry.get("detailed")
-                    if basic_data:
-                        try:
-                            basic_ts = datetime.fromisoformat(
-                                basic_data.get("last_updated")
-                            )
-                            last_updated = (
-                                basic_ts
-                                if last_updated is None or basic_ts < last_updated
-                                else last_updated
-                            )
-                        except Exception:
-                            pass
-                    if detailed_data:
-                        try:
-                            detailed_ts = datetime.fromisoformat(
-                                detailed_data.get("last_updated")
-                            )
-                            last_updated = (
-                                detailed_ts
-                                if last_updated is None or detailed_ts < last_updated
-                                else last_updated
-                            )
-                        except Exception:
-                            pass
-                    if last_updated is None or now - last_updated > timedelta(days=180):
-                        stale_entries.append((department, course_code, suffix))
-        async with self.config.courses() as courses_update:
-            for department, course_code, suffix in stale_entries:
-                dept_data = courses_update.get(department, {})
-                course_dict = dept_data.get(course_code, {})
-                if suffix in course_dict:
-                    del course_dict[suffix]
-                    log.debug(
-                        f"Purged stale entry for {department}-{course_code}-{suffix}"
-                    )
-                if not course_dict:
-                    if course_code in dept_data:
-                        del dept_data[course_code]
-                if dept_data:
-                    courses_update[department] = dept_data
-                elif department in courses_update:
-                    del courses_update[department]
-        if stale_entries:
-            stale_str = ", ".join(
-                [f"{dept}-{course}-{suf}" for dept, course, suf in stale_entries]
-            )
-            await ctx.send(success(f"Cleared stale course entries: {stale_str}"))
-        else:
-            await ctx.send(info("No stale course config entries found."))
-
-    async def clear_courses(self, ctx: commands.Context) -> None:
-        await self.config.courses.set({})
-        await self.config.course_listings.set({})
-        log.debug(f"All course data and course listings cleared by {ctx.author}")
-        await ctx.send(
-            warning(
-                "All courses and course listings have been cleared from the config."
-            )
         )
 
     async def list_all_courses(self, ctx: commands.Context) -> None:

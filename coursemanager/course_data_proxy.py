@@ -39,7 +39,6 @@ class CourseDataProxy:
 
     # Caching thresholds and URL constants
     _CACHE_STALE_DAYS_BASIC: int = 90
-    _CACHE_EXPIRY_DAYS: int = 240
     _CACHE_PURGE_DAYS: int = 180
     _TERM_NAMES: List[str] = ["winter", "spring", "fall"]
     _URL_BASE: str = (

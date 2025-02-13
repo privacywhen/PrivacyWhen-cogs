@@ -51,15 +51,6 @@ class ChannelService:
                 error("I do not have permission to create a channel in that category.")
             )
 
-    async def delete_channel(
-        self, ctx: discord.ext.commands.Context, channel: discord.TextChannel
-    ) -> None:
-        try:
-            await channel.delete()
-            await ctx.send(f"Channel **{channel.name}** deleted.")
-        except discord.Forbidden:
-            await ctx.send(error("I do not have permission to delete that channel."))
-
     async def list_channels(
         self,
         ctx: discord.ext.commands.Context,
@@ -81,30 +72,6 @@ class ChannelService:
             await menu(ctx, pages, timeout=60.0, user=ctx.author)
         else:
             await ctx.send("No channels found.")
-
-    async def set_channel_permission(
-        self,
-        ctx: discord.ext.commands.Context,
-        channel: discord.TextChannel,
-        member: discord.Member,
-        allow: bool,
-    ) -> None:
-        try:
-            if allow:
-                overwrite = discord.PermissionOverwrite(
-                    read_messages=True, send_messages=True
-                )
-            else:
-                overwrite = discord.PermissionOverwrite(read_messages=False)
-            action = "granted" if allow else "removed"
-            await channel.set_permissions(member, overwrite=overwrite)
-            await ctx.send(
-                f"Permissions for {member.mention} {action} in {channel.mention}."
-            )
-        except discord.Forbidden:
-            await ctx.send(
-                error("I do not have permission to manage channel permissions.")
-            )
 
     async def channel_prune_helper(
         self,
