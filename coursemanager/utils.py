@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional, List, Tuple
 import discord
 import logging
 from redbot.core import commands
@@ -103,3 +103,54 @@ async def validate_and_resolve_course_code(
             course_obj = resolved
 
     return course_obj
+
+
+async def menu_select_option(
+    ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
+) -> Optional[str]:
+    from redbot.core.utils.menus import menu, close_menu
+    from .constants import REACTION_OPTIONS
+
+    cancel_emoji = REACTION_OPTIONS[-1]
+    limited_options = options[: len(REACTION_OPTIONS) - 1]
+    option_lines = [
+        f"{REACTION_OPTIONS[i]} **{option}**: {description}"
+        for i, (option, description) in enumerate(limited_options)
+    ]
+    option_lines.append(f"{cancel_emoji} Cancel")
+    prompt = f"{prompt_prefix}\n" + "\n".join(option_lines)
+    import logging
+
+    logger = logging.getLogger(__name__)
+    logger.debug(f"Prompting menu with:\n{prompt}")
+    controls = {}
+
+    def make_handler(emoji: str, opt: str):
+        async def handler(
+            ctx, pages, controls, message, page, timeout, reacted_emoji, *, user=None
+        ):
+            logger.debug(f"Option '{opt}' selected via emoji '{emoji}'")
+            await close_menu(
+                ctx, pages, controls, message, page, timeout, reacted_emoji, user=user
+            )
+            return opt
+
+        return handler
+
+    emoji_to_option = {
+        REACTION_OPTIONS[i]: option for i, (option, _) in enumerate(limited_options)
+    }
+    for emoji, opt in emoji_to_option.items():
+        controls[emoji] = make_handler(emoji, opt)
+
+    async def cancel_handler(
+        pages, controls, message, page, timeout, emoji, *, user=None
+    ):
+        logger.debug("User cancelled the menu")
+        await close_menu(ctx, pages, controls, message, page, timeout, emoji, user=user)
+        return None
+
+    controls[cancel_emoji] = cancel_handler
+    result = await menu(ctx, [prompt], controls=controls, timeout=30.0, user=ctx.author)
+    logger.debug(f"Menu selection result: {result}")
+    return result
