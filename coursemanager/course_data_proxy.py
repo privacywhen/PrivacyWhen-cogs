@@ -131,7 +131,7 @@ class CourseDataProxy:
         return (soup, None) if soup else (None, error_message)
 
     def _determine_term_order(self) -> List[str]:
-        today: date = date.today()
+        today: date = datetime.now(timezone.utc).date()
         current_term_index: int = (today.month - 1) // 4
         term_order: List[str] = (
             self._TERM_NAMES[current_term_index:]
