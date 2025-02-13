@@ -1,23 +1,11 @@
 from typing import Any, Dict, Optional, List, Tuple
 import discord
-import logging
 from redbot.core import commands
 from .course_code_resolver import CourseCodeResolver
 from .course_data_proxy import CourseDataProxy
+from logger_util import get_logger
 
-
-def get_logger(name: str, level: int = logging.DEBUG) -> logging.Logger:
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-    if not logger.handlers:
-        handler = logging.StreamHandler()
-        formatter = logging.Formatter("[%(levelname)s] %(name)s: %(message)s")
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-    return logger
-
-
-logger = get_logger(__name__)
+log = get_logger("red.utils")
 
 
 def get_categories_by_prefix(
@@ -26,7 +14,7 @@ def get_categories_by_prefix(
     matching = [
         cat for cat in guild.categories if cat.name.upper().startswith(prefix.upper())
     ]
-    logger.debug(
+    log.debug(
         f"get_categories_by_prefix: Found {len(matching)} categories in guild '{guild.name}' with prefix '{prefix}'"
     )
     return matching
@@ -39,16 +27,16 @@ async def get_or_create_category(
     if category is None:
         try:
             category = await guild.create_category(category_name)
-            logger.debug(
+            log.debug(
                 f"get_or_create_category: Created category '{category_name}' in guild '{guild.name}'"
             )
         except discord.Forbidden:
-            logger.error(
+            log.error(
                 f"get_or_create_category: No permission to create category '{category_name}' in guild '{guild.name}'"
             )
             return None
     else:
-        logger.debug(
+        log.debug(
             f"get_or_create_category: Found existing category '{category_name}' in guild '{guild.name}'"
         )
     return category
@@ -88,7 +76,7 @@ async def validate_and_resolve_course_code(
         # Attempt standard parsing.
         course_obj = CourseCode(raw_input)
     except ValueError:
-        logger.debug(
+        log.debug(
             f"Failed to parse '{raw_input}' using CourseCode. Attempting to resolve using CourseCodeResolver."
         )
         # Fallback: try to resolve the raw input.
@@ -119,17 +107,15 @@ async def menu_select_option(
     ]
     option_lines.append(f"{cancel_emoji} Cancel")
     prompt = f"{prompt_prefix}\n" + "\n".join(option_lines)
-    import logging
 
-    logger = logging.getLogger(__name__)
-    logger.debug(f"Prompting menu with:\n{prompt}")
+    log.debug(f"Prompting menu with:\n{prompt}")
     controls = {}
 
     def make_handler(emoji: str, opt: str):
         async def handler(
             ctx, pages, controls, message, page, timeout, reacted_emoji, *, user=None
         ):
-            logger.debug(f"Option '{opt}' selected via emoji '{emoji}'")
+            log.debug(f"Option '{opt}' selected via emoji '{emoji}'")
             await close_menu(
                 ctx, pages, controls, message, page, timeout, reacted_emoji, user=user
             )
@@ -146,11 +132,11 @@ async def menu_select_option(
     async def cancel_handler(
         pages, controls, message, page, timeout, emoji, *, user=None
     ):
-        logger.debug("User cancelled the menu")
+        log.debug("User cancelled the menu")
         await close_menu(ctx, pages, controls, message, page, timeout, emoji, user=user)
         return None
 
     controls[cancel_emoji] = cancel_handler
     result = await menu(ctx, [prompt], controls=controls, timeout=30.0, user=ctx.author)
-    logger.debug(f"Menu selection result: {result}")
+    log.debug(f"Menu selection result: {result}")
     return result

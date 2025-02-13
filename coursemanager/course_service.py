@@ -7,9 +7,9 @@ from .course_data_proxy import CourseDataProxy
 from .utils import (
     get_categories_by_prefix,
     get_or_create_category,
-    get_logger,
     validate_and_resolve_course_code,
 )
+from logger_util import get_logger
 from .course_code import CourseCode
 
 log = get_logger("red.course_service")

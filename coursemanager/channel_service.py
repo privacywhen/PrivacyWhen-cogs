@@ -8,8 +8,8 @@ from redbot.core.utils.menus import menu
 from .utils import (
     get_categories_by_prefix,
     get_or_create_category,
-    get_logger,
 )
+from logger_util import get_logger
 
 
 log = get_logger("red.channel_service")

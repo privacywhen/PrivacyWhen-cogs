@@ -23,7 +23,7 @@ from aiohttp import (
     ClientTimeout,
 )
 
-from .utils import get_logger
+from logger_util import get_logger
 from .course_code import CourseCode
 
 log = get_logger("red.course_data_proxy")

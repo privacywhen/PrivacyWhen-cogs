@@ -8,7 +8,7 @@ from redbot.core.utils.chat_formatting import error, info, success, warning
 from .channel_service import ChannelService
 from .course_service import CourseService
 from .constants import GLOBAL_DEFAULTS
-from .utils import get_logger
+from logger_util import get_logger
 
 log = get_logger("red.course_channel_cog")
 
