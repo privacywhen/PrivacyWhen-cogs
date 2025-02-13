@@ -51,28 +51,6 @@ class ChannelService:
                 error("I do not have permission to create a channel in that category.")
             )
 
-    async def list_channels(
-        self,
-        ctx: discord.ext.commands.Context,
-        category: Optional[discord.CategoryChannel] = None,
-    ) -> None:
-        if category:
-            channels = category.channels
-            title = f"Channels in category **{category.name}**:"
-        else:
-            guild: discord.Guild = ctx.guild
-            channels = guild.text_channels
-            title = "Text channels in this server:"
-        if channels:
-            channel_list = "\n".join(channel.name for channel in channels)
-            pages = [
-                f"**{title}**\n{page}"
-                for page in pagify(channel_list, page_length=1900)
-            ]
-            await menu(ctx, pages, timeout=60.0, user=ctx.author)
-        else:
-            await ctx.send("No channels found.")
-
     async def channel_prune_helper(
         self,
         guild: discord.Guild,

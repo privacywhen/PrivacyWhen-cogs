@@ -53,16 +53,6 @@ class CourseChannelCog(commands.Cog):
         """Base command for course management."""
         await ctx.send_help(self.course)
 
-    @course.command(name="listchannels")
-    async def list_channels(
-        self,
-        ctx: commands.Context,
-        *,
-        category: Optional[discord.CategoryChannel] = None,
-    ) -> None:
-        """List available course channels."""
-        await self.channel_service.list_channels(ctx, category)
-
     @course.command(name="join")
     @commands.cooldown(1, 5, commands.BucketType.user)
     async def join_course(self, ctx: commands.Context, *, course_code: str) -> None:
