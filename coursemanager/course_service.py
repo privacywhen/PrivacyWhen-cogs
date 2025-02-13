@@ -462,11 +462,3 @@ class CourseService:
             await ctx.send(
                 error(f"Failed to refresh course data for {course_obj.canonical()}.")
             )
-
-    # @log_entry_exit(log)
-    async def _menu_select_option(
-        self, ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
-    ) -> Optional[str]:
-        from .utils import menu_select_option
-
-        return await menu_select_option(ctx, options, prompt_prefix)
