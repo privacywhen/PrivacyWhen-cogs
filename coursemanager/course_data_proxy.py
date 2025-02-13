@@ -8,6 +8,7 @@ It handles fetching, caching, and parsing of course information using BeautifulS
 import asyncio
 import logging
 import random
+import re
 from math import floor
 from time import time
 from datetime import date, datetime, timezone, timedelta
@@ -50,6 +51,7 @@ class CourseDataProxy:
     _MAX_RETRIES: int = 3
     _BASE_DELAY: float = 2
     _PARSER: str = "lxml-xml"
+    _BR_REGEX = re.compile(r"<br\s*/?>", flags=re.IGNORECASE)
 
     def __init__(self, config: Config, logger: logging.Logger) -> None:
         """
