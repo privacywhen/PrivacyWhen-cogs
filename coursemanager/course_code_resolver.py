@@ -42,7 +42,6 @@ class CourseCodeResolver:
             canonical, list(self.course_listings.keys()), limit=5, score_cutoff=70
         )
         log.debug(f"Fuzzy matches for '{canonical}': {matches}")
-
         if not matches:
             return (None, None)
 
@@ -50,7 +49,6 @@ class CourseCodeResolver:
             ctx, [match[0] for match in matches], self.course_listings
         )
 
-        # If user cancels (selected = None), return immediately
         if selected is None:
             return (None, None)
 
@@ -58,7 +56,6 @@ class CourseCodeResolver:
             candidate_obj = CourseCode(selected)
         except ValueError:
             candidate_obj = None
-
         data = self.course_listings.get(selected)
         return (candidate_obj, data) if candidate_obj else (None, None)
 
@@ -69,6 +66,7 @@ class CourseCodeResolver:
         canonical = course.canonical()
         if canonical in self.course_listings:
             return (course, self.course_listings[canonical])
+
         if variants := self.find_variant_matches(canonical):
             if len(variants) == 1:
                 try:
@@ -76,18 +74,18 @@ class CourseCodeResolver:
                 except ValueError:
                     candidate_obj = None
                 data = self.course_listings.get(variants[0])
-                return (candidate_obj, data) if candidate_obj else (None, None)
             else:
                 selected = await self.prompt_variant_selection(
                     ctx, variants, self.course_listings
                 )
-                if selected:
-                    try:
-                        candidate_obj = CourseCode(selected)
-                    except ValueError:
-                        candidate_obj = None
-                    data = self.course_listings.get(selected)
-                    return (candidate_obj, data) if candidate_obj else (None, None)
+                if selected is None:
+                    return (None, None)
+                try:
+                    candidate_obj = CourseCode(selected)
+                except ValueError:
+                    candidate_obj = None
+                data = self.course_listings.get(selected)
+            return (candidate_obj, data) if candidate_obj else (None, None)
         return await self.fallback_fuzzy_lookup(ctx, canonical)
 
     @log_entry_exit(log)
