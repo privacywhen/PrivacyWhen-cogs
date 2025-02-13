@@ -136,7 +136,7 @@ async def menu_select_option(
         controls[emoji] = make_handler(emoji, opt)
 
     async def cancel_handler(
-        pages, controls, message, page, timeout, emoji, *, user=None
+        ctx, pages, controls, message, page, timeout, emoji, *, user=None
     ):
         log.debug("User cancelled the menu")
         await close_menu(ctx, pages, controls, message, page, timeout, emoji, user=user)
