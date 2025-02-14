@@ -185,19 +185,32 @@ class CourseService:
 
     @log_entry_exit(log)
     async def _lookup_course_data(
-        self, ctx: commands.Context, course: CourseCode
+        self, ctx: commands.Context, course: CourseCode, already_resolved: bool = False
     ) -> Tuple[Optional[CourseCode], Any]:
         canonical: str = course.canonical()
         log.debug(f"Looking up course data for '{canonical}'")
         listings = await self._get_course_listings()
         if canonical in listings:
             log.debug(f"Found perfect match for '{canonical}' in listings")
-            data = await self.course_data_proxy.get_course_data(canonical)
+            # Always fetch detailed data
+            data = await self.course_data_proxy.get_course_data(
+                canonical, detailed=True
+            )
             if self._is_valid_course_data(data):
                 log.debug(f"Fresh data retrieved for '{canonical}'")
                 return (course, data)
             log.error(f"Failed to fetch fresh data for '{canonical}'")
             return (course, None)
+
+        # If we've already resolved the course code (e.g. in validate_and_resolve_course_code),
+        # then avoid re-prompting the user.
+        if already_resolved:
+            log.debug(
+                "Course code already resolved; skipping further resolution and prompt."
+            )
+            return (course, None)
+
+        # Otherwise, perform fallback fuzzy lookup which may re-prompt the user.
         from .course_code_resolver import CourseCodeResolver
 
         resolver = CourseCodeResolver(
@@ -276,6 +289,7 @@ class CourseService:
         guild: discord.Guild = ctx.guild
         user: discord.Member = ctx.author
         listings = await self._get_course_listings()
+        # Use our helper to resolve the course code. This function already prompts the user if needed.
         course_obj: Optional[CourseCode] = await validate_and_resolve_course_code(
             ctx, course_code, listings, self.course_data_proxy
         )
@@ -306,7 +320,10 @@ class CourseService:
             f"No existing channel for {canonical}. Proceeding with lookup and creation."
         )
         async with ctx.typing():
-            candidate_obj, data = await self._lookup_course_data(ctx, course_obj)
+            # Pass already_resolved=True so that we don't prompt again
+            candidate_obj, data = await self._lookup_course_data(
+                ctx, course_obj, already_resolved=True
+            )
         if not candidate_obj or not self._is_valid_course_data(data):
             log.debug(f"Course data lookup failed for {canonical}.")
             await ctx.send(error(f"No valid course data found for {canonical}."))
