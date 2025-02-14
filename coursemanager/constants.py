@@ -1,4 +1,8 @@
-from typing import Dict, Any, List
+"""
+Module containing global constants for the course channel cog.
+"""
+
+from typing import Any, Dict, List
 
 GLOBAL_DEFAULTS: Dict[str, Any] = {
     "default_category": "CHANNELS",
@@ -10,9 +14,8 @@ GLOBAL_DEFAULTS: Dict[str, Any] = {
     "courses": {},
     "course_listings": {},
     "enabled_guilds": [],
-    # Channel pruning configuration:
-    "channel_prune_history_limit": 10,  # Number of messages to check for user activity in a channel
-    "channel_prune_interval": 2628000,  # Interval (in seconds) between auto-prune cycles (~30 days)
+    "channel_prune_history_limit": 10,
+    "channel_prune_interval": 2628000,
     "prune_threshold_days": 7,
 }
 
