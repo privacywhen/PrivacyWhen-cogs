@@ -1,11 +1,18 @@
-import logging
-import functools
 import asyncio
+import functools
+import logging
+from typing import Any, Callable, TypeVar
+
+T = TypeVar("T")
 
 
 def get_logger(name: str, level: int = logging.DEBUG) -> logging.Logger:
+    """
+    Create and configure a logger with the specified name and level.
+    """
     logger = logging.getLogger(name)
     logger.setLevel(level)
+    # Add handler if not already present
     if not logger.handlers:
         handler = logging.StreamHandler()
         formatter = logging.Formatter(
@@ -16,10 +23,16 @@ def get_logger(name: str, level: int = logging.DEBUG) -> logging.Logger:
     return logger
 
 
-def log_entry_exit(logger):
-    def decorator(func):
+def log_entry_exit(
+    logger: logging.Logger,
+) -> Callable[[Callable[..., T]], Callable[..., T]]:
+    """
+    Decorator to log entry and exit of a function, including exceptions.
+    """
+
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(func)
-        async def async_wrapper(*args, **kwargs):
+        async def async_wrapper(*args: Any, **kwargs: Any) -> T:
             logger.debug(f"Entering {func.__name__}")
             try:
                 result = await func(*args, **kwargs)
@@ -30,7 +43,7 @@ def log_entry_exit(logger):
                 raise
 
         @functools.wraps(func)
-        def sync_wrapper(*args, **kwargs):
+        def sync_wrapper(*args: Any, **kwargs: Any) -> T:
             logger.debug(f"Entering {func.__name__}")
             try:
                 result = func(*args, **kwargs)

@@ -9,7 +9,6 @@ from .course_code import CourseCode
 from .logger_util import get_logger, log_entry_exit
 
 FuzzyMatch = Tuple[str, CourseCode, float]
-
 log = get_logger("red.course_code_resolver")
 
 
@@ -24,8 +23,10 @@ class CourseCodeResolver:
         self.course_listings: Dict[str, Any] = course_listings
         self.course_data_proxy: Any = course_data_proxy
 
-    # @log_entry_exit(log)
     def find_variant_matches(self, canonical: str) -> List[str]:
+        """
+        Find course code variants that start with the canonical code and are longer.
+        """
         variants: List[str] = [
             key
             for key in self.course_listings
@@ -34,10 +35,12 @@ class CourseCodeResolver:
         log.debug(f"For canonical '{canonical}', found variant matches: {variants}")
         return variants
 
-    # @log_entry_exit(log)
     async def prompt_variant_selection(
         self, ctx: commands.Context, variants: List[str]
     ) -> Optional[str]:
+        """
+        Prompt the user to select from multiple course code variants.
+        """
         options: List[Tuple[str, Any]] = [
             (variant, self.course_listings.get(variant, "")) for variant in variants
         ]
@@ -46,18 +49,22 @@ class CourseCodeResolver:
             ctx, options, "Multiple course variants found. Please choose one:"
         )
 
-    # @log_entry_exit(log)
     def _parse_course_code(self, raw: str) -> Optional[CourseCode]:
+        """
+        Attempt to parse a raw course code string into a CourseCode object.
+        """
         try:
             return CourseCode(raw)
         except ValueError:
             log.error(f"Invalid course code format: {raw}")
             return None
 
-    # @log_entry_exit(log)
     async def fallback_fuzzy_lookup(
         self, ctx: commands.Context, canonical: str
     ) -> Tuple[Optional[CourseCode], Optional[Dict[str, Any]]]:
+        """
+        Use fuzzy matching to find the closest course code match when an exact match is not found.
+        """
         keys_list: List[str] = list(self.course_listings.keys())
         all_matches = process.extract(
             canonical,
@@ -68,7 +75,8 @@ class CourseCodeResolver:
         log.debug(f"Fuzzy matches for '{canonical}': {all_matches}")
         valid_matches: List[FuzzyMatch] = []
         for candidate, score, _ in all_matches:
-            if candidate_obj := self._parse_course_code(candidate):
+            candidate_obj = self._parse_course_code(candidate)
+            if candidate_obj:
                 valid_matches.append((candidate, candidate_obj, score))
             else:
                 log.debug(f"Candidate '{candidate}' failed parsing and is skipped.")
@@ -84,6 +92,7 @@ class CourseCodeResolver:
             len(valid_matches) > 1
             and valid_matches[0][2] - valid_matches[1][2] >= self.SCORE_MARGIN
         ):
+            # Auto-select if the top match is significantly better
             selected_candidate: str = best_candidate
             selected_obj: CourseCode = best_obj
             log.debug(
@@ -115,10 +124,12 @@ class CourseCodeResolver:
         data: Any = self.course_listings.get(selected_candidate)
         return (selected_obj, data)
 
-    # @log_entry_exit(log)
     async def resolve_course_code(
         self, ctx: commands.Context, course: CourseCode
     ) -> Tuple[Optional[CourseCode], Optional[Dict[str, Any]]]:
+        """
+        Resolve the course code using exact match, variant matching, or fuzzy lookup.
+        """
         canonical: str = course.canonical()
         log.debug(f"Resolving course code for canonical: {canonical}")
         if canonical in self.course_listings:
@@ -143,27 +154,27 @@ class CourseCodeResolver:
         log.debug("No variants found; proceeding with fuzzy lookup.")
         return await self.fallback_fuzzy_lookup(ctx, canonical)
 
-    # @log_entry_exit(log)
     async def _menu_select_option(
         self, ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
     ) -> Optional[str]:
+        """
+        Helper method to display an interactive menu for option selection.
+        """
         return await CourseCodeResolver.interactive_course_selector(
             ctx, options, prompt_prefix
         )
 
-    # @log_entry_exit(log)
     @staticmethod
     async def interactive_course_selector(
         ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
     ) -> Optional[str]:
-        # Increment the counter for debugging purposes.
-        if not hasattr(ctx, "_menu_call_count"):
-            ctx._menu_call_count = 0
-        ctx._menu_call_count += 1
+        """
+        Display an interactive menu to the user and return their selection.
+        """
+        ctx._menu_call_count = getattr(ctx, "_menu_call_count", 0) + 1
         log.debug(
             f"Interactive menu call count for this context: {ctx._menu_call_count}"
         )
-
         cancel_emoji: str = REACTION_OPTIONS[-1]
         max_options: int = len(REACTION_OPTIONS) - 1
         limited_options: List[Tuple[str, str]] = options[:max_options]
@@ -173,15 +184,15 @@ class CourseCodeResolver:
         ]
         option_lines.append(f"{cancel_emoji} Cancel")
         prompt: str = f"{prompt_prefix}\n" + "\n".join(option_lines)
-        # Optionally, you can log the prompt here if needed:
         log.debug(f"Prompting menu with:\n{prompt}")
 
-        # Define a handler for a valid option.
-        def create_handler(selected_option: str, emoji: str) -> Callable[..., Any]:
+        def _make_menu_handler(
+            return_value: str, emoji: str, is_cancel: bool = False
+        ) -> Callable[..., Any]:
             async def handler(
                 ctx: commands.Context,
                 pages: List[str],
-                controls: Dict[str, Any],
+                controls: dict,
                 message: Any,
                 page: int,
                 timeout: float,
@@ -189,7 +200,10 @@ class CourseCodeResolver:
                 *,
                 user: Optional[Any] = None,
             ) -> str:
-                log.debug(f"Option '{selected_option}' selected via emoji '{emoji}'")
+                if is_cancel:
+                    log.debug("User cancelled the menu")
+                else:
+                    log.debug(f"Option '{return_value}' selected via emoji '{emoji}'")
                 await close_menu(
                     ctx,
                     pages,
@@ -200,43 +214,22 @@ class CourseCodeResolver:
                     reacted_emoji,
                     user=user,
                 )
-                return selected_option
+                return return_value if not is_cancel else "CANCELLED"
 
             return handler
 
-        # Modify the cancel handler to return a sentinel value.
-        async def cancel_handler(
-            ctx: commands.Context,
-            pages: List[str],
-            controls: Dict[str, Any],
-            message: Any,
-            page: int,
-            timeout: float,
-            emoji: str,
-            *,
-            user: Optional[Any] = None,
-        ) -> str:
-            log.debug("User cancelled the menu")
-            await close_menu(
-                ctx, pages, controls, message, page, timeout, emoji, user=user
-            )
-            return "CANCELLED"
-
-        controls: Dict[str, Any] = {
-            emoji: create_handler(option, emoji)
+        controls: dict = {
+            emoji: _make_menu_handler(option, emoji)
             for emoji, (option, _) in zip(REACTION_OPTIONS, limited_options)
         }
-        controls[cancel_emoji] = cancel_handler
-
-        # Call the menu utility.
+        controls[cancel_emoji] = _make_menu_handler(
+            "CANCELLED", cancel_emoji, is_cancel=True
+        )
         result: Optional[str] = await menu(
             ctx, [prompt], controls=controls, timeout=30.0, user=ctx.author
         )
         log.debug(f"Menu selection result: {result}")
-
-        # If the cancel handler was triggered, return None immediately.
         if result == "CANCELLED":
             log.debug("User cancellation detected. Exiting menu without re-prompt.")
             return None
-
         return result

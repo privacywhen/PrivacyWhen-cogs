@@ -14,6 +14,9 @@ log = get_logger("red.utils")
 def get_categories_by_prefix(
     guild: discord.Guild, prefix: str
 ) -> List[discord.CategoryChannel]:
+    """
+    Retrieve categories from a guild that start with the specified prefix.
+    """
     matching: List[discord.CategoryChannel] = [
         cat for cat in guild.categories if cat.name.upper().startswith(prefix.upper())
     ]
@@ -26,6 +29,9 @@ def get_categories_by_prefix(
 async def get_or_create_category(
     guild: discord.Guild, category_name: str
 ) -> Optional[discord.CategoryChannel]:
+    """
+    Retrieve a category by name, or create it if it does not exist.
+    """
     category = discord.utils.get(guild.categories, name=category_name)
     if category is None:
         try:
@@ -50,9 +56,10 @@ async def validate_and_resolve_course_code(
     raw_input: str,
     listings: Dict[str, Any],
     course_data_proxy: CourseDataProxy,
-) -> Optional["CourseCode"]:
-    from .course_code import CourseCode
-
+) -> Optional[CourseCode]:
+    """
+    Validate and resolve a course code using the CourseCode and CourseCodeResolver.
+    """
     resolver = CourseCodeResolver(listings, course_data_proxy=course_data_proxy)
     try:
         course_obj: CourseCode = CourseCode(raw_input)
