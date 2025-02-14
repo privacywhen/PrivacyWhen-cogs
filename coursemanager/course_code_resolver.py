@@ -156,7 +156,7 @@ class CourseCodeResolver:
     async def interactive_course_selector(
         ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
     ) -> Optional[str]:
-        # Add a counter to track how many times this function is invoked
+        # Increment the counter for debugging purposes.
         if not hasattr(ctx, "_menu_call_count"):
             ctx._menu_call_count = 0
         ctx._menu_call_count += 1
@@ -173,9 +173,10 @@ class CourseCodeResolver:
         ]
         option_lines.append(f"{cancel_emoji} Cancel")
         prompt: str = f"{prompt_prefix}\n" + "\n".join(option_lines)
+        # Optionally, you can log the prompt here if needed:
         # log.debug(f"Prompting menu with:\n{prompt}")
 
-        @log_entry_exit(log)
+        # Define a handler for a valid option.
         def create_handler(selected_option: str, emoji: str) -> Callable[..., Any]:
             async def handler(
                 ctx: commands.Context,
@@ -203,12 +204,7 @@ class CourseCodeResolver:
 
             return handler
 
-        controls: Dict[str, Any] = {
-            emoji: create_handler(option, emoji)
-            for emoji, (option, _) in zip(REACTION_OPTIONS, limited_options)
-        }
-
-        @log_entry_exit(log)
+        # Modify the cancel handler to return a sentinel value.
         async def cancel_handler(
             ctx: commands.Context,
             pages: List[str],
@@ -219,16 +215,28 @@ class CourseCodeResolver:
             emoji: str,
             *,
             user: Optional[Any] = None,
-        ) -> None:
+        ) -> str:
             log.debug("User cancelled the menu")
             await close_menu(
                 ctx, pages, controls, message, page, timeout, emoji, user=user
             )
-            return None
+            return "CANCELLED"
 
+        controls: Dict[str, Any] = {
+            emoji: create_handler(option, emoji)
+            for emoji, (option, _) in zip(REACTION_OPTIONS, limited_options)
+        }
         controls[cancel_emoji] = cancel_handler
+
+        # Call the menu utility.
         result: Optional[str] = await menu(
             ctx, [prompt], controls=controls, timeout=30.0, user=ctx.author
         )
         log.debug(f"Menu selection result: {result}")
+
+        # If the cancel handler was triggered, return None immediately.
+        if result == "CANCELLED":
+            log.debug("User cancellation detected. Exiting menu without re-prompt.")
+            return None
+
         return result
