@@ -1,4 +1,3 @@
-# course_channel_clustering.py
 import asyncio
 from collections import defaultdict
 from itertools import combinations
@@ -8,7 +7,6 @@ from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple
 import networkx as nx
 from networkx.algorithms.community import louvain_communities
 from networkx.algorithms.community.quality import modularity
-
 from .logger_util import get_logger
 
 log = get_logger("red.course_channel_clustering")
@@ -30,14 +28,16 @@ class CourseChannelClustering:
             raise ValueError("grouping_threshold must be at least 1.")
         if max_category_channels < 1:
             raise ValueError("max_category_channels must be at least 1.")
-        self.grouping_threshold = grouping_threshold
-        self.max_category_channels = max_category_channels
-        self.category_prefix = category_prefix
-        self.clustering_func = clustering_func or self._default_clustering
-        self.optimize_overlap = optimize_overlap
-        self.adaptive_threshold = adaptive_threshold
-        self.threshold_factor = threshold_factor
-        self.sparse_overlap = sparse_overlap
+        self.grouping_threshold: int = grouping_threshold
+        self.max_category_channels: int = max_category_channels
+        self.category_prefix: str = category_prefix
+        self.clustering_func: Callable[[nx.Graph], List[Set[int]]] = (
+            clustering_func or self._default_clustering
+        )
+        self.optimize_overlap: bool = optimize_overlap
+        self.adaptive_threshold: bool = adaptive_threshold
+        self.threshold_factor: float = threshold_factor
+        self.sparse_overlap: int = sparse_overlap
 
     @staticmethod
     def _normalize_key(key: Any) -> int:
@@ -51,8 +51,8 @@ class CourseChannelClustering:
     ) -> Dict[int, Set[int]]:
         normalized: Dict[int, Set[int]] = {}
         for course, users in course_users.items():
-            course_id = self._normalize_key(course)
-            normalized_users = {self._normalize_key(user) for user in users}
+            course_id: int = self._normalize_key(course)
+            normalized_users: Set[int] = {self._normalize_key(user) for user in users}
             normalized[course_id] = normalized_users
         return normalized
 
@@ -61,7 +61,7 @@ class CourseChannelClustering:
     ) -> Dict[int, Dict[str, Any]]:
         normalized: Dict[int, Dict[str, Any]] = {}
         for course, meta in course_metadata.items():
-            course_id = self._normalize_key(course)
+            course_id: int = self._normalize_key(course)
             normalized[course_id] = meta
         return normalized
 
@@ -80,7 +80,7 @@ class CourseChannelClustering:
             for courses in user_to_courses.values():
                 for course1, course2 in combinations(sorted(courses), 2):
                     overlaps[(course1, course2)] += 1
-            method_used = "inverted index"
+            method_used: str = "inverted index"
         else:
             for course1, course2 in combinations(courses_sorted, 2):
                 count = len(course_users[course1] & course_users[course2])
@@ -92,7 +92,7 @@ class CourseChannelClustering:
                 if (course1, course2) not in overlaps:
                     meta1 = course_metadata.get(course1, {}).get("department")
                     meta2 = course_metadata.get(course2, {}).get("department")
-                    if meta1 and meta2 and meta1 == meta2:
+                    if meta1 and meta2 and (meta1 == meta2):
                         overlaps[(course1, course2)] = self.sparse_overlap
         log.debug(
             f"Calculated overlaps using {method_used} for {len(course_users)} courses: {dict(overlaps)}"
@@ -118,7 +118,7 @@ class CourseChannelClustering:
         course_users: Dict[int, Set[int]],
         course_metadata: Optional[Dict[int, Dict[str, Any]]] = None,
     ) -> nx.Graph:
-        graph = nx.Graph()
+        graph: nx.Graph = nx.Graph()
         for course, users in sorted(course_users.items()):
             graph.add_node(course)
             if not users:
@@ -139,7 +139,7 @@ class CourseChannelClustering:
 
     def _default_clustering(self, graph: nx.Graph) -> List[Set[int]]:
         if graph.number_of_edges() == 0:
-            clusters = [{node} for node in graph.nodes()]
+            clusters: List[Set[int]] = [{node} for node in graph.nodes()]
             log.debug("Graph has no edges; each course is its own cluster.")
             return clusters
         try:
@@ -162,19 +162,19 @@ class CourseChannelClustering:
 
     def _map_clusters_to_categories(self, clusters: List[Set[int]]) -> Dict[int, str]:
         mapping: Dict[int, str] = {}
-        total_subgroups = sum(
+        total_subgroups: int = sum(
             (ceil(len(cluster) / self.max_category_channels) for cluster in clusters)
         )
-        use_suffix = total_subgroups > 1
-        subgroup_counter = 1
+        use_suffix: bool = total_subgroups > 1
+        subgroup_counter: int = 1
         for cluster in sorted(clusters, key=lambda c: min(c) if c else 0):
-            courses = sorted(cluster)
+            courses: List[int] = sorted(cluster)
             chunks = list(self._chunk_list(courses, self.max_category_channels))
             log.debug(
                 f"Mapping cluster with {len(courses)} courses into {len(chunks)} subgroup(s)."
             )
             for chunk in chunks:
-                category_label = (
+                category_label: str = (
                     f"{self.category_prefix}-{subgroup_counter}"
                     if use_suffix
                     else self.category_prefix
@@ -188,7 +188,7 @@ class CourseChannelClustering:
     def evaluate_clusters(
         self, graph: nx.Graph, clusters: List[Set[int]]
     ) -> Dict[str, float]:
-        mod = modularity(graph, clusters, weight="weight")
+        mod: float = modularity(graph, clusters, weight="weight")
         return {"modularity": mod}
 
     def cluster_courses(
@@ -196,17 +196,21 @@ class CourseChannelClustering:
         course_users: Dict[Any, Set[Any]],
         course_metadata: Optional[Dict[Any, Dict[str, Any]]] = None,
     ) -> Dict[int, str]:
-        normalized_course_users = self._normalize_course_users(course_users)
-        normalized_course_metadata = (
+        normalized_course_users: Dict[int, Set[int]] = self._normalize_course_users(
+            course_users
+        )
+        normalized_course_metadata: Optional[Dict[int, Dict[str, Any]]] = (
             self._normalize_course_metadata(course_metadata)
             if course_metadata is not None
             else None
         )
-        graph = self._build_graph(normalized_course_users, normalized_course_metadata)
-        clusters = self._perform_clustering(graph)
-        metrics = self.evaluate_clusters(graph, clusters)
+        graph: nx.Graph = self._build_graph(
+            normalized_course_users, normalized_course_metadata
+        )
+        clusters: List[Set[int]] = self._perform_clustering(graph)
+        metrics: Dict[str, float] = self.evaluate_clusters(graph, clusters)
         log.info(f"Cluster quality metrics: {metrics}")
-        mapping = self._map_clusters_to_categories(clusters)
+        mapping: Dict[int, str] = self._map_clusters_to_categories(clusters)
         log.info(f"Final course-to-category mapping: {mapping}")
         return mapping
 
@@ -219,7 +223,7 @@ class CourseChannelClustering:
         course_metadata: Optional[Dict[Any, Dict[str, Any]]] = None,
     ) -> None:
         log.info("Starting periodic course clustering task.")
-        iteration = 1
+        iteration: int = 1
         while not shutdown_event.is_set():
             log.info(f"Starting clustering cycle iteration {iteration}")
             try:
