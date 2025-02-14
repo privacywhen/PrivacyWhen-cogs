@@ -38,9 +38,11 @@ class CourseCode:
         self._raw = raw
         self._parse()
 
-    # @log_entry_exit(log)
     def _parse(self) -> None:
-        if (match := self._pattern.match(self._raw)) is None:
+        """Parse the raw course code string using the defined regex pattern."""
+        match = self._pattern.match(self._raw)
+        if match is None:
+            log.error(f"Failed to parse course code: '{self._raw}'")
             raise ValueError(f"Invalid course code format: '{self._raw}'")
         self._department, self._code, suffix = match.group(1, 2, 3)
         self._department = self._department.upper()
@@ -48,64 +50,28 @@ class CourseCode:
         self._suffix = suffix.upper() if suffix else ""
 
     @property
-    # @log_entry_exit(log)
     def raw(self) -> str:
-        """
-        The original raw course code input.
-        """
         return self._raw
 
     @property
-    # @log_entry_exit(log)
     def department(self) -> str:
-        """
-        The department portion of the course code, normalized to uppercase.
-        """
         return self._department
 
     @property
-    # @log_entry_exit(log)
     def code(self) -> str:
-        """
-        The core course code (the numeric/alphanumeric segment), normalized to uppercase.
-        """
         return self._code
 
     @property
-    # @log_entry_exit(log)
     def suffix(self) -> str:
-        """
-        The optional suffix of the course code (if present), normalized to uppercase.
-        """
         return self._suffix
 
-    # @log_entry_exit(log)
     def canonical(self) -> str:
-        """
-        Get the canonical representation of the course code.
+        """Return the canonical representation of the course code."""
+        return f"{self.department}-{self.code}{self._suffix}"
 
-        - Format: UPPERCASE with a hyphen between the department and code, including the suffix if present.
-
-        Returns:
-            str: The canonical course code (e.g., "SOCWORK-2A06A").
-        """
-        return f"{self.department}-{self.code}{self.suffix}"
-
-    # @log_entry_exit(log)
     def formatted_channel_name(self) -> str:
-        """
-        Get the version of the course code formatted for Discord channel names.
-
-        - Format: lowercase with a hyphen between the department and code, excluding any suffix.
-
-        Returns:
-            str: The course code suitable for channel names (e.g., "socwork-2a06").
-        """
+        """Return a formatted channel name based on the course code."""
         return f"{self.department.lower()}-{self.code.lower()}"
 
-    # @log_entry_exit(log)
     def __str__(self) -> str:
-        """
-        Return the canonical representation when the CourseCode object is printed.
-        """
         return self.canonical()

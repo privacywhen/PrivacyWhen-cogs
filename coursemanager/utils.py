@@ -1,7 +1,3 @@
-"""
-Utility functions for the course channel cog.
-"""
-
 from typing import Any, Dict, List, Optional, Tuple
 
 import discord
@@ -19,14 +15,7 @@ def get_categories_by_prefix(
     guild: discord.Guild, prefix: str
 ) -> List[discord.CategoryChannel]:
     """
-    Retrieve categories from a guild that start with a given prefix.
-
-    Args:
-        guild (discord.Guild): The guild.
-        prefix (str): The prefix to search for.
-
-    Returns:
-        List[discord.CategoryChannel]: List of matching categories.
+    Retrieve categories from a guild that start with the specified prefix.
     """
     matching: List[discord.CategoryChannel] = [
         cat for cat in guild.categories if cat.name.upper().startswith(prefix.upper())
@@ -41,14 +30,7 @@ async def get_or_create_category(
     guild: discord.Guild, category_name: str
 ) -> Optional[discord.CategoryChannel]:
     """
-    Retrieve a category by name, or create it if it doesn't exist.
-
-    Args:
-        guild (discord.Guild): The guild.
-        category_name (str): The name of the category.
-
-    Returns:
-        Optional[discord.CategoryChannel]: The existing or newly created category, or None if creation fails.
+    Retrieve a category by name, or create it if it does not exist.
     """
     category = discord.utils.get(guild.categories, name=category_name)
     if category is None:
@@ -74,21 +56,10 @@ async def validate_and_resolve_course_code(
     raw_input: str,
     listings: Dict[str, Any],
     course_data_proxy: CourseDataProxy,
-) -> Optional["CourseCode"]:
+) -> Optional[CourseCode]:
     """
-    Validate and resolve a raw course code input.
-
-    Args:
-        ctx (commands.Context): The command context.
-        raw_input (str): The raw course code input.
-        listings (Dict[str, Any]): The course listings.
-        course_data_proxy (CourseDataProxy): The course data proxy.
-
-    Returns:
-        Optional[CourseCode]: The resolved CourseCode, or None if resolution fails.
+    Validate and resolve a course code using the CourseCode and CourseCodeResolver.
     """
-    from .course_code import CourseCode
-
     resolver = CourseCodeResolver(listings, course_data_proxy=course_data_proxy)
     try:
         course_obj: CourseCode = CourseCode(raw_input)

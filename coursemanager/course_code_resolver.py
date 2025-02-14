@@ -1,7 +1,9 @@
 from typing import Any, Callable, Dict, List, Optional, Tuple
+
 from rapidfuzz import process
 from redbot.core import commands
 from redbot.core.utils.menus import menu, close_menu
+
 from .constants import REACTION_OPTIONS
 from .course_code import CourseCode
 from .logger_util import get_logger, log_entry_exit
@@ -22,6 +24,9 @@ class CourseCodeResolver:
         self.course_data_proxy: Any = course_data_proxy
 
     def find_variant_matches(self, canonical: str) -> List[str]:
+        """
+        Find course code variants that start with the canonical code and are longer.
+        """
         variants: List[str] = [
             key
             for key in self.course_listings
@@ -33,6 +38,9 @@ class CourseCodeResolver:
     async def prompt_variant_selection(
         self, ctx: commands.Context, variants: List[str]
     ) -> Optional[str]:
+        """
+        Prompt the user to select from multiple course code variants.
+        """
         options: List[Tuple[str, Any]] = [
             (variant, self.course_listings.get(variant, "")) for variant in variants
         ]
@@ -42,6 +50,9 @@ class CourseCodeResolver:
         )
 
     def _parse_course_code(self, raw: str) -> Optional[CourseCode]:
+        """
+        Attempt to parse a raw course code string into a CourseCode object.
+        """
         try:
             return CourseCode(raw)
         except ValueError:
@@ -51,6 +62,9 @@ class CourseCodeResolver:
     async def fallback_fuzzy_lookup(
         self, ctx: commands.Context, canonical: str
     ) -> Tuple[Optional[CourseCode], Optional[Dict[str, Any]]]:
+        """
+        Use fuzzy matching to find the closest course code match when an exact match is not found.
+        """
         keys_list: List[str] = list(self.course_listings.keys())
         all_matches = process.extract(
             canonical,
@@ -78,6 +92,7 @@ class CourseCodeResolver:
             len(valid_matches) > 1
             and valid_matches[0][2] - valid_matches[1][2] >= self.SCORE_MARGIN
         ):
+            # Auto-select if the top match is significantly better
             selected_candidate: str = best_candidate
             selected_obj: CourseCode = best_obj
             log.debug(
@@ -112,6 +127,9 @@ class CourseCodeResolver:
     async def resolve_course_code(
         self, ctx: commands.Context, course: CourseCode
     ) -> Tuple[Optional[CourseCode], Optional[Dict[str, Any]]]:
+        """
+        Resolve the course code using exact match, variant matching, or fuzzy lookup.
+        """
         canonical: str = course.canonical()
         log.debug(f"Resolving course code for canonical: {canonical}")
         if canonical in self.course_listings:
@@ -139,6 +157,9 @@ class CourseCodeResolver:
     async def _menu_select_option(
         self, ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
     ) -> Optional[str]:
+        """
+        Helper method to display an interactive menu for option selection.
+        """
         return await CourseCodeResolver.interactive_course_selector(
             ctx, options, prompt_prefix
         )
@@ -147,6 +168,9 @@ class CourseCodeResolver:
     async def interactive_course_selector(
         ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
     ) -> Optional[str]:
+        """
+        Display an interactive menu to the user and return their selection.
+        """
         ctx._menu_call_count = getattr(ctx, "_menu_call_count", 0) + 1
         log.debug(
             f"Interactive menu call count for this context: {ctx._menu_call_count}"

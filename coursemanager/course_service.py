@@ -1,7 +1,3 @@
-"""
-Module for managing course services including channel access and course data retrieval.
-"""
-
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -23,18 +19,7 @@ log = get_logger("red.course.service")
 
 
 class CourseService:
-    """
-    Service for managing courses, including channel access, data retrieval, and caching.
-    """
-
     def __init__(self, bot: commands.Bot, config: Config) -> None:
-        """
-        Initialize the CourseService.
-
-        Args:
-            bot (commands.Bot): The bot instance.
-            config (Config): The Redbot configuration.
-        """
         self.bot: commands.Bot = bot
         self.config: Config = config
         self.category_name: str = "COURSES"
@@ -48,10 +33,7 @@ class CourseService:
     @log_entry_exit(log)
     async def _get_course_listings(self) -> Dict[str, str]:
         """
-        Retrieve cached course listings, refreshing if necessary.
-
-        Returns:
-            Dict[str, str]: Mapping of course codes to course information.
+        Retrieve cached course listings, refreshing if TTL has expired.
         """
         now: float = time.monotonic()
         if (
@@ -66,27 +48,13 @@ class CourseService:
 
     @log_entry_exit(log)
     def _is_valid_course_data(self, data: Any) -> bool:
-        """
-        Check if the retrieved course data is valid.
-
-        Args:
-            data (Any): The course data.
-
-        Returns:
-            bool: True if valid, False otherwise.
-        """
+        """Check if the course data is valid and contains cached data."""
         return bool(data and data.get("cached_course_data"))
 
     @log_entry_exit(log)
     async def _check_enabled(self, ctx: commands.Context) -> bool:
         """
-        Check if Course Manager is enabled for the guild.
-
-        Args:
-            ctx (commands.Context): The command context.
-
-        Returns:
-            bool: True if enabled, False otherwise.
+        Check if the Course Manager is enabled in the guild.
         """
         enabled_guilds: List[int] = await self.config.enabled_guilds()
         if ctx.guild.id not in enabled_guilds:
@@ -101,10 +69,7 @@ class CourseService:
     @log_entry_exit(log)
     async def enable(self, ctx: commands.Context) -> None:
         """
-        Enable Course Manager in the guild.
-
-        Args:
-            ctx (commands.Context): The command context.
+        Enable Course Manager in the current guild.
         """
         enabled_guilds: List[int] = await self.config.enabled_guilds()
         if ctx.guild.id in enabled_guilds:
@@ -117,10 +82,7 @@ class CourseService:
     @log_entry_exit(log)
     async def disable(self, ctx: commands.Context) -> None:
         """
-        Disable Course Manager in the guild.
-
-        Args:
-            ctx (commands.Context): The command context.
+        Disable Course Manager in the current guild.
         """
         enabled_guilds: List[int] = await self.config.enabled_guilds()
         if ctx.guild.id not in enabled_guilds:
@@ -135,13 +97,7 @@ class CourseService:
         self, guild: discord.Guild
     ) -> List[discord.CategoryChannel]:
         """
-        Retrieve all course categories in the guild.
-
-        Args:
-            guild (discord.Guild): The guild.
-
-        Returns:
-            List[discord.CategoryChannel]: List of matching categories.
+        Retrieve all course categories in the guild based on the category prefix.
         """
         categories = get_categories_by_prefix(guild, self.category_name)
         log.debug(
@@ -152,13 +108,7 @@ class CourseService:
     @log_entry_exit(log)
     def get_category(self, guild: discord.Guild) -> Optional[discord.CategoryChannel]:
         """
-        Get the primary course category in the guild.
-
-        Args:
-            guild (discord.Guild): The guild.
-
-        Returns:
-            Optional[discord.CategoryChannel]: The course category, if exists.
+        Retrieve the main courses category from the guild.
         """
         category = next(
             (
@@ -181,14 +131,7 @@ class CourseService:
         self, guild: discord.Guild, course: CourseCode
     ) -> Optional[discord.TextChannel]:
         """
-        Get the text channel for a specific course.
-
-        Args:
-            guild (discord.Guild): The guild.
-            course (CourseCode): The course code.
-
-        Returns:
-            Optional[discord.TextChannel]: The course channel if it exists.
+        Retrieve the course channel for a specific course.
         """
         target_name: str = course.formatted_channel_name()
         channel = next(
@@ -213,15 +156,7 @@ class CourseService:
         course: CourseCode,
     ) -> discord.TextChannel:
         """
-        Create a new course text channel.
-
-        Args:
-            guild (discord.Guild): The guild.
-            category (discord.CategoryChannel): The category under which to create the channel.
-            course (CourseCode): The course code.
-
-        Returns:
-            discord.TextChannel: The newly created channel.
+        Create a new course channel within the specified category.
         """
         target_name: str = course.formatted_channel_name()
         log.debug(
@@ -240,14 +175,7 @@ class CourseService:
     @log_entry_exit(log)
     def _has_joined(self, user: discord.Member, channel: discord.TextChannel) -> bool:
         """
-        Check if a user has joined a course channel.
-
-        Args:
-            user (discord.Member): The user.
-            channel (discord.TextChannel): The channel.
-
-        Returns:
-            bool: True if the user has joined, False otherwise.
+        Check if the user has permission to read and send messages in the channel.
         """
         overwrite = channel.overwrites_for(user)
         return overwrite.read_messages is True and overwrite.send_messages is True
@@ -255,14 +183,7 @@ class CourseService:
     @log_entry_exit(log)
     def get_user_courses(self, user: discord.Member, guild: discord.Guild) -> List[str]:
         """
-        Retrieve a list of courses a user has joined.
-
-        Args:
-            user (discord.Member): The user.
-            guild (discord.Guild): The guild.
-
-        Returns:
-            List[str]: List of course channel names.
+        Retrieve a list of course channels that the user has access to.
         """
         joined_courses = [
             channel.name
@@ -279,14 +200,7 @@ class CourseService:
         self, user: discord.Member, guild: discord.Guild
     ) -> bool:
         """
-        Check if the user has reached the maximum allowed course channels.
-
-        Args:
-            user (discord.Member): The user.
-            guild (discord.Guild): The guild.
-
-        Returns:
-            bool: True if the limit is reached, False otherwise.
+        Check if the user has reached the maximum number of course channels.
         """
         return len(self.get_user_courses(user, guild)) >= self.max_courses
 
@@ -295,14 +209,7 @@ class CourseService:
         self, guild: discord.Guild, ctx: commands.Context
     ) -> Optional[discord.CategoryChannel]:
         """
-        Resolve or create the course category in the guild.
-
-        Args:
-            guild (discord.Guild): The guild.
-            ctx (commands.Context): The command context.
-
-        Returns:
-            Optional[discord.CategoryChannel]: The resolved or created category.
+        Resolve or create the main courses category.
         """
         category = self.get_category(guild)
         if category is None:
@@ -318,15 +225,7 @@ class CourseService:
         self, ctx: commands.Context, course: CourseCode, already_resolved: bool = False
     ) -> Tuple[Optional[CourseCode], Any]:
         """
-        Lookup course data using course listings and data proxy.
-
-        Args:
-            ctx (commands.Context): The command context.
-            course (CourseCode): The course code.
-            already_resolved (bool): Whether the course code has been resolved.
-
-        Returns:
-            Tuple[Optional[CourseCode], Any]: The resolved course code and its data.
+        Lookup course data using cached listings and course data proxy.
         """
         canonical: str = course.canonical()
         log.debug(f"Looking up course data for '{canonical}'")
@@ -341,32 +240,25 @@ class CourseService:
                 return (course, data)
             log.error(f"Failed to fetch fresh data for '{canonical}'")
             return (course, None)
-        if already_resolved:
-            log.debug(
-                "Course code already resolved; skipping further resolution and prompt."
-            )
-            return (course, None)
-        from .course_code_resolver import CourseCodeResolver
+        if not already_resolved:
+            from .course_code_resolver import CourseCodeResolver
 
-        resolver = CourseCodeResolver(
-            listings, course_data_proxy=self.course_data_proxy
+            resolver = CourseCodeResolver(
+                listings, course_data_proxy=self.course_data_proxy
+            )
+            resolved_course, data = await resolver.resolve_course_code(ctx, course)
+            return (resolved_course, data)
+        log.debug(
+            "Course code already resolved; skipping further resolution and prompt."
         )
-        resolved_course, data = await resolver.resolve_course_code(ctx, course)
-        return (resolved_course, data)
+        return (course, None)
 
     @log_entry_exit(log)
     async def course_details(
         self, ctx: commands.Context, course_code: str
     ) -> Optional[discord.Embed]:
         """
-        Retrieve and format course details into an embed.
-
-        Args:
-            ctx (commands.Context): The command context.
-            course_code (str): The course code.
-
-        Returns:
-            Optional[discord.Embed]: The embed with course details, or None if not found.
+        Retrieve course details and create an embed for display.
         """
         listings = await self._get_course_listings()
         course_obj: Optional[CourseCode] = await validate_and_resolve_course_code(
@@ -387,13 +279,6 @@ class CourseService:
     ) -> discord.Embed:
         """
         Create a Discord embed containing course details.
-
-        Args:
-            course_key (str): The canonical course code.
-            course_data (Dict[str, Any]): The course data.
-
-        Returns:
-            discord.Embed: The created embed.
         """
         log.debug(f"Creating embed for course: {course_key}")
         embed = discord.Embed(
@@ -437,11 +322,7 @@ class CourseService:
         self, ctx: commands.Context, course_code: str
     ) -> None:
         """
-        Grant a user access to a course channel, creating the channel if necessary.
-
-        Args:
-            ctx (commands.Context): The command context.
-            course_code (str): The course code.
+        Grant the user access to a course channel, creating the channel if it does not exist.
         """
         log.debug(
             f"[grant_course_channel_access] invoked by {ctx.author} in guild '{ctx.guild.name}' with course_code '{course_code}'"
@@ -522,14 +403,6 @@ class CourseService:
     ) -> bool:
         """
         Grant the user permissions to access the specified course channel.
-
-        Args:
-            ctx (commands.Context): The command context.
-            channel (discord.TextChannel): The course channel.
-            canonical (str): The canonical course code.
-
-        Returns:
-            bool: True if access was granted, False otherwise.
         """
         try:
             await channel.set_permissions(
@@ -559,11 +432,7 @@ class CourseService:
         self, ctx: commands.Context, course_code: str
     ) -> None:
         """
-        Revoke a user's access to a course channel.
-
-        Args:
-            ctx (commands.Context): The command context.
-            course_code (str): The course code.
+        Revoke the user's access to a course channel.
         """
         if not await self._check_enabled(ctx):
             return
@@ -600,10 +469,6 @@ class CourseService:
     ) -> None:
         """
         Set the logging channel for course events.
-
-        Args:
-            ctx (commands.Context): The command context.
-            channel (discord.TextChannel): The text channel for logging.
         """
         self.logging_channel = channel
         log.debug(f"Logging channel set to {channel.name} by admin {ctx.author}")
@@ -614,12 +479,7 @@ class CourseService:
         self, ctx: commands.Context, term_name: str, term_id: int
     ) -> None:
         """
-        Set the term code for a given term.
-
-        Args:
-            ctx (commands.Context): The command context.
-            term_name (str): The name of the term.
-            term_id (int): The term identifier.
+        Set the term code for a given term name.
         """
         async with self.config.term_codes() as term_codes:
             term_codes[term_name.lower()] = term_id
@@ -631,10 +491,7 @@ class CourseService:
     @log_entry_exit(log)
     async def list_all_courses(self, ctx: commands.Context) -> None:
         """
-        List all courses in the cache.
-
-        Args:
-            ctx (commands.Context): The command context.
+        List all cached courses in an interactive menu.
         """
         cfg = await self.config.course_listings.all()
         if courses := cfg.get("courses", {}):
@@ -651,10 +508,7 @@ class CourseService:
     @log_entry_exit(log)
     async def populate_courses(self, ctx: commands.Context) -> None:
         """
-        Populate the course listings from the external source.
-
-        Args:
-            ctx (commands.Context): The command context.
+        Populate the courses by fetching course listings from the external API.
         """
         course_count = await self.course_data_proxy.update_course_listing()
         self._listings_cache = None
@@ -668,11 +522,7 @@ class CourseService:
         self, ctx: commands.Context, course_code: str
     ) -> None:
         """
-        Refresh the detailed course data for a specific course.
-
-        Args:
-            ctx (commands.Context): The command context.
-            course_code (str): The course code to refresh.
+        Force a refresh of the course data for a given course code.
         """
         if not await self._check_enabled(ctx):
             return
