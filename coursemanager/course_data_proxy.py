@@ -57,13 +57,13 @@ class CourseDataProxy:
         suffix: str = course_obj.suffix or "__nosuffix__"
         return (department, code, suffix)
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     def _get_cache_entry(
         self, courses: Dict[str, Any], department: str, code: str, suffix: str, key: str
     ) -> Optional[Dict[str, Any]]:
         return courses.get(department, {}).get(code, {}).get(suffix, {}).get(key)
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     async def _update_cache_entry(
         self, department: str, code: str, suffix: str, key: str, value: Dict[str, Any]
     ) -> None:
@@ -73,7 +73,7 @@ class CourseDataProxy:
             suffix_dict = course_dict.setdefault(suffix, {})
             suffix_dict[key] = value
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     def _is_stale(self, last_updated_str: str, threshold_days: int) -> bool:
         try:
             last_updated = datetime.fromisoformat(last_updated_str)
@@ -84,7 +84,7 @@ class CourseDataProxy:
             self.log.exception(f"Error checking staleness: {e}")
             return True
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     async def get_course_data(
         self, course_code: str, detailed: bool = False
     ) -> Dict[str, Any]:
@@ -122,7 +122,7 @@ class CourseDataProxy:
                     return basic
             return {}
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     async def _fetch_course_online(
         self, course_code: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
@@ -135,7 +135,7 @@ class CourseDataProxy:
         )
         return (soup, None) if soup else (None, error_message)
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     def _determine_term_order(self) -> List[str]:
         today: date = datetime.now(timezone.utc).date()
         current_term_index: int = (today.month - 1) // 4
@@ -146,7 +146,7 @@ class CourseDataProxy:
         self.log.debug(f"Date: {today}, term order: {term_order}")
         return term_order
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     async def _fetch_data_with_retries(
         self, term_order: List[str], normalized_course: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
@@ -191,7 +191,7 @@ class CourseDataProxy:
             self.log.error(f"Max retries reached for {url}")
         return (None, "Error: Max retries reached while fetching course data.")
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     async def _get_term_id(self, term_name: str) -> Optional[int]:
         self.log.debug(f"Retrieving term ID for: {term_name}")
         term_codes: Dict[str, Any] = await self.config.term_codes()
@@ -199,7 +199,7 @@ class CourseDataProxy:
         self.log.debug(f"Term ID for {term_name}: {term_id}")
         return term_id
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     def _build_url(self, term_id: int, normalized_course: str) -> str:
         t, e = self._generate_time_code()
         url: str = self._URL_BASE.format(
@@ -208,14 +208,14 @@ class CourseDataProxy:
         self.log.debug(f"Generated URL with t={t}, e={e}: {url}")
         return url
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     def _generate_time_code(self) -> Tuple[int, int]:
         t: int = floor(time() / 60) % 1000
         e: int = t % 3 + t % 39 + t % 42
         self.log.debug(f"Generated time codes: t={t}, e={e}")
         return (t, e)
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     async def _fetch_single_attempt(
         self, url: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
@@ -244,7 +244,7 @@ class CourseDataProxy:
             self.log.exception(f"Unexpected error during HTTP GET from {url}")
             return (None, f"Unexpected error: {e}")
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     def _process_course_data(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
         courses = soup.find_all("course")
         self.log.debug(f"Processing soup: found {len(courses)} course entries.")
@@ -274,7 +274,7 @@ class CourseDataProxy:
             )
         return processed_courses
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     def _parse_offering(
         self, offering: Optional["bs4.element.Tag"]
     ) -> Tuple[str, str, str]:
@@ -299,7 +299,7 @@ class CourseDataProxy:
                     )
         return (description, prerequisites, antirequisites)
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     async def update_course_listing(self) -> Optional[str]:
         self.log.debug("Retrieving full course listings")
         soup, error_msg = await self._fetch_course_listings()
@@ -317,7 +317,7 @@ class CourseDataProxy:
             return "0"
         return None
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     async def _fetch_course_listings(
         self,
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
@@ -335,7 +335,7 @@ class CourseDataProxy:
             return (None, "Error: Issue occurred while fetching course data.")
         return (None, None)
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     def _process_course_listing(self, soup: BeautifulSoup) -> Dict[str, str]:
         courses = soup.find_all("rs")
         self.log.debug(f"Processing soup: found {len(courses)} course listing entries.")
@@ -351,7 +351,7 @@ class CourseDataProxy:
             courses_dict[normalized_course_code] = course_info
         return courses_dict
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     async def force_mark_stale(self, course_code: str, detailed: bool = True) -> bool:
         department, code, suffix = self._get_course_keys(course_code)
         key: str = "detailed" if detailed else "basic"
@@ -363,7 +363,7 @@ class CourseDataProxy:
             return True
         return False
 
-    @log_entry_exit(log)
+    # @log_entry_exit(log)
     async def close(self) -> None:
         if self.session:
             await self.session.close()
