@@ -7,8 +7,7 @@ from time import time
 from datetime import date, datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
-from bs4 import BeautifulSoup
-import bs4
+from bs4 import BeautifulSoup, Tag
 from redbot.core import Config
 from aiohttp import (
     ClientConnectionError,
@@ -275,9 +274,8 @@ class CourseDataProxy:
         return processed_courses
 
     # @log_entry_exit(log)
-    def _parse_offering(
-        self, offering: Optional["bs4.element.Tag"]
-    ) -> Tuple[str, str, str]:
+
+    def _parse_offering(self, offering: Optional[Tag]) -> Tuple[str, str, str]:
         description, prerequisites, antirequisites = ("", "", "")
         if not offering:
             return (description, prerequisites, antirequisites)

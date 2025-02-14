@@ -1,19 +1,18 @@
 import asyncio
 from typing import Optional
-
 import discord
 from redbot.core import Config, commands
 from redbot.core.utils.chat_formatting import error, info, success, warning
-
 from .channel_service import ChannelService
 from .constants import GLOBAL_DEFAULTS
 from .course_service import CourseService
-from .logger_util import get_logger, log_entry_exit
+from .logger_util import get_logger
 
 log = get_logger("red.course_channel_cog")
 
 
 class CourseChannelCog(commands.Cog):
+
     def __init__(self, bot: commands.Bot) -> None:
         self.bot: commands.Bot = bot
         self.config: Config = Config.get_conf(
@@ -32,11 +31,7 @@ class CourseChannelCog(commands.Cog):
             return True
         if ctx.command.qualified_name.lower().startswith(
             "course"
-        ) and ctx.command.name.lower() not in {
-            "enable",
-            "disable",
-            "course",
-        }:
+        ) and ctx.command.name.lower() not in {"enable", "disable", "course"}:
             enabled = await self.config.enabled_guilds()
             if ctx.guild.id not in enabled:
                 await ctx.send(
@@ -113,10 +108,6 @@ class CourseChannelCog(commands.Cog):
     @dev_course.command(name="listall")
     async def list_all_courses(self, ctx: commands.Context) -> None:
         await self.course_service.list_all_courses(ctx)
-
-    @dev_course.command(name="clearcourses")
-    async def clear_courses(self, ctx: commands.Context) -> None:
-        await self.course_service.clear_courses(ctx)
 
     @dev_course.command(name="refresh")
     async def refresh_course(self, ctx: commands.Context, *, course_code: str) -> None:
