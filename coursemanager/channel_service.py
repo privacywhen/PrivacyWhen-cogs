@@ -13,8 +13,8 @@ log = get_logger("red.channel_service")
 
 
 class ChannelService:
-    def __init__(self, bot: discord.Client, config: Config) -> None:
-        self.bot: discord.Client = bot
+    def __init__(self, bot: commands.Bot, config: Config) -> None:
+        self.bot: commands.Bot = bot
         self.config: Config = config
 
     async def set_default_category(
