@@ -174,7 +174,7 @@ class CourseCodeResolver:
         option_lines.append(f"{cancel_emoji} Cancel")
         prompt: str = f"{prompt_prefix}\n" + "\n".join(option_lines)
         # Optionally, you can log the prompt here if needed:
-        # log.debug(f"Prompting menu with:\n{prompt}")
+        log.debug(f"Prompting menu with:\n{prompt}")
 
         # Define a handler for a valid option.
         def create_handler(selected_option: str, emoji: str) -> Callable[..., Any]:
