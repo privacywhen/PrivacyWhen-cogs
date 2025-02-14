@@ -48,7 +48,7 @@ class CourseChannelCog(commands.Cog):
             self._prune_task.cancel()
         self.bot.loop.create_task(self.course_service.course_data_proxy.close())
 
-    @commands.group(name="course", invoke_without_command=True)
+    @commands.group(name="course", invoke_without_command=True, case_insensitive=True)
     async def course(self, ctx: commands.Context) -> None:
         await ctx.send_help(self.course)
 
