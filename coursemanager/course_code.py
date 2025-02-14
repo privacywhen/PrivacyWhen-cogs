@@ -13,7 +13,7 @@ Example:
 """
 
 import re
-from .utils import get_logger
+from .logger_util import get_logger, log_entry_exit
 
 log = get_logger("red.course_code")
 
@@ -38,6 +38,7 @@ class CourseCode:
         self._raw = raw
         self._parse()
 
+    # @log_entry_exit(log)
     def _parse(self) -> None:
         """
         Parse the raw course code into its components:
@@ -50,11 +51,12 @@ class CourseCode:
         match = self._pattern.match(self._raw)
         if not match:
             raise ValueError(f"Invalid course code format: '{self._raw}'")
-        self._department = match.group(1).upper()
-        self._code = match.group(2).upper()
-        self._suffix = match.group(3).upper() if match.group(3) else ""
+        self._department: str = match.group(1).upper()
+        self._code: str = match.group(2).upper()
+        self._suffix: str = match.group(3).upper() if match.group(3) else ""
 
     @property
+    # @log_entry_exit(log)
     def raw(self) -> str:
         """
         The original raw course code input.
@@ -62,6 +64,7 @@ class CourseCode:
         return self._raw
 
     @property
+    # @log_entry_exit(log)
     def department(self) -> str:
         """
         The department portion of the course code, normalized to uppercase.
@@ -69,6 +72,7 @@ class CourseCode:
         return self._department
 
     @property
+    # @log_entry_exit(log)
     def code(self) -> str:
         """
         The core course code (the numeric/alphanumeric segment), normalized to uppercase.
@@ -76,12 +80,14 @@ class CourseCode:
         return self._code
 
     @property
+    # @log_entry_exit(log)
     def suffix(self) -> str:
         """
         The optional suffix of the course code (if present), normalized to uppercase.
         """
         return self._suffix
 
+    # @log_entry_exit(log)
     def canonical(self) -> str:
         """
         Get the canonical representation of the course code.
@@ -93,6 +99,7 @@ class CourseCode:
         """
         return f"{self.department}-{self.code}{self.suffix}"
 
+    # @log_entry_exit(log)
     def formatted_channel_name(self) -> str:
         """
         Get the version of the course code formatted for Discord channel names.
@@ -104,6 +111,7 @@ class CourseCode:
         """
         return f"{self.department.lower()}-{self.code.lower()}"
 
+    # @log_entry_exit(log)
     def __str__(self) -> str:
         """
         Return the canonical representation when the CourseCode object is printed.
