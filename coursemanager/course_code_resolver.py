@@ -156,6 +156,14 @@ class CourseCodeResolver:
     async def interactive_course_selector(
         ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
     ) -> Optional[str]:
+        # Add a counter to track how many times this function is invoked
+        if not hasattr(ctx, "_menu_call_count"):
+            ctx._menu_call_count = 0
+        ctx._menu_call_count += 1
+        log.debug(
+            f"Interactive menu call count for this context: {ctx._menu_call_count}"
+        )
+
         cancel_emoji: str = REACTION_OPTIONS[-1]
         max_options: int = len(REACTION_OPTIONS) - 1
         limited_options: List[Tuple[str, str]] = options[:max_options]
@@ -165,7 +173,7 @@ class CourseCodeResolver:
         ]
         option_lines.append(f"{cancel_emoji} Cancel")
         prompt: str = f"{prompt_prefix}\n" + "\n".join(option_lines)
-        log.debug(f"Prompting menu with:\n{prompt}")
+        # log.debug(f"Prompting menu with:\n{prompt}")
 
         @log_entry_exit(log)
         def create_handler(selected_option: str, emoji: str) -> Callable[..., Any]:
