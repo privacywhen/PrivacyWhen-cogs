@@ -223,8 +223,7 @@ class CourseChannelClustering:
         while not shutdown_event.is_set():
             log.info(f"Starting clustering cycle iteration {iteration}")
             try:
-                course_users_data = get_course_users()
-                if course_users_data:
+                if course_users_data := get_course_users():
                     mapping = self.cluster_courses(course_users_data, course_metadata)
                 else:
                     log.warning("No course user data available; no mapping produced.")
