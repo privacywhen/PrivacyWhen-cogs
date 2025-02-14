@@ -1,4 +1,5 @@
 import asyncio
+from typing import Optional
 
 import discord
 from redbot.core import Config, commands

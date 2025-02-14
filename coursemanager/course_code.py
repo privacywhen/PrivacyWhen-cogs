@@ -38,7 +38,7 @@ class CourseCode:
         self._raw = raw
         self._parse()
 
-    # @log_entry_exit(log)
+    @log_entry_exit(log)
     def _parse(self) -> None:
         """
         Parse the raw course code into its components:
@@ -55,6 +55,7 @@ class CourseCode:
         self._code: str = match.group(2).upper()
         self._suffix: str = match.group(3).upper() if match.group(3) else ""
 
+    @log_entry_exit(log)
     @property
     def raw(self) -> str:
         """
@@ -62,6 +63,7 @@ class CourseCode:
         """
         return self._raw
 
+    @log_entry_exit(log)
     @property
     def department(self) -> str:
         """
@@ -69,6 +71,7 @@ class CourseCode:
         """
         return self._department
 
+    @log_entry_exit(log)
     @property
     def code(self) -> str:
         """
@@ -76,6 +79,7 @@ class CourseCode:
         """
         return self._code
 
+    @log_entry_exit(log)
     @property
     def suffix(self) -> str:
         """
@@ -83,7 +87,7 @@ class CourseCode:
         """
         return self._suffix
 
-    # @log_entry_exit(log)
+    @log_entry_exit(log)
     def canonical(self) -> str:
         """
         Get the canonical representation of the course code.
@@ -95,7 +99,7 @@ class CourseCode:
         """
         return f"{self.department}-{self.code}{self.suffix}"
 
-    # @log_entry_exit(log)
+    @log_entry_exit(log)
     def formatted_channel_name(self) -> str:
         """
         Get the version of the course code formatted for Discord channel names.
@@ -107,7 +111,7 @@ class CourseCode:
         """
         return f"{self.department.lower()}-{self.code.lower()}"
 
-    # @log_entry_exit(log)
+    @log_entry_exit(log)
     def __str__(self) -> str:
         """
         Return the canonical representation when the CourseCode object is printed.

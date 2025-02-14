@@ -6,7 +6,7 @@ from redbot.core.utils.menus import menu, close_menu
 
 from .constants import REACTION_OPTIONS
 from .course_code import CourseCode
-from .logger_util import get_logger
+from .logger_util import get_logger, log_entry_exit
 
 FuzzyMatch = Tuple[str, CourseCode, float]
 
@@ -24,6 +24,7 @@ class CourseCodeResolver:
         self.course_listings: Dict[str, Any] = course_listings
         self.course_data_proxy: Any = course_data_proxy
 
+    @log_entry_exit(log)
     def find_variant_matches(self, canonical: str) -> List[str]:
         variants: List[str] = [
             key
@@ -33,6 +34,7 @@ class CourseCodeResolver:
         log.debug(f"For canonical '{canonical}', found variant matches: {variants}")
         return variants
 
+    @log_entry_exit(log)
     async def prompt_variant_selection(
         self, ctx: commands.Context, variants: List[str]
     ) -> Optional[str]:
@@ -44,6 +46,7 @@ class CourseCodeResolver:
             ctx, options, "Multiple course variants found. Please choose one:"
         )
 
+    @log_entry_exit(log)
     def _parse_course_code(self, raw: str) -> Optional[CourseCode]:
         try:
             return CourseCode(raw)
@@ -51,6 +54,7 @@ class CourseCodeResolver:
             log.error(f"Invalid course code format: {raw}")
             return None
 
+    @log_entry_exit(log)
     async def fallback_fuzzy_lookup(
         self, ctx: commands.Context, canonical: str
     ) -> Tuple[Optional[CourseCode], Optional[Dict[str, Any]]]:
@@ -64,8 +68,7 @@ class CourseCodeResolver:
         log.debug(f"Fuzzy matches for '{canonical}': {all_matches}")
         valid_matches: List[FuzzyMatch] = []
         for candidate, score, _ in all_matches:
-            candidate_obj = self._parse_course_code(candidate)
-            if candidate_obj:
+            if candidate_obj := self._parse_course_code(candidate):
                 valid_matches.append((candidate, candidate_obj, score))
             else:
                 log.debug(f"Candidate '{candidate}' failed parsing and is skipped.")
@@ -112,6 +115,7 @@ class CourseCodeResolver:
         data: Any = self.course_listings.get(selected_candidate)
         return (selected_obj, data)
 
+    @log_entry_exit(log)
     async def resolve_course_code(
         self, ctx: commands.Context, course: CourseCode
     ) -> Tuple[Optional[CourseCode], Optional[Dict[str, Any]]]:
@@ -120,8 +124,7 @@ class CourseCodeResolver:
         if canonical in self.course_listings:
             log.debug(f"Exact match found for '{canonical}'.")
             return (course, self.course_listings[canonical])
-        variants = self.find_variant_matches(canonical)
-        if variants:
+        if variants := self.find_variant_matches(canonical):
             selected_code: Optional[str] = (
                 variants[0]
                 if len(variants) == 1
@@ -140,6 +143,7 @@ class CourseCodeResolver:
         log.debug("No variants found; proceeding with fuzzy lookup.")
         return await self.fallback_fuzzy_lookup(ctx, canonical)
 
+    @log_entry_exit(log)
     async def _menu_select_option(
         self, ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
     ) -> Optional[str]:
@@ -147,6 +151,7 @@ class CourseCodeResolver:
             ctx, options, prompt_prefix
         )
 
+    @log_entry_exit(log)
     @staticmethod
     async def interactive_course_selector(
         ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
@@ -162,6 +167,7 @@ class CourseCodeResolver:
         prompt: str = f"{prompt_prefix}\n" + "\n".join(option_lines)
         log.debug(f"Prompting menu with:\n{prompt}")
 
+        @log_entry_exit(log)
         def create_handler(selected_option: str, emoji: str) -> Callable[..., Any]:
             async def handler(
                 ctx: commands.Context,
@@ -194,6 +200,7 @@ class CourseCodeResolver:
             for emoji, (option, _) in zip(REACTION_OPTIONS, limited_options)
         }
 
+        @log_entry_exit(log)
         async def cancel_handler(
             ctx: commands.Context,
             pages: List[str],
