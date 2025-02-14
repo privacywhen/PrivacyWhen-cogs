@@ -57,6 +57,7 @@ class CourseChannelCog(commands.Cog):
     async def course(self, ctx: commands.Context) -> None:
         await ctx.send_help(self.course)
 
+    @log_entry_exit(log)
     @course.command(name="join")
     @commands.cooldown(1, 5, commands.BucketType.user)
     async def join_course(self, ctx: commands.Context, *, course_code: str) -> None:
