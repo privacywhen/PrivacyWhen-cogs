@@ -24,18 +24,14 @@ class CourseCode:
     #   - Code: a numeric/alphanumeric sequence (starting with a digit, then two alphanumerics, ending with a digit)
     #   - Optional Suffix: a single trailing letter (if present)
     _pattern = re.compile(r"^\s*([A-Za-z]+)[\s\-_]*(\d[A-Za-z0-9]{2}\d)([A-Za-z])?\s*$")
+    MAX_LENGTH = 50  # SECURITY: Maximum allowed length for course code input
 
     def __init__(self, raw: str) -> None:
-        """
-        Initialize a CourseCode object by parsing the raw course code input.
 
-        Args:
-            raw (str): The raw course code string (e.g., "socwork-2a06a").
-
-        Raises:
-            ValueError: If the provided input does not match the expected course code pattern.
-        """
-        self._raw = raw
+        raw_stripped = raw.strip()
+        if len(raw_stripped) > self.MAX_LENGTH:
+            raise ValueError("Course code input is too long.")
+        self._raw = raw_stripped
         self._parse()
 
     # @log_entry_exit(log)
