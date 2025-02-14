@@ -126,7 +126,7 @@ class CourseChannelClustering:
             for course, users in course_users.items():
                 for user in users:
                     user_to_courses[user].add(course)
-            for user, courses in user_to_courses.items():
+            for courses in user_to_courses.values():
                 sorted_courses = sorted(courses)
                 for course1, course2 in combinations(sorted_courses, 2):
                     overlaps[(course1, course2)] += 1
@@ -320,8 +320,7 @@ class CourseChannelClustering:
         while not shutdown_event.is_set():
             log.info(f"Starting clustering cycle iteration {iteration}")
             try:
-                course_users = get_course_users()
-                if course_users:
+                if course_users := get_course_users():
                     mapping = self.cluster_courses(course_users, course_metadata)
                 else:
                     log.warning("No course user data available; no mapping produced.")
