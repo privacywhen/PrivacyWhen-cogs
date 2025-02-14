@@ -168,21 +168,11 @@ class CourseCodeResolver:
     async def resolve_course_code(
         self, ctx: commands.Context, course: CourseCode
     ) -> Tuple[Optional[CourseCode], Optional[Dict[str, Any]]]:
-        """
-        Resolve a course code using exact match, variant matching, or fuzzy lookup.
-
-        Args:
-            ctx (commands.Context): The command context.
-            course (CourseCode): The course code to resolve.
-
-        Returns:
-            Tuple[Optional[CourseCode], Optional[Dict[str, Any]]]: The resolved course code and its associated data.
-        """
         canonical: str = course.canonical()
         log.debug(f"Resolving course code for canonical: {canonical}")
         if canonical in self.course_listings:
             log.debug(f"Exact match found for '{canonical}'.")
-            return (course, self.course_listings[canonical])
+            return course, self.course_listings[canonical]
         if variants := self.find_variant_matches(canonical):
             selected_code: Optional[str] = (
                 variants[0]
@@ -191,14 +181,14 @@ class CourseCodeResolver:
             )
             if not selected_code:
                 log.debug("No variant selected by the user.")
-                return (None, None)
+                return None, None
             candidate_obj: Optional[CourseCode] = self._parse_course_code(selected_code)
             if candidate_obj is None:
                 log.debug(f"Failed to parse selected variant '{selected_code}'.")
-                return (None, None)
+                return None, None
             log.debug(f"Variant '{selected_code}' selected and parsed successfully.")
             data = self.course_listings.get(selected_code)
-            return (candidate_obj, data)
+            return candidate_obj, data
         log.debug("No variants found; proceeding with fuzzy lookup.")
         return await self.fallback_fuzzy_lookup(ctx, canonical)
 
@@ -224,20 +214,7 @@ class CourseCodeResolver:
     async def interactive_course_selector(
         ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
     ) -> Optional[str]:
-        """
-        Static method to prompt the user with an interactive selection menu.
-
-        Args:
-            ctx (commands.Context): The command context.
-            options (List[Tuple[str, str]]): List of (option, description) tuples.
-            prompt_prefix (str): The prompt message prefix.
-
-        Returns:
-            Optional[str]: The selected option, or None if cancelled.
-        """
-        if not hasattr(ctx, "_menu_call_count"):
-            ctx._menu_call_count = 0
-        ctx._menu_call_count += 1
+        ctx._menu_call_count = getattr(ctx, "_menu_call_count", 0) + 1
         log.debug(
             f"Interactive menu call count for this context: {ctx._menu_call_count}"
         )

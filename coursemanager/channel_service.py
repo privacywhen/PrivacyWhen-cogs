@@ -49,45 +49,39 @@ class ChannelService:
                 error("I do not have permission to create a channel in that category.")
             )
 
-    async def channel_prune_helper(
-        self,
-        guild: discord.Guild,
-        channel: discord.TextChannel,
-        prune_threshold: timedelta,
-    ) -> None:
-        now: datetime = datetime.now(timezone.utc)
-        last_activity: Optional[datetime] = None
-        if channel.last_message and (not channel.last_message.author.bot):
-            last_activity = channel.last_message.created_at
-            log.debug(f"Using channel.last_message for {channel.name}: {last_activity}")
-        else:
-            prune_history_limit: int = await self.config.channel_prune_history_limit()
-            async for message in channel.history(limit=prune_history_limit):
-                if not message.author.bot:
-                    last_activity = message.created_at
-                    log.debug(
-                        f"Found non-bot message in {channel.name} at {last_activity}"
-                    )
-                    break
-        if last_activity is None:
-            last_activity = channel.created_at
-            log.debug(
-                f"No non-bot messages found in {channel.name}. Using channel.created_at: {last_activity}"
-            )
-        inactivity_duration: timedelta = now - last_activity
+
+async def channel_prune_helper(
+    self, guild: discord.Guild, channel: discord.TextChannel, prune_threshold: timedelta
+) -> None:
+    now: datetime = datetime.now(timezone.utc)
+    last_activity: Optional[datetime] = None
+    if (last_msg := channel.last_message) and not last_msg.author.bot:
+        last_activity = last_msg.created_at
+        log.debug(f"Using channel.last_message for {channel.name}: {last_activity}")
+    else:
+        prune_history_limit: int = await self.config.channel_prune_history_limit()
+        async for message in channel.history(limit=prune_history_limit):
+            if not message.author.bot:
+                last_activity = message.created_at
+                log.debug(f"Found non-bot message in {channel.name} at {last_activity}")
+                break
+    if last_activity is None:
+        last_activity = channel.created_at
         log.debug(
-            f"Channel '{channel.name}' inactivity duration: {inactivity_duration}"
+            f"No non-bot messages found in {channel.name}. Using channel.created_at: {last_activity}"
         )
-        if inactivity_duration > prune_threshold:
-            log.info(
-                f"Pruning channel '{channel.name}' in guild '{guild.name}'. Inactive for {inactivity_duration} (threshold: {prune_threshold})."
+    inactivity_duration: timedelta = now - last_activity
+    log.debug(f"Channel '{channel.name}' inactivity duration: {inactivity_duration}")
+    if inactivity_duration > prune_threshold:
+        log.info(
+            f"Pruning channel '{channel.name}' in guild '{guild.name}'. Inactive for {inactivity_duration} (threshold: {prune_threshold})."
+        )
+        try:
+            await channel.delete(reason="Auto-pruned due to inactivity.")
+        except Exception as e:
+            log.exception(
+                f"Failed to delete channel '{channel.name}' in guild '{guild.name}': {e}"
             )
-            try:
-                await channel.delete(reason="Auto-pruned due to inactivity.")
-            except Exception as e:
-                log.exception(
-                    f"Failed to delete channel '{channel.name}' in guild '{guild.name}': {e}"
-                )
 
     async def auto_channel_prune(self) -> None:
         prune_threshold_days: int = await self.config.prune_threshold_days()

@@ -40,20 +40,12 @@ class CourseCode:
 
     # @log_entry_exit(log)
     def _parse(self) -> None:
-        """
-        Parse the raw course code into its components:
-          - department (alphabetic characters)
-          - code (numeric/alphanumeric segment)
-          - optional suffix (a trailing letter)
-
-        The components are normalized to uppercase for consistency.
-        """
-        match = self._pattern.match(self._raw)
-        if not match:
+        if (match := self._pattern.match(self._raw)) is None:
             raise ValueError(f"Invalid course code format: '{self._raw}'")
-        self._department: str = match.group(1).upper()
-        self._code: str = match.group(2).upper()
-        self._suffix: str = match.group(3).upper() if match.group(3) else ""
+        self._department, self._code, suffix = match.group(1, 2, 3)
+        self._department = self._department.upper()
+        self._code = self._code.upper()
+        self._suffix = suffix.upper() if suffix else ""
 
     @property
     # @log_entry_exit(log)

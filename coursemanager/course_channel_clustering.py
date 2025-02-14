@@ -59,11 +59,10 @@ class CourseChannelClustering:
     def _normalize_course_metadata(
         self, course_metadata: Dict[Any, Dict[str, Any]]
     ) -> Dict[int, Dict[str, Any]]:
-        normalized: Dict[int, Dict[str, Any]] = {}
-        for course, meta in course_metadata.items():
-            course_id: int = self._normalize_key(course)
-            normalized[course_id] = meta
-        return normalized
+        return {
+            self._normalize_key(course): meta
+            for course, meta in course_metadata.items()
+        }
 
     def _calculate_overlaps(
         self,
@@ -119,8 +118,8 @@ class CourseChannelClustering:
         course_metadata: Optional[Dict[int, Dict[str, Any]]] = None,
     ) -> nx.Graph:
         graph: nx.Graph = nx.Graph()
+        graph.add_nodes_from(sorted(course_users.keys()))
         for course, users in sorted(course_users.items()):
-            graph.add_node(course)
             if not users:
                 log.warning(f"Course '{course}' has no user engagements.")
         overlaps = self._calculate_overlaps(course_users, course_metadata)
