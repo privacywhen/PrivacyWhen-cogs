@@ -15,11 +15,14 @@ class CourseChannelClustering:
     """
     Clusters course channels based on overlapping user memberships.
 
+    This version optimizes performance by converting course and user IDs to integers.
+
     Clustering pipeline:
-      1. Compute pairwise user overlap between courses.
-      2. Build a weighted undirected graph.
-      3. Apply a clustering algorithm (default: Louvain).
-      4. Map clusters to Discord category labels—splitting clusters into subgroups
+      1. Normalize IDs (convert to int).
+      2. Compute pairwise user overlap between courses.
+      3. Build a weighted undirected graph.
+      4. Apply a clustering algorithm (default: Louvain).
+      5. Map clusters to Discord category labels—splitting clusters into subgroups
          if they exceed the max channels limit, and ensuring each subgroup gets a unique label.
     """
 
@@ -28,7 +31,7 @@ class CourseChannelClustering:
         grouping_threshold: int = 2,
         max_category_channels: int = 50,
         category_prefix: str = "COURSES",
-        clustering_func: Optional[Callable[[nx.Graph], List[Set[str]]]] = None,
+        clustering_func: Optional[Callable[[nx.Graph], List[Set[int]]]] = None,
         optimize_overlap: bool = True,
     ) -> None:
         """
@@ -49,26 +52,53 @@ class CourseChannelClustering:
         self.clustering_func = clustering_func or self._default_clustering
         self.optimize_overlap = optimize_overlap
 
+    def _normalize_course_users(
+        self, course_users: Dict[Any, Set[Any]]
+    ) -> Dict[int, Set[int]]:
+        """
+        Convert course IDs and user IDs to integers for performance optimization.
+        Assumes that all IDs are convertible to int.
+        """
+        normalized = {}
+        for course, users in course_users.items():
+            try:
+                course_id = int(course)
+            except Exception as e:
+                raise ValueError(
+                    f"Course ID {course} is not convertible to int."
+                ) from e
+            normalized_users = set()
+            for user in users:
+                try:
+                    user_id = int(user)
+                except Exception as e:
+                    raise ValueError(
+                        f"User ID {user} is not convertible to int."
+                    ) from e
+                normalized_users.add(user_id)
+            normalized[course_id] = normalized_users
+        return normalized
+
     def _calculate_overlaps(
-        self, course_users: Dict[str, Set[str]]
-    ) -> Dict[Tuple[str, str], int]:
+        self, course_users: Dict[int, Set[int]]
+    ) -> Dict[Tuple[int, int], int]:
         """
         Calculate the number of common users between every pair of courses.
         Uses an inverted index approach if optimize_overlap is True.
         """
-        overlaps: Dict[Tuple[str, str], int] = defaultdict(int)
+        overlaps: Dict[Tuple[int, int], int] = defaultdict(int)
         if self.optimize_overlap:
             # Build an inverted index: user -> set of courses the user is in
-            user_to_courses: Dict[str, Set[str]] = defaultdict(set)
+            user_to_courses: Dict[int, Set[int]] = defaultdict(set)
             for course, users in course_users.items():
                 for user in users:
                     user_to_courses[user].add(course)
             # For each user, count overlaps among courses they share
-            for courses in user_to_courses.values():
+            for user, courses in user_to_courses.items():
                 sorted_courses = sorted(courses)
                 for course1, course2 in combinations(sorted_courses, 2):
                     overlaps[(course1, course2)] += 1
-            method_used = "inverted index"  # Set method used for logging
+            method_used = "inverted index"
         else:
             # Fallback to direct pairwise comparison
             course_ids = sorted(course_users.keys())
@@ -76,21 +106,20 @@ class CourseChannelClustering:
                 count = len(course_users[course1] & course_users[course2])
                 if count > 0:
                     overlaps[(course1, course2)] = count
-            method_used = "combinations"  # Set method used for logging
+            method_used = "combinations"
 
-        # Single debug log message after computing overlaps
         log.debug(
             f"Calculated overlaps using {method_used} for {len(course_users)} courses: {dict(overlaps)}"
         )
         return dict(overlaps)
 
-    def _build_graph(self, course_users: Dict[str, Set[str]]) -> nx.Graph:
+    def _build_graph(self, course_users: Dict[int, Set[int]]) -> nx.Graph:
         """
         Build a weighted graph where nodes represent courses and
         edges represent the user overlap (if above the grouping threshold).
         """
         graph = nx.Graph()
-        # DRY: Iterate over sorted (course, users) pairs to avoid repeated lookups.
+        # DRY: Iterate over sorted (course, users) pairs to reduce repeated lookups.
         for course, users in sorted(course_users.items()):
             graph.add_node(course)
             if not users:
@@ -105,7 +134,7 @@ class CourseChannelClustering:
         )
         return graph
 
-    def _default_clustering(self, graph: nx.Graph) -> List[Set[str]]:
+    def _default_clustering(self, graph: nx.Graph) -> List[Set[int]]:
         """
         Default clustering using the Louvain algorithm.
         Falls back to treating each course as its own cluster if necessary.
@@ -122,7 +151,7 @@ class CourseChannelClustering:
             log.exception(f"Default clustering failed: {e}")
             return [set(graph.nodes())]
 
-    def _perform_clustering(self, graph: nx.Graph) -> List[Set[str]]:
+    def _perform_clustering(self, graph: nx.Graph) -> List[Set[int]]:
         """
         Perform clustering using the provided (or default) clustering function.
         """
@@ -138,15 +167,14 @@ class CourseChannelClustering:
         for i in range(0, len(lst), chunk_size):
             yield lst[i : i + chunk_size]
 
-    def _map_clusters_to_categories(self, clusters: List[Set[str]]) -> Dict[str, str]:
+    def _map_clusters_to_categories(self, clusters: List[Set[int]]) -> Dict[int, str]:
         """
         Map clusters (and their subgroups) to unique Discord category labels.
 
         Each subgroup (of size up to max_category_channels) receives a unique label.
         If there is more than one subgroup overall, suffixes are added to the base prefix.
         """
-        mapping: Dict[str, str] = {}
-        # Pre-calculate total subgroups to decide if suffixes are needed.
+        mapping: Dict[int, str] = {}
         total_subgroups = sum(
             ceil(len(cluster) / self.max_category_channels) for cluster in clusters
         )
@@ -154,7 +182,7 @@ class CourseChannelClustering:
 
         subgroup_counter = 1
         # Process clusters in a stable order (by smallest course ID)
-        for cluster in sorted(clusters, key=lambda c: min(c) if c else ""):
+        for cluster in sorted(clusters, key=lambda c: min(c) if c else 0):
             courses = sorted(cluster)
             chunks = list(self._chunk_list(courses, self.max_category_channels))
             log.debug(
@@ -172,11 +200,12 @@ class CourseChannelClustering:
                 subgroup_counter += 1
         return mapping
 
-    def cluster_courses(self, course_users: Dict[str, Set[str]]) -> Dict[str, str]:
+    def cluster_courses(self, course_users: Dict[Any, Set[Any]]) -> Dict[int, str]:
         """
-        Run the full clustering pipeline to map course IDs to Discord category labels.
+        Run the full clustering pipeline to map course IDs (converted to int) to Discord category labels.
         """
-        graph = self._build_graph(course_users)
+        normalized_course_users = self._normalize_course_users(course_users)
+        graph = self._build_graph(normalized_course_users)
         clusters = self._perform_clustering(graph)
         log.info(f"Detected {len(clusters)} clusters.")
         mapping = self._map_clusters_to_categories(clusters)
@@ -186,8 +215,8 @@ class CourseChannelClustering:
     async def run_periodic(
         self,
         interval: int,
-        get_course_users: Callable[[], Dict[str, Set[str]]],
-        persist_mapping: Callable[[Dict[str, str]], Any],
+        get_course_users: Callable[[], Dict[Any, Set[Any]]],
+        persist_mapping: Callable[[Dict[int, str]], Any],
         shutdown_event: asyncio.Event,
     ) -> None:
         """
@@ -198,7 +227,8 @@ class CourseChannelClustering:
         while not shutdown_event.is_set():
             log.info(f"Starting clustering cycle iteration {iteration}")
             try:
-                if course_users := get_course_users():
+                course_users = get_course_users()
+                if course_users:
                     mapping = self.cluster_courses(course_users)
                 else:
                     log.warning("No course user data available; no mapping produced.")
