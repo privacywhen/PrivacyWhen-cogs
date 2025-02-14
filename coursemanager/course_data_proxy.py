@@ -351,9 +351,6 @@ class CourseDataProxy:
     async def _fetch_course_listings(
         self,
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
-        """
-        Fetch course listings from the predefined listing URL.
-        """
         url: str = self._LISTING_URL
         try:
             soup, error_message = await self._fetch_single_attempt(url)
@@ -366,7 +363,7 @@ class CourseDataProxy:
         except (ClientResponseError, ClientConnectionError) as error:
             self.log.exception(f"Exception during fetch from {url}: {error}")
             return None, "Error: Issue occurred while fetching course data."
-        return None, None
+        return None, "Unknown error while fetching course listings."
 
     def _process_course_listing(self, soup: BeautifulSoup) -> Dict[str, str]:
         """
@@ -382,7 +379,7 @@ class CourseDataProxy:
             except ValueError:
                 self.log.exception(f"Invalid course code format: {raw_course_code}")
                 continue
-            course_info: str = course.get("info", "").replace("<br/>", " ")
+            course_info: str = self._BR_REGEX.sub(" ", course.get("info", ""))
             courses_dict[normalized_course_code] = course_info
         return courses_dict
 
