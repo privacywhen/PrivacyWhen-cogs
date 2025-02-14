@@ -55,32 +55,32 @@ class CourseCode:
         self._code: str = match.group(2).upper()
         self._suffix: str = match.group(3).upper() if match.group(3) else ""
 
-    @log_entry_exit(log)
     @property
+    @log_entry_exit(log)
     def raw(self) -> str:
         """
         The original raw course code input.
         """
         return self._raw
 
-    @log_entry_exit(log)
     @property
+    @log_entry_exit(log)
     def department(self) -> str:
         """
         The department portion of the course code, normalized to uppercase.
         """
         return self._department
 
-    @log_entry_exit(log)
     @property
+    @log_entry_exit(log)
     def code(self) -> str:
         """
         The core course code (the numeric/alphanumeric segment), normalized to uppercase.
         """
         return self._code
 
-    @log_entry_exit(log)
     @property
+    @log_entry_exit(log)
     def suffix(self) -> str:
         """
         The optional suffix of the course code (if present), normalized to uppercase.
