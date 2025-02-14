@@ -1,7 +1,3 @@
-"""
-Module for retrieving and caching course data from an external source.
-"""
-
 import asyncio
 import logging
 import random
@@ -19,7 +15,6 @@ from aiohttp import (
     ClientSession,
     ClientTimeout,
 )
-
 from .logger_util import get_logger, log_entry_exit
 from .course_code import CourseCode
 
@@ -27,10 +22,6 @@ log = get_logger("red.course_data_proxy")
 
 
 class CourseDataProxy:
-    """
-    Proxy for fetching and caching course data from an external API.
-    """
-
     _CACHE_STALE_DAYS_BASIC: int = 90
     _CACHE_PURGE_DAYS: int = 180
     _TERM_NAMES: List[str] = ["winter", "spring", "fall"]
@@ -43,43 +34,21 @@ class CourseDataProxy:
     _MAX_RETRIES: int = 1
     _BASE_DELAY: float = 2
     _PARSER: str = "lxml-xml"
-    _BR_REGEX = re.compile(r"<br\s*/?>", flags=re.IGNORECASE)
+    _BR_REGEX = re.compile("<br\\s*/?>", flags=re.IGNORECASE)
 
     def __init__(self, config: Config, logger: logging.Logger) -> None:
-        """
-        Initialize the CourseDataProxy.
-
-        Args:
-            config (Config): The Redbot configuration.
-            logger (logging.Logger): Logger for debug and error messages.
-        """
         self.config: Config = config
         self.log: logging.Logger = logger
         self.session: Optional[ClientSession] = None
         self.log.debug("CourseDataProxy initialized.")
 
     async def _get_session(self) -> ClientSession:
-        """
-        Get or create an HTTP session.
-
-        Returns:
-            ClientSession: The HTTP session.
-        """
         if self.session is None or self.session.closed:
             self.session = ClientSession(timeout=ClientTimeout(total=15))
             self.log.debug("Created new HTTP session.")
         return self.session
 
     def _get_course_keys(self, course_code: str) -> Tuple[str, str, str]:
-        """
-        Extract department, code, and suffix from a course code.
-
-        Args:
-            course_code (str): The course code.
-
-        Returns:
-            Tuple[str, str, str]: Tuple containing department, code, and suffix.
-        """
         course_obj: CourseCode = CourseCode(course_code)
         department: str = course_obj.department
         code: str = course_obj.code
@@ -89,34 +58,11 @@ class CourseDataProxy:
     def _get_cache_entry(
         self, courses: Dict[str, Any], department: str, code: str, suffix: str, key: str
     ) -> Optional[Dict[str, Any]]:
-        """
-        Retrieve a cache entry for a course.
-
-        Args:
-            courses (Dict[str, Any]): The cached courses.
-            department (str): Department of the course.
-            code (str): Course code.
-            suffix (str): Course suffix.
-            key (str): Cache key ('basic' or 'detailed').
-
-        Returns:
-            Optional[Dict[str, Any]]: The cache entry if found.
-        """
         return courses.get(department, {}).get(code, {}).get(suffix, {}).get(key)
 
     async def _update_cache_entry(
         self, department: str, code: str, suffix: str, key: str, value: Dict[str, Any]
     ) -> None:
-        """
-        Update the cache entry for a course.
-
-        Args:
-            department (str): Department of the course.
-            code (str): Course code.
-            suffix (str): Course suffix.
-            key (str): Cache key ('basic' or 'detailed').
-            value (Dict[str, Any]): The new cache value.
-        """
         async with self.config.courses() as courses_update:
             dept = courses_update.setdefault(department, {})
             course_dict = dept.setdefault(code, {})
@@ -124,16 +70,6 @@ class CourseDataProxy:
             suffix_dict[key] = value
 
     def _is_stale(self, last_updated_str: str, threshold_days: int) -> bool:
-        """
-        Determine if a cache entry is stale.
-
-        Args:
-            last_updated_str (str): The ISO-formatted last updated timestamp.
-            threshold_days (int): The staleness threshold in days.
-
-        Returns:
-            bool: True if the entry is stale, False otherwise.
-        """
         try:
             last_updated = datetime.fromisoformat(last_updated_str)
             return datetime.now(timezone.utc) - last_updated > timedelta(
@@ -146,16 +82,6 @@ class CourseDataProxy:
     async def get_course_data(
         self, course_code: str, detailed: bool = False
     ) -> Dict[str, Any]:
-        """
-        Retrieve course data, either from the cache or by fetching online.
-
-        Args:
-            course_code (str): The course code.
-            detailed (bool): Whether to fetch detailed data.
-
-        Returns:
-            Dict[str, Any]: The course data.
-        """
         department, code, suffix = self._get_course_keys(course_code)
         now: datetime = datetime.now(timezone.utc)
         courses: Dict[str, Any] = await self.config.courses()
@@ -193,15 +119,6 @@ class CourseDataProxy:
     async def _fetch_course_online(
         self, course_code: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
-        """
-        Fetch course data online.
-
-        Args:
-            course_code (str): The course code.
-
-        Returns:
-            Tuple[Optional[BeautifulSoup], Optional[str]]: The parsed HTML and an error message if any.
-        """
         normalized: str = CourseCode(course_code).canonical()
         self.log.debug(f"Fetching online data for {normalized}")
         term_order: List[str] = self._determine_term_order()
@@ -212,12 +129,6 @@ class CourseDataProxy:
         return (soup, None) if soup else (None, error_message)
 
     def _determine_term_order(self) -> List[str]:
-        """
-        Determine the order of terms based on the current date.
-
-        Returns:
-            List[str]: Ordered list of term names.
-        """
         today: date = datetime.now(timezone.utc).date()
         current_term_index: int = (today.month - 1) // 4
         term_order: List[str] = (
@@ -227,70 +138,56 @@ class CourseDataProxy:
         self.log.debug(f"Date: {today}, term order: {term_order}")
         return term_order
 
+    async def _retry_request(
+        self, url: str
+    ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
+        for attempt in range(self._MAX_RETRIES):
+            self.log.debug(f"Attempt {attempt + 1} for URL: {url}")
+            try:
+                soup, error_message = await self._fetch_single_attempt(url)
+                if soup:
+                    self.log.debug(f"Successfully fetched data from {url}")
+                    return soup, None
+                elif error_message:
+                    self.log.debug(f"Received error: {error_message}")
+                    if "not found" in error_message.lower():
+                        self.log.error(f"Course not found for URL: {url}")
+                        return None, error_message
+            except (
+                ClientResponseError,
+                ClientConnectionError,
+                asyncio.TimeoutError,
+            ) as error:
+                self.log.exception(f"HTTP error during fetch from {url}")
+                if attempt == self._MAX_RETRIES - 1:
+                    return None, "Error: Issue occurred while fetching course data."
+            delay: float = self._BASE_DELAY * 2**attempt + random.uniform(
+                0, self._BASE_DELAY
+            )
+            self.log.debug(f"Retrying in {delay:.2f} seconds...")
+            await asyncio.sleep(delay)
+        self.log.error(f"Max retries reached for {url}")
+        return None, "Error: Max retries reached while fetching course data."
+
     async def _fetch_data_with_retries(
         self, term_order: List[str], normalized_course: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
-        """
-        Attempt to fetch data from the external API with retries.
-
-        Args:
-            term_order (List[str]): The order of terms to try.
-            normalized_course (str): The normalized course code.
-
-        Returns:
-            Tuple[Optional[BeautifulSoup], Optional[str]]: The parsed HTML and error message if failed.
-        """
-        url: Optional[str] = None
         for term_name in term_order:
             term_id = await self._get_term_id(term_name)
             if not term_id:
                 self.log.debug(f"Term ID not found for term: {term_name}")
                 continue
             self.log.debug(f"Using term '{term_name}' with ID {term_id}")
-            url = self._build_url(term_id, normalized_course)
+            url: str = self._build_url(term_id, normalized_course)
             self.log.debug(f"Built URL: {url}")
-            for attempt in range(self._MAX_RETRIES):
-                self.log.debug(f"Attempt {attempt + 1} for URL: {url}")
-                try:
-                    soup, error_message = await self._fetch_single_attempt(url)
-                    if soup:
-                        self.log.debug(f"Successfully fetched data from {url}")
-                        return (soup, None)
-                    elif error_message:
-                        self.log.debug(f"Received error: {error_message}")
-                        if "not found" in error_message.lower():
-                            self.log.error(f"Course not found: {normalized_course}")
-                            return (None, error_message)
-                except (
-                    ClientResponseError,
-                    ClientConnectionError,
-                    asyncio.TimeoutError,
-                ) as error:
-                    self.log.exception(f"HTTP error during fetch from {url}")
-                    if attempt == self._MAX_RETRIES - 1:
-                        return (
-                            None,
-                            "Error: Issue occurred while fetching course data.",
-                        )
-                delay: float = self._BASE_DELAY * 2**attempt + random.uniform(
-                    0, self._BASE_DELAY
-                )
-                self.log.debug(f"Retrying in {delay:.2f} seconds...")
-                await asyncio.sleep(delay)
-        if url:
-            self.log.error(f"Max retries reached for {url}")
-        return (None, "Error: Max retries reached while fetching course data.")
+            soup, error_message = await self._retry_request(url)
+            if soup:
+                return soup, None
+            if error_message and "not found" in error_message.lower():
+                return None, error_message
+        return None, "Error: Max retries reached while fetching course data."
 
     async def _get_term_id(self, term_name: str) -> Optional[int]:
-        """
-        Retrieve the term ID for a given term name.
-
-        Args:
-            term_name (str): The term name.
-
-        Returns:
-            Optional[int]: The term ID if found.
-        """
         self.log.debug(f"Retrieving term ID for: {term_name}")
         term_codes: Dict[str, Any] = await self.config.term_codes()
         term_id = term_codes.get(term_name.lower())
@@ -298,16 +195,6 @@ class CourseDataProxy:
         return term_id
 
     def _build_url(self, term_id: int, normalized_course: str) -> str:
-        """
-        Build the URL for fetching course data.
-
-        Args:
-            term_id (int): The term ID.
-            normalized_course (str): The normalized course code.
-
-        Returns:
-            str: The constructed URL.
-        """
         t, e = self._generate_time_code()
         url: str = self._URL_BASE.format(
             term=term_id, course_key=normalized_course, t=t, e=e
@@ -316,12 +203,6 @@ class CourseDataProxy:
         return url
 
     def _generate_time_code(self) -> Tuple[int, int]:
-        """
-        Generate time-based codes for URL construction.
-
-        Returns:
-            Tuple[int, int]: Tuple of time codes (t, e).
-        """
         t: int = floor(time() / 60) % 1000
         e: int = t % 3 + t % 39 + t % 42
         self.log.debug(f"Generated time codes: t={t}, e={e}")
@@ -330,50 +211,32 @@ class CourseDataProxy:
     async def _fetch_single_attempt(
         self, url: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
-        """
-        Perform a single HTTP GET attempt to fetch course data.
-
-        Args:
-            url (str): The URL to fetch.
-
-        Returns:
-            Tuple[Optional[BeautifulSoup], Optional[str]]: Parsed HTML and error message if any.
-        """
         self.log.debug(f"HTTP GET: {url}")
         session: ClientSession = await self._get_session()
         try:
             async with session.get(url) as response:
                 self.log.debug(f"Response {response.status} from URL: {url}")
                 if response.status == 500:
-                    return (None, "Error: HTTP 500")
+                    return None, "Error: HTTP 500"
                 if response.status != 200:
-                    return (None, f"Error: HTTP {response.status}")
+                    return None, f"Error: HTTP {response.status}"
                 content: str = await response.text()
                 soup: BeautifulSoup = BeautifulSoup(content, self._PARSER)
                 error_tag = soup.find("error")
                 if not error_tag:
                     self.log.debug(f"No error tag in response for {url}")
-                    return (soup, None)
+                    return soup, None
                 error_message: str = error_tag.text.strip()
                 self.log.debug(f"Error tag found: {error_message}")
-                return (None, error_message or None)
+                return None, error_message or None
         except (ClientResponseError, ClientConnectionError, asyncio.TimeoutError) as e:
             self.log.exception(f"HTTP error during GET from {url}")
-            return (None, f"HTTP error: {e}")
+            return None, f"HTTP error: {e}"
         except Exception as e:
             self.log.exception(f"Unexpected error during HTTP GET from {url}")
-            return (None, f"Unexpected error: {e}")
+            return None, f"Unexpected error: {e}"
 
     def _process_course_data(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
-        """
-        Process the fetched course data from the BeautifulSoup object.
-
-        Args:
-            soup (BeautifulSoup): The parsed HTML.
-
-        Returns:
-            List[Dict[str, Any]]: A list of processed course data dictionaries.
-        """
         courses = soup.find_all("course")
         self.log.debug(f"Processing soup: found {len(courses)} course entries.")
         processed_courses: List[Dict[str, Any]] = []
@@ -403,15 +266,6 @@ class CourseDataProxy:
         return processed_courses
 
     def _parse_offering(self, offering: Optional[Tag]) -> Tuple[str, str, str]:
-        """
-        Parse the offering details from the course XML.
-
-        Args:
-            offering (Optional[Tag]): The offering tag.
-
-        Returns:
-            Tuple[str, str, str]: Description, prerequisites, and antirequisites.
-        """
         description, prerequisites, antirequisites = ("", "", "")
         if not offering:
             return (description, prerequisites, antirequisites)
@@ -434,12 +288,6 @@ class CourseDataProxy:
         return (description, prerequisites, antirequisites)
 
     async def update_course_listing(self) -> Optional[str]:
-        """
-        Update and cache the full course listings.
-
-        Returns:
-            Optional[str]: The number of courses fetched as a string, or None on failure.
-        """
         self.log.debug("Retrieving full course listings")
         soup, error_msg = await self._fetch_course_listings()
         if soup:
@@ -459,36 +307,21 @@ class CourseDataProxy:
     async def _fetch_course_listings(
         self,
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
-        """
-        Fetch the course listings from the external API.
-
-        Returns:
-            Tuple[Optional[BeautifulSoup], Optional[str]]: The parsed HTML and error message if any.
-        """
         url: str = self._LISTING_URL
         try:
             soup, error_message = await self._fetch_single_attempt(url)
             if soup:
                 self.log.debug(f"Successfully fetched listing data from {url}")
-                return (soup, None)
+                return soup, None
             elif error_message:
                 self.log.debug(f"Received error: {error_message}")
-                return (None, error_message)
+                return None, error_message
         except (ClientResponseError, ClientConnectionError) as error:
             self.log.exception(f"Exception during fetch from {url}")
-            return (None, "Error: Issue occurred while fetching course data.")
-        return (None, None)
+            return None, "Error: Issue occurred while fetching course data."
+        return None, None
 
     def _process_course_listing(self, soup: BeautifulSoup) -> Dict[str, str]:
-        """
-        Process the course listings from the BeautifulSoup object.
-
-        Args:
-            soup (BeautifulSoup): The parsed HTML.
-
-        Returns:
-            Dict[str, str]: Mapping of canonical course codes to course info.
-        """
         courses = soup.find_all("rs")
         self.log.debug(f"Processing soup: found {len(courses)} course listing entries.")
         courses_dict: Dict[str, str] = {}
@@ -504,16 +337,6 @@ class CourseDataProxy:
         return courses_dict
 
     async def force_mark_stale(self, course_code: str, detailed: bool = True) -> bool:
-        """
-        Force a cache entry to be marked as stale.
-
-        Args:
-            course_code (str): The course code.
-            detailed (bool): Whether to mark detailed data as stale.
-
-        Returns:
-            bool: True if marked successfully, False otherwise.
-        """
         department, code, suffix = self._get_course_keys(course_code)
         key: str = "detailed" if detailed else "basic"
         courses = await self.config.courses()
@@ -525,9 +348,6 @@ class CourseDataProxy:
         return False
 
     async def close(self) -> None:
-        """
-        Close the HTTP session.
-        """
         if self.session:
             await self.session.close()
             self.session = None

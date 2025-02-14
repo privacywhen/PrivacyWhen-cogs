@@ -1,27 +1,16 @@
-"""
-Module for resolving course codes using exact, variant, or fuzzy matching.
-"""
-
 from typing import Any, Callable, Dict, List, Optional, Tuple
-
 from rapidfuzz import process
 from redbot.core import commands
 from redbot.core.utils.menus import menu, close_menu
-
 from .constants import REACTION_OPTIONS
 from .course_code import CourseCode
 from .logger_util import get_logger, log_entry_exit
 
 FuzzyMatch = Tuple[str, CourseCode, float]
-
 log = get_logger("red.course_code_resolver")
 
 
 class CourseCodeResolver:
-    """
-    Class to resolve course codes by matching against available course listings.
-    """
-
     FUZZY_LIMIT: int = 5
     FUZZY_SCORE_CUTOFF: int = 70
     SCORE_MARGIN: int = 10
@@ -29,26 +18,10 @@ class CourseCodeResolver:
     def __init__(
         self, course_listings: Dict[str, Any], course_data_proxy: Any = None
     ) -> None:
-        """
-        Initialize the CourseCodeResolver.
-
-        Args:
-            course_listings (Dict[str, Any]): Mapping of course codes to course information.
-            course_data_proxy (Any, optional): Proxy for retrieving course data.
-        """
         self.course_listings: Dict[str, Any] = course_listings
         self.course_data_proxy: Any = course_data_proxy
 
     def find_variant_matches(self, canonical: str) -> List[str]:
-        """
-        Find variant matches for a canonical course code.
-
-        Args:
-            canonical (str): The canonical course code.
-
-        Returns:
-            List[str]: A list of variant course codes.
-        """
         variants: List[str] = [
             key
             for key in self.course_listings
@@ -60,16 +33,6 @@ class CourseCodeResolver:
     async def prompt_variant_selection(
         self, ctx: commands.Context, variants: List[str]
     ) -> Optional[str]:
-        """
-        Prompt the user to select a course variant from a list.
-
-        Args:
-            ctx (commands.Context): The command context.
-            variants (List[str]): A list of variant course codes.
-
-        Returns:
-            Optional[str]: The selected course code, or None if cancelled.
-        """
         options: List[Tuple[str, Any]] = [
             (variant, self.course_listings.get(variant, "")) for variant in variants
         ]
@@ -79,15 +42,6 @@ class CourseCodeResolver:
         )
 
     def _parse_course_code(self, raw: str) -> Optional[CourseCode]:
-        """
-        Attempt to parse a raw course code string into a CourseCode instance.
-
-        Args:
-            raw (str): The raw course code.
-
-        Returns:
-            Optional[CourseCode]: The parsed CourseCode, or None if invalid.
-        """
         try:
             return CourseCode(raw)
         except ValueError:
@@ -97,16 +51,6 @@ class CourseCodeResolver:
     async def fallback_fuzzy_lookup(
         self, ctx: commands.Context, canonical: str
     ) -> Tuple[Optional[CourseCode], Optional[Dict[str, Any]]]:
-        """
-        Perform a fuzzy lookup for a course code if exact and variant matches fail.
-
-        Args:
-            ctx (commands.Context): The command context.
-            canonical (str): The canonical course code.
-
-        Returns:
-            Tuple[Optional[CourseCode], Optional[Dict[str, Any]]]: The resolved course code and its associated data.
-        """
         keys_list: List[str] = list(self.course_listings.keys())
         all_matches = process.extract(
             canonical,
@@ -172,7 +116,7 @@ class CourseCodeResolver:
         log.debug(f"Resolving course code for canonical: {canonical}")
         if canonical in self.course_listings:
             log.debug(f"Exact match found for '{canonical}'.")
-            return course, self.course_listings[canonical]
+            return (course, self.course_listings[canonical])
         if variants := self.find_variant_matches(canonical):
             selected_code: Optional[str] = (
                 variants[0]
@@ -181,31 +125,20 @@ class CourseCodeResolver:
             )
             if not selected_code:
                 log.debug("No variant selected by the user.")
-                return None, None
+                return (None, None)
             candidate_obj: Optional[CourseCode] = self._parse_course_code(selected_code)
             if candidate_obj is None:
                 log.debug(f"Failed to parse selected variant '{selected_code}'.")
-                return None, None
+                return (None, None)
             log.debug(f"Variant '{selected_code}' selected and parsed successfully.")
             data = self.course_listings.get(selected_code)
-            return candidate_obj, data
+            return (candidate_obj, data)
         log.debug("No variants found; proceeding with fuzzy lookup.")
         return await self.fallback_fuzzy_lookup(ctx, canonical)
 
     async def _menu_select_option(
         self, ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
     ) -> Optional[str]:
-        """
-        Display an interactive menu for the user to select an option.
-
-        Args:
-            ctx (commands.Context): The command context.
-            options (List[Tuple[str, str]]): List of (option, description) tuples.
-            prompt_prefix (str): The prompt message prefix.
-
-        Returns:
-            Optional[str]: The selected option, or None if cancelled.
-        """
         return await CourseCodeResolver.interactive_course_selector(
             ctx, options, prompt_prefix
         )
@@ -229,7 +162,9 @@ class CourseCodeResolver:
         prompt: str = f"{prompt_prefix}\n" + "\n".join(option_lines)
         log.debug(f"Prompting menu with:\n{prompt}")
 
-        def create_handler(selected_option: str, emoji: str) -> Callable[..., Any]:
+        def _make_menu_handler(
+            return_value: str, emoji: str, is_cancel: bool = False
+        ) -> Callable[..., Any]:
             async def handler(
                 ctx: commands.Context,
                 pages: List[str],
@@ -241,7 +176,10 @@ class CourseCodeResolver:
                 *,
                 user: Optional[Any] = None,
             ) -> str:
-                log.debug(f"Option '{selected_option}' selected via emoji '{emoji}'")
+                if is_cancel:
+                    log.debug("User cancelled the menu")
+                else:
+                    log.debug(f"Option '{return_value}' selected via emoji '{emoji}'")
                 await close_menu(
                     ctx,
                     pages,
@@ -252,32 +190,17 @@ class CourseCodeResolver:
                     reacted_emoji,
                     user=user,
                 )
-                return selected_option
+                return return_value if not is_cancel else "CANCELLED"
 
             return handler
 
-        async def cancel_handler(
-            ctx: commands.Context,
-            pages: List[str],
-            controls: dict,
-            message: Any,
-            page: int,
-            timeout: float,
-            emoji: str,
-            *,
-            user: Optional[Any] = None,
-        ) -> str:
-            log.debug("User cancelled the menu")
-            await close_menu(
-                ctx, pages, controls, message, page, timeout, emoji, user=user
-            )
-            return "CANCELLED"
-
         controls: dict = {
-            emoji: create_handler(option, emoji)
+            emoji: _make_menu_handler(option, emoji)
             for emoji, (option, _) in zip(REACTION_OPTIONS, limited_options)
         }
-        controls[cancel_emoji] = cancel_handler
+        controls[cancel_emoji] = _make_menu_handler(
+            "CANCELLED", cancel_emoji, is_cancel=True
+        )
         result: Optional[str] = await menu(
             ctx, [prompt], controls=controls, timeout=30.0, user=ctx.author
         )
