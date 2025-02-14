@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Generator
 
 import networkx as nx
 from networkx.algorithms.community import louvain_communities
+from networkx.algorithms.community.quality import modularity
 from .logger_util import get_logger
 
 log = get_logger("red.course_channel_clustering")
@@ -16,14 +17,17 @@ class CourseChannelClustering:
     Clusters course channels based on overlapping user memberships.
 
     This version optimizes performance by converting course and user IDs to integers.
+    It supports dynamic thresholds (via median overlap adjusted by a threshold factor),
+    handles sparse data using course metadata, and evaluates clustering quality via modularity.
 
     Clustering pipeline:
       1. Normalize IDs (convert to int).
-      2. Compute pairwise user overlap between courses.
+      2. Compute pairwise user overlap between courses (with optional metadata augmentation).
       3. Build a weighted undirected graph.
-      4. Apply a clustering algorithm (default: Louvain).
-      5. Map clusters to Discord category labels—splitting clusters into subgroups
-         if they exceed the max channels limit, and ensuring each subgroup gets a unique label.
+      4. Optionally compute an adaptive grouping threshold.
+      5. Apply a clustering algorithm (default: Louvain).
+      6. Evaluate cluster quality.
+      7. Map clusters to Discord category labels (splitting clusters into subgroups if needed).
     """
 
     def __init__(
@@ -33,13 +37,19 @@ class CourseChannelClustering:
         category_prefix: str = "COURSES",
         clustering_func: Optional[Callable[[nx.Graph], List[Set[int]]]] = None,
         optimize_overlap: bool = True,
+        adaptive_threshold: bool = False,
+        threshold_factor: float = 1.0,
+        sparse_overlap: int = 1,
     ) -> None:
         """
-        :param grouping_threshold: Minimum user overlap to connect two courses.
+        :param grouping_threshold: Base minimum user overlap to connect two courses.
         :param max_category_channels: Maximum channels allowed per category.
         :param category_prefix: Base prefix for generated category names.
-        :param clustering_func: Custom clustering function (if not provided, defaults to Louvain).
+        :param clustering_func: Custom clustering function (defaults to Louvain if not provided).
         :param optimize_overlap: If True, use an inverted-index algorithm for overlap calculation.
+        :param adaptive_threshold: If True, compute grouping threshold dynamically from overlap distribution.
+        :param threshold_factor: Factor to adjust the computed median for adaptive threshold.
+        :param sparse_overlap: Minimal overlap score to assign when metadata indicates a connection in sparse data.
         """
         if grouping_threshold < 1:
             raise ValueError("grouping_threshold must be at least 1.")
@@ -51,6 +61,9 @@ class CourseChannelClustering:
         self.category_prefix = category_prefix
         self.clustering_func = clustering_func or self._default_clustering
         self.optimize_overlap = optimize_overlap
+        self.adaptive_threshold = adaptive_threshold
+        self.threshold_factor = threshold_factor
+        self.sparse_overlap = sparse_overlap
 
     def _normalize_course_users(
         self, course_users: Dict[Any, Set[Any]]
@@ -79,28 +92,46 @@ class CourseChannelClustering:
             normalized[course_id] = normalized_users
         return normalized
 
+    def _normalize_course_metadata(
+        self, course_metadata: Dict[Any, Dict[str, Any]]
+    ) -> Dict[int, Dict[str, Any]]:
+        """
+        Convert course metadata keys to integers.
+        """
+        normalized = {}
+        for course, meta in course_metadata.items():
+            try:
+                course_id = int(course)
+            except Exception as e:
+                raise ValueError(
+                    f"Course metadata key {course} is not convertible to int."
+                ) from e
+            normalized[course_id] = meta
+        return normalized
+
     def _calculate_overlaps(
-        self, course_users: Dict[int, Set[int]]
+        self,
+        course_users: Dict[int, Set[int]],
+        course_metadata: Optional[Dict[int, Dict[str, Any]]] = None,
     ) -> Dict[Tuple[int, int], int]:
         """
         Calculate the number of common users between every pair of courses.
         Uses an inverted index approach if optimize_overlap is True.
+        If course_metadata is provided, pairs with zero user overlap but matching departments
+        are assigned a minimal overlap score.
         """
         overlaps: Dict[Tuple[int, int], int] = defaultdict(int)
         if self.optimize_overlap:
-            # Build an inverted index: user -> set of courses the user is in
             user_to_courses: Dict[int, Set[int]] = defaultdict(set)
             for course, users in course_users.items():
                 for user in users:
                     user_to_courses[user].add(course)
-            # For each user, count overlaps among courses they share
             for user, courses in user_to_courses.items():
                 sorted_courses = sorted(courses)
                 for course1, course2 in combinations(sorted_courses, 2):
                     overlaps[(course1, course2)] += 1
             method_used = "inverted index"
         else:
-            # Fallback to direct pairwise comparison
             course_ids = sorted(course_users.keys())
             for course1, course2 in combinations(course_ids, 2):
                 count = len(course_users[course1] & course_users[course2])
@@ -108,26 +139,68 @@ class CourseChannelClustering:
                     overlaps[(course1, course2)] = count
             method_used = "combinations"
 
+        # Handle sparse data by checking course metadata.
+        if course_metadata is not None:
+            course_ids = sorted(course_users.keys())
+            for course1, course2 in combinations(course_ids, 2):
+                if (course1, course2) not in overlaps:
+                    meta1 = course_metadata.get(course1)
+                    meta2 = course_metadata.get(course2)
+                    if (
+                        meta1
+                        and meta2
+                        and meta1.get("department")
+                        and meta2.get("department")
+                        and meta1.get("department") == meta2.get("department")
+                    ):
+                        overlaps[(course1, course2)] = self.sparse_overlap
+
         log.debug(
             f"Calculated overlaps using {method_used} for {len(course_users)} courses: {dict(overlaps)}"
         )
         return dict(overlaps)
 
-    def _build_graph(self, course_users: Dict[int, Set[int]]) -> nx.Graph:
+    def _compute_dynamic_threshold(self, overlaps: Dict[Tuple[int, int], int]) -> int:
+        """
+        Compute a dynamic grouping threshold from the overlap distribution using the median,
+        then adjust it with threshold_factor.
+        """
+        counts = sorted(overlaps.values())
+        if not counts:
+            return self.grouping_threshold
+        n = len(counts)
+        median = (
+            counts[n // 2] if n % 2 == 1 else (counts[n // 2 - 1] + counts[n // 2]) / 2
+        )
+        effective_threshold = max(int(median * self.threshold_factor), 1)
+        log.debug(
+            f"Dynamic threshold computed: median={median}, threshold_factor={self.threshold_factor}, effective_threshold={effective_threshold}"
+        )
+        return effective_threshold
+
+    def _build_graph(
+        self,
+        course_users: Dict[int, Set[int]],
+        course_metadata: Optional[Dict[int, Dict[str, Any]]] = None,
+    ) -> nx.Graph:
         """
         Build a weighted graph where nodes represent courses and
         edges represent the user overlap (if above the grouping threshold).
+        Uses a dynamic threshold if adaptive_threshold is enabled.
         """
         graph = nx.Graph()
-        # DRY: Iterate over sorted (course, users) pairs to reduce repeated lookups.
         for course, users in sorted(course_users.items()):
             graph.add_node(course)
             if not users:
                 log.warning(f"Course '{course}' has no user engagements.")
-        overlaps = self._calculate_overlaps(course_users)
-        # Add an edge if the overlap meets the threshold
+        overlaps = self._calculate_overlaps(course_users, course_metadata)
+        if self.adaptive_threshold and overlaps:
+            threshold = self._compute_dynamic_threshold(overlaps)
+        else:
+            threshold = self.grouping_threshold
+
         for (course1, course2), weight in overlaps.items():
-            if weight >= self.grouping_threshold:
+            if weight >= threshold:
                 graph.add_edge(course1, course2, weight=weight)
         log.debug(
             f"Graph built: {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges."
@@ -170,9 +243,7 @@ class CourseChannelClustering:
     def _map_clusters_to_categories(self, clusters: List[Set[int]]) -> Dict[int, str]:
         """
         Map clusters (and their subgroups) to unique Discord category labels.
-
         Each subgroup (of size up to max_category_channels) receives a unique label.
-        If there is more than one subgroup overall, suffixes are added to the base prefix.
         """
         mapping: Dict[int, str] = {}
         total_subgroups = sum(
@@ -181,7 +252,6 @@ class CourseChannelClustering:
         use_suffix = total_subgroups > 1
 
         subgroup_counter = 1
-        # Process clusters in a stable order (by smallest course ID)
         for cluster in sorted(clusters, key=lambda c: min(c) if c else 0):
             courses = sorted(cluster)
             chunks = list(self._chunk_list(courses, self.max_category_channels))
@@ -200,14 +270,36 @@ class CourseChannelClustering:
                 subgroup_counter += 1
         return mapping
 
-    def cluster_courses(self, course_users: Dict[Any, Set[Any]]) -> Dict[int, str]:
+    def evaluate_clusters(
+        self, graph: nx.Graph, clusters: List[Set[int]]
+    ) -> Dict[str, float]:
         """
-        Run the full clustering pipeline to map course IDs (converted to int) to Discord category labels.
+        Evaluate the quality of the clusters using modularity.
+        Returns a dictionary with quality metrics.
+        """
+        mod = modularity(graph, clusters, weight="weight")
+        return {"modularity": mod}
+
+    def cluster_courses(
+        self,
+        course_users: Dict[Any, Set[Any]],
+        course_metadata: Optional[Dict[Any, Dict[str, Any]]] = None,
+    ) -> Dict[int, str]:
+        """
+        Run the full clustering pipeline to map course IDs (converted to int)
+        to Discord category labels. Optionally incorporates course metadata.
+        Logs clustering quality metrics.
         """
         normalized_course_users = self._normalize_course_users(course_users)
-        graph = self._build_graph(normalized_course_users)
+        normalized_course_metadata = (
+            self._normalize_course_metadata(course_metadata)
+            if course_metadata is not None
+            else None
+        )
+        graph = self._build_graph(normalized_course_users, normalized_course_metadata)
         clusters = self._perform_clustering(graph)
-        log.info(f"Detected {len(clusters)} clusters.")
+        metrics = self.evaluate_clusters(graph, clusters)
+        log.info(f"Cluster quality metrics: {metrics}")
         mapping = self._map_clusters_to_categories(clusters)
         log.info(f"Final course-to-category mapping: {mapping}")
         return mapping
@@ -218,6 +310,7 @@ class CourseChannelClustering:
         get_course_users: Callable[[], Dict[Any, Set[Any]]],
         persist_mapping: Callable[[Dict[int, str]], Any],
         shutdown_event: asyncio.Event,
+        course_metadata: Optional[Dict[Any, Dict[str, Any]]] = None,
     ) -> None:
         """
         Periodically run the clustering process until a shutdown signal is received.
@@ -229,7 +322,7 @@ class CourseChannelClustering:
             try:
                 course_users = get_course_users()
                 if course_users:
-                    mapping = self.cluster_courses(course_users)
+                    mapping = self.cluster_courses(course_users, course_metadata)
                 else:
                     log.warning("No course user data available; no mapping produced.")
                     mapping = {}
