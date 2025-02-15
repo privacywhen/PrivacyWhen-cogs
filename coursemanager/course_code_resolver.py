@@ -1,9 +1,8 @@
+import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
-
 from rapidfuzz import process
 from redbot.core import commands
 from redbot.core.utils.menus import menu, close_menu
-
 from .constants import REACTION_OPTIONS
 from .course_code import CourseCode
 from .logger_util import get_logger, log_entry_exit
@@ -65,6 +64,11 @@ class CourseCodeResolver:
         """
         Use fuzzy matching to find the closest course code match when an exact match is not found.
         """
+        # Guard: Ensure there are course listings to search through.
+        if not self.course_listings:
+            log.debug("No course listings available for fuzzy lookup.")
+            return (None, None)
+
         keys_list: List[str] = list(self.course_listings.keys())
         all_matches = process.extract(
             canonical,
@@ -129,6 +133,11 @@ class CourseCodeResolver:
         """
         Resolve the course code using exact match, variant matching, or fuzzy lookup.
         """
+        # Guard: Ensure that a valid course is provided.
+        if course is None:
+            log.debug("No course provided to resolve_course_code.")
+            return (None, None)
+
         canonical: str = course.canonical()
         log.debug(f"Resolving course code for canonical: {canonical}")
         if canonical in self.course_listings:
@@ -160,6 +169,11 @@ class CourseCodeResolver:
         """
         Display an interactive menu to the user and return their selection.
         """
+        # Guard: Ensure that there are options to display.
+        if not options:
+            log.debug("No options provided to interactive_course_selector.")
+            return None
+
         ctx._menu_call_count = getattr(ctx, "_menu_call_count", 0) + 1
         log.debug(
             f"Interactive menu call count for this context: {ctx._menu_call_count}"
