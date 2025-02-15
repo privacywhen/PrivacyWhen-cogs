@@ -45,7 +45,7 @@ class CourseCodeResolver:
             (variant, self.course_listings.get(variant, "")) for variant in variants
         ]
         log.debug(f"Prompting variant selection with options: {options}")
-        return await self._menu_select_option(
+        return await CourseCodeResolver.interactive_course_selector(
             ctx, options, "Multiple course variants found. Please choose one:"
         )
 
@@ -152,16 +152,6 @@ class CourseCodeResolver:
             return (candidate_obj, data)
         log.debug("No variants found; proceeding with fuzzy lookup.")
         return await self.fallback_fuzzy_lookup(ctx, canonical)
-
-    async def _menu_select_option(
-        self, ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
-    ) -> Optional[str]:
-        """
-        Helper method to display an interactive menu for option selection.
-        """
-        return await CourseCodeResolver.interactive_course_selector(
-            ctx, options, prompt_prefix
-        )
 
     @staticmethod
     async def interactive_course_selector(
