@@ -74,6 +74,8 @@ class CourseDataProxy:
     def _is_stale(self, last_updated_str: str, threshold_days: int) -> bool:
         try:
             last_updated: datetime = datetime.fromisoformat(last_updated_str)
+            if last_updated.tzinfo is None:
+                last_updated = last_updated.replace(tzinfo=timezone.utc)
             return datetime.now(timezone.utc) - last_updated > timedelta(
                 days=threshold_days
             )
