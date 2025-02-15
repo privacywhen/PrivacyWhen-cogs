@@ -218,7 +218,9 @@ class CourseCodeResolver:
 
             return handler
 
-        controls: dict = {
+        from typing import Callable, Dict
+
+        controls: Dict[str, Callable[..., Any]] = {
             emoji: _make_menu_handler(option, emoji)
             for emoji, (option, _) in zip(REACTION_OPTIONS, limited_options)
         }

@@ -170,7 +170,7 @@ class CourseChannelClustering:
     def _map_clusters_to_categories(self, clusters: List[Set[int]]) -> Dict[int, str]:
         mapping: Dict[int, str] = {}
         total_subgroups: int = sum(
-            (ceil(len(cluster) / self.max_category_channels) for cluster in clusters)
+            ceil(len(cluster) / self.max_category_channels) for cluster in clusters
         )
         use_suffix: bool = total_subgroups > 1
         subgroup_counter: int = 1
