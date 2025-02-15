@@ -208,17 +208,40 @@ class CourseService:
     async def _resolve_category(
         self, guild: discord.Guild, ctx: commands.Context
     ) -> Optional[discord.CategoryChannel]:
-        """
-        Resolve or create the main courses category.
-        """
-        category = self.get_category(guild)
+        base_name: str = self.category_name  # 'COURSES'
+        # Try to get the base category first.
+        category: Optional[discord.CategoryChannel] = discord.utils.get(
+            guild.categories, name=base_name
+        )
         if category is None:
-            category = await get_or_create_category(guild, self.category_name)
+            category = await get_or_create_category(guild, base_name)
         if category is None:
             await ctx.send(
                 error("I don't have permission to create the courses category.")
             )
-        return category
+            return None
+        # Check if the found category has room for new channels.
+        if len(category.channels) < 50:
+            return category
+        # If full, search for an alternative category with available capacity.
+        for i in range(2, 100):
+            alt_name: str = f"{base_name}-{i}"
+            alt_category: Optional[discord.CategoryChannel] = discord.utils.get(
+                guild.categories, name=alt_name
+            )
+            if alt_category is None:
+                alt_category = await get_or_create_category(guild, alt_name)
+            if alt_category is None:
+                await ctx.send(
+                    error(
+                        f"I don't have permission to create the category '{alt_name}'."
+                    )
+                )
+                return None
+            if len(alt_category.channels) < 50:
+                return alt_category
+        await ctx.send(error("All course categories have reached the channel limit."))
+        return None
 
     @log_entry_exit(log)
     async def _lookup_course_data(
