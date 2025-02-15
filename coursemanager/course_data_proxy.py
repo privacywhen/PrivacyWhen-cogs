@@ -273,6 +273,16 @@ class CourseDataProxy:
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
         last_error: Optional[str] = None
         for term, year in term_order:
+            term_key: str = f"{term}-{year}"
+            # Pre-check: get term id before making an API call.
+            term_id: Optional[int] = await self._get_term_id(term_key)
+            if not term_id:
+                self.log.debug(
+                    f"Skipping API lookup for {term_key} because no term ID recorded."
+                )
+                continue  # Skip this term if no term id exists.
+
+            # Now proceed with the API lookup since a term ID exists.
             soup, error_message = await self._attempt_fetch_for_term(
                 term, year, normalized_course
             )
@@ -280,8 +290,10 @@ class CourseDataProxy:
                 return soup, None
             if error_message:
                 last_error = error_message
+
         if last_error:
             return None, last_error
+
         self.log.error("Max retries reached while fetching course data.")
         return None, "Error: Max retries reached while fetching course data."
 
