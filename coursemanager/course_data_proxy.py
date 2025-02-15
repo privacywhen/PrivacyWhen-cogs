@@ -1,5 +1,3 @@
-"""Optimized course_data_proxy.py module."""
-
 import asyncio
 import logging
 import random
@@ -58,7 +56,12 @@ class CourseDataProxy:
         return department, code, suffix
 
     def _get_cache_entry(
-        self, courses: Dict[str, Any], department: str, code: str, suffix: str, key: str
+        self,
+        courses: Dict[str, Any],
+        department: str,
+        code: str,
+        suffix: str,
+        key: str,
     ) -> Optional[Dict[str, Any]]:
         return courses.get(department, {}).get(code, {}).get(suffix, {}).get(key)
 
@@ -224,26 +227,41 @@ class CourseDataProxy:
         self.log.debug(f"Fallback term order computed: {fallback}")
         return fallback
 
+    def _calculate_retry_delay(self, attempt: int) -> float:
+        return self._BASE_DELAY * 2**attempt + random.uniform(0, self._BASE_DELAY)
+
+    async def _attempt_fetch_for_term(
+        self, term: str, year: int, normalized_course: str
+    ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
+        term_key: str = f"{term}-{year}"
+        term_id: Optional[int] = await self._get_term_id(term_key)
+        if not term_id:
+            self.log.debug(f"Term ID not found for {term_key}")
+            return None, None
+        self.log.debug(f"Using term '{term}' with year {year} and ID {term_id}")
+        url: str = self._build_url(term_id, normalized_course, year)
+        self.log.debug(f"Built URL: {url}")
+        soup, error_message = await self._retry_request(url)
+        if soup:
+            self.log.debug(f"Successfully fetched data for term {term_key}")
+            return soup, None
+        if error_message and "not found" in error_message.lower():
+            self.log.debug(
+                f"Error indicates not found for term {term_key}: {error_message}"
+            )
+            return None, error_message
+        return None, error_message
+
     async def _fetch_data_with_retries(
         self, term_order: List[Tuple[str, int]], normalized_course: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
         for term, year in term_order:
-            term_key: str = f"{term}-{year}"
-            term_id: Optional[int] = await self._get_term_id(term_key)
-            if not term_id:
-                self.log.debug(f"Term ID not found for {term_key}")
-                continue
-            self.log.debug(f"Using term '{term}' with year {year} and ID {term_id}")
-            url: str = self._build_url(term_id, normalized_course, year)
-            self.log.debug(f"Built URL: {url}")
-            soup, error_message = await self._retry_request(url)
+            soup, error_message = await self._attempt_fetch_for_term(
+                term, year, normalized_course
+            )
             if soup:
-                self.log.debug(f"Successfully fetched data for term {term_key}")
                 return soup, None
-            if error_message and "not found" in error_message.lower():
-                self.log.debug(
-                    f"Error indicates not found for term {term_key}: {error_message}"
-                )
+            if error_message:
                 return None, error_message
         return None, "Error: Max retries reached while fetching course data."
 
@@ -291,9 +309,7 @@ class CourseDataProxy:
                 self.log.exception(f"HTTP error during fetch from {url}: {error}")
                 if attempt == self._MAX_RETRIES - 1:
                     return None, "Error: Issue occurred while fetching course data."
-            delay: float = self._BASE_DELAY * 2**attempt + random.uniform(
-                0, self._BASE_DELAY
-            )
+            delay: float = self._calculate_retry_delay(attempt)
             self.log.debug(f"Retrying in {delay:.2f} seconds...")
             await asyncio.sleep(delay)
         self.log.error(f"Max retries reached for {url}")
@@ -327,20 +343,23 @@ class CourseDataProxy:
             self.log.exception(f"Unexpected error during HTTP GET from {url}: {e}")
             return None, f"Unexpected error: {e}"
 
+    def _get_tag_attr(self, tag: Optional[Tag], attr: str, default: str = "") -> str:
+        return tag.get(attr, default) if tag else default
+
     def _process_course_data(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
         courses = soup.find_all("course")
         self.log.debug(f"Processing soup: found {len(courses)} course entries.")
         processed_courses: List[Dict[str, Any]] = []
         for course in courses:
             offering: Optional[Tag] = course.find("offering")
-            title: str = offering.get("title", "") if offering else ""
+            title: str = self._get_tag_attr(offering, "title")
             description, prerequisites, antirequisites = self._parse_offering(offering)
             selection: Optional[Tag] = course.find("selection")
-            credits: str = selection.get("credits", "") if selection else ""
+            credits: str = self._get_tag_attr(selection, "credits")
             term_elem: Optional[Tag] = course.find("term")
-            term_found: str = term_elem.get("v", "") if term_elem else ""
+            term_found: str = self._get_tag_attr(term_elem, "v")
             block: Optional[Tag] = course.find("block")
-            teacher: str = block.get("teacher", "") if block else ""
+            teacher: str = self._get_tag_attr(block, "teacher")
             processed_courses.append(
                 {
                     "title": title,
