@@ -1,3 +1,5 @@
+"""Optimized course_data_proxy.py module."""
+
 import asyncio
 import logging
 import random
@@ -15,7 +17,6 @@ from aiohttp import (
 )
 from bs4 import BeautifulSoup, Tag
 from redbot.core import Config
-
 from .course_code import CourseCode
 from .logger_util import get_logger, log_entry_exit
 
@@ -30,8 +31,7 @@ class CourseDataProxy:
         "https://mytimetable.mcmaster.ca/api/class-data?term={term}&course_0_0={course_key}&t={t}&e={e}"
     )
     _LISTING_URL: str = (
-        "https://mytimetable.mcmaster.ca/api/courses/suggestions?cams=MCMSTiMCMST_MCMSTiSNPOL_"
-        "MCMSTiMHK_MCMSTiCON_MCMSTiOFF&course_add=*&page_num=-1"
+        "https://mytimetable.mcmaster.ca/api/courses/suggestions?cams=MCMSTiMCMST_MCMSTiSNPOL_MCMSTiMHK_MCMSTiCON_MCMSTiOFF&course_add=*&page_num=-1"
     )
     _MAX_RETRIES: int = 1
     _BASE_DELAY: float = 2
@@ -55,7 +55,7 @@ class CourseDataProxy:
         department: str = course_obj.department
         code: str = course_obj.code
         suffix: str = course_obj.suffix or "__nosuffix__"
-        return (department, code, suffix)
+        return department, code, suffix
 
     def _get_cache_entry(
         self, courses: Dict[str, Any], department: str, code: str, suffix: str, key: str
@@ -96,7 +96,7 @@ class CourseDataProxy:
         threshold: int = (
             self._CACHE_PURGE_DAYS if detailed else self._CACHE_STALE_DAYS_BASIC
         )
-        if cached and (not self._is_stale(cached.get("last_updated", ""), threshold)):
+        if cached and not self._is_stale(cached.get("last_updated", ""), threshold):
             self.log.debug(f"Using cached {key} data for {course_code}")
             return cached
         self.log.debug(f"Fetching {key} data for {course_code}")
@@ -138,7 +138,7 @@ class CourseDataProxy:
             refined_terms, normalized
         )
         if soup:
-            return (soup, None)
+            return soup, None
         self.log.debug(
             "Refined term lookup failed; falling back to brute-force term lookup."
         )
@@ -163,16 +163,13 @@ class CourseDataProxy:
         pattern_year_term: re.Pattern = re.compile(
             r"\b(?P<year>\d{4})\s+(?P<term>Winter|Spring|Fall)\b", re.IGNORECASE
         )
-        candidates: List[Tuple[str, int]] = []
-        for match in pattern_term_year.finditer(course_info):
-            term: str = match.group("term").lower()
-            year: int = int(match.group("year"))
-            candidates.append((term, year))
-        for match in pattern_year_term.finditer(course_info):
-            term = match.group("term").lower()
-            year = int(match.group("year"))
-            candidates.append((term, year))
-        candidates = list(set(candidates))
+        candidates = list(
+            {
+                (match.group("term").lower(), int(match.group("year")))
+                for pattern in (pattern_term_year, pattern_year_term)
+                for match in pattern.finditer(course_info)
+            }
+        )
         if not candidates:
             return None
         term_priority: Dict[str, int] = {"winter": 1, "spring": 2, "fall": 3}
@@ -180,8 +177,9 @@ class CourseDataProxy:
         future_candidates: List[Tuple[str, int]] = [
             cand for cand in candidates if cand[1] >= current_year
         ]
+        chosen: Tuple[str, int]
         if future_candidates:
-            chosen: Tuple[str, int] = min(
+            chosen = min(
                 future_candidates, key=lambda x: (x[1], term_priority.get(x[0], 99))
             )
         else:
@@ -197,17 +195,20 @@ class CourseDataProxy:
             candidate = await self._extract_term_from_listing(normalized_course)
         today: date = datetime.now(timezone.utc).date()
         current_year: int = today.year
-        refined: List[Tuple[str, int]] = []
-        for term in self._TERM_NAMES:
-            if term.lower() == "winter":
-                year: int = current_year + 1 if today.month >= 10 else current_year
-            elif term.lower() == "spring":
-                year = current_year + 1 if today.month >= 5 else current_year
-            elif term.lower() == "fall":
-                year = current_year if today.month >= 8 else current_year - 1
-            else:
-                year = current_year
-            refined.append((term, year))
+        today_month: int = today.month
+
+        def compute_year(term: str) -> int:
+            if term == "winter":
+                return current_year + 1 if today_month >= 10 else current_year
+            if term == "spring":
+                return current_year + 1 if today_month >= 5 else current_year
+            if term == "fall":
+                return current_year if today_month >= 8 else current_year - 1
+            return current_year
+
+        refined: List[Tuple[str, int]] = [
+            (term, compute_year(term)) for term in self._TERM_NAMES
+        ]
         if candidate:
             if candidate in refined:
                 refined.remove(candidate)
@@ -238,13 +239,13 @@ class CourseDataProxy:
             soup, error_message = await self._retry_request(url)
             if soup:
                 self.log.debug(f"Successfully fetched data for term {term_key}")
-                return (soup, None)
+                return soup, None
             if error_message and "not found" in error_message.lower():
                 self.log.debug(
                     f"Error indicates not found for term {term_key}: {error_message}"
                 )
-                return (None, error_message)
-        return (None, "Error: Max retries reached while fetching course data.")
+                return None, error_message
+        return None, "Error: Max retries reached while fetching course data."
 
     async def _get_term_id(self, term_key: str) -> Optional[int]:
         self.log.debug(f"Retrieving term ID for: {term_key}")
@@ -265,7 +266,7 @@ class CourseDataProxy:
         t: int = floor(time() / 60) % 1000
         e: int = t % 3 + t % 39 + t % 42
         self.log.debug(f"Generated time codes: t={t}, e={e}")
-        return (t, e)
+        return t, e
 
     async def _retry_request(
         self, url: str
@@ -276,12 +277,12 @@ class CourseDataProxy:
                 soup, error_message = await self._fetch_single_attempt(url)
                 if soup:
                     self.log.debug(f"Successfully fetched data from {url}")
-                    return (soup, None)
+                    return soup, None
                 elif error_message:
                     self.log.debug(f"Received error: {error_message}")
                     if "not found" in error_message.lower():
                         self.log.error(f"Course not found for URL: {url}")
-                        return (None, error_message)
+                        return None, error_message
             except (
                 ClientResponseError,
                 ClientConnectionError,
@@ -289,14 +290,14 @@ class CourseDataProxy:
             ) as error:
                 self.log.exception(f"HTTP error during fetch from {url}: {error}")
                 if attempt == self._MAX_RETRIES - 1:
-                    return (None, "Error: Issue occurred while fetching course data.")
+                    return None, "Error: Issue occurred while fetching course data."
             delay: float = self._BASE_DELAY * 2**attempt + random.uniform(
                 0, self._BASE_DELAY
             )
             self.log.debug(f"Retrying in {delay:.2f} seconds...")
             await asyncio.sleep(delay)
         self.log.error(f"Max retries reached for {url}")
-        return (None, "Error: Max retries reached while fetching course data.")
+        return None, "Error: Max retries reached while fetching course data."
 
     async def _fetch_single_attempt(
         self, url: str
@@ -307,24 +308,24 @@ class CourseDataProxy:
             async with session.get(url) as response:
                 self.log.debug(f"Response {response.status} from URL: {url}")
                 if response.status == 500:
-                    return (None, "Error: HTTP 500")
+                    return None, "Error: HTTP 500"
                 if response.status != 200:
-                    return (None, f"Error: HTTP {response.status}")
+                    return None, f"Error: HTTP {response.status}"
                 content: str = await response.text()
                 soup: BeautifulSoup = BeautifulSoup(content, self._PARSER)
                 error_tag: Optional[Tag] = soup.find("error")
                 if not error_tag:
                     self.log.debug(f"No error tag in response for {url}")
-                    return (soup, None)
+                    return soup, None
                 error_message: str = error_tag.text.strip()
                 self.log.debug(f"Error tag found: {error_message}")
-                return (None, error_message or None)
+                return None, error_message or None
         except (ClientResponseError, ClientConnectionError, asyncio.TimeoutError) as e:
             self.log.exception(f"HTTP error during GET from {url}: {e}")
-            return (None, f"HTTP error: {e}")
+            return None, f"HTTP error: {e}"
         except Exception as e:
             self.log.exception(f"Unexpected error during HTTP GET from {url}: {e}")
-            return (None, f"Unexpected error: {e}")
+            return None, f"Unexpected error: {e}"
 
     def _process_course_data(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
         courses = soup.find_all("course")
@@ -360,9 +361,8 @@ class CourseDataProxy:
         prerequisites: str = ""
         antirequisites: str = ""
         if not offering:
-            return (description, prerequisites, antirequisites)
-        raw_description: str = offering.get("desc", "")
-        if raw_description:
+            return description, prerequisites, antirequisites
+        if raw_description := offering.get("desc", ""):
             desc_lines: List[str] = [
                 line.strip()
                 for line in self._BR_REGEX.split(raw_description)
@@ -378,7 +378,7 @@ class CourseDataProxy:
                     antirequisites = (
                         line.split(":", 1)[1].strip() if ":" in line else ""
                     )
-        return (description, prerequisites, antirequisites)
+        return description, prerequisites, antirequisites
 
     async def update_course_listing(self) -> Optional[str]:
         self.log.debug("Retrieving full course listings")
@@ -405,14 +405,14 @@ class CourseDataProxy:
             soup, error_message = await self._fetch_single_attempt(url)
             if soup:
                 self.log.debug(f"Successfully fetched listing data from {url}")
-                return (soup, None)
+                return soup, None
             elif error_message:
                 self.log.debug(f"Received error: {error_message}")
-                return (None, error_message)
+                return None, error_message
         except (ClientResponseError, ClientConnectionError) as error:
             self.log.exception(f"Exception during fetch from {url}: {error}")
-            return (None, "Error: Issue occurred while fetching course data.")
-        return (None, "Unknown error while fetching course listings.")
+            return None, "Error: Issue occurred while fetching course data."
+        return None, "Unknown error while fetching course listings."
 
     def _process_course_listing(self, soup: BeautifulSoup) -> Dict[str, str]:
         courses: List[Tag] = soup.find_all("rs")
