@@ -167,16 +167,15 @@ class CourseChannelClustering:
         for i in range(0, len(lst), chunk_size):
             yield lst[i : i + chunk_size]
 
-    def _map_clusters_to_categories(self, clusters: List[Set[int]]) -> Dict[int, str]:
-        mapping: Dict[int, str] = {}
+    def _map_clusters_to_categories(self, clusters: list[set[int]]) -> dict[int, str]:
+        mapping: dict[int, str] = {}
         total_subgroups: int = sum(
             ceil(len(cluster) / self.max_category_channels) for cluster in clusters
         )
         use_suffix: bool = total_subgroups > 1
         subgroup_counter: int = 1
-        # Assign each cluster (or subgroup of a cluster) a category label
         for cluster in sorted(clusters, key=lambda c: min(c) if c else 0):
-            courses: List[int] = sorted(cluster)
+            courses: list[int] = sorted(cluster)
             chunks = list(self._chunk_list(courses, self.max_category_channels))
             log.debug(
                 f"Mapping cluster with {len(courses)} courses into {len(chunks)} subgroup(s)."
@@ -187,8 +186,8 @@ class CourseChannelClustering:
                     if use_suffix
                     else self.category_prefix
                 )
-                for course in chunk:
-                    mapping[course] = category_label
+                # Update mapping for all courses in the chunk in one step.
+                mapping |= {course: category_label for course in chunk}
                 log.debug(f"Assigned courses {chunk} to category '{category_label}'.")
                 subgroup_counter += 1
         return mapping
