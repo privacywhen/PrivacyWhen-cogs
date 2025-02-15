@@ -45,7 +45,7 @@ class CourseCodeResolver:
             (variant, self.course_listings.get(variant, "")) for variant in variants
         ]
         log.debug(f"Prompting variant selection with options: {options}")
-        return await self._menu_select_option(
+        return await CourseCodeResolver.interactive_course_selector(
             ctx, options, "Multiple course variants found. Please choose one:"
         )
 
@@ -75,8 +75,7 @@ class CourseCodeResolver:
         log.debug(f"Fuzzy matches for '{canonical}': {all_matches}")
         valid_matches: List[FuzzyMatch] = []
         for candidate, score, _ in all_matches:
-            candidate_obj = self._parse_course_code(candidate)
-            if candidate_obj:
+            if candidate_obj := self._parse_course_code(candidate):
                 valid_matches.append((candidate, candidate_obj, score))
             else:
                 log.debug(f"Candidate '{candidate}' failed parsing and is skipped.")
@@ -154,16 +153,6 @@ class CourseCodeResolver:
         log.debug("No variants found; proceeding with fuzzy lookup.")
         return await self.fallback_fuzzy_lookup(ctx, canonical)
 
-    async def _menu_select_option(
-        self, ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
-    ) -> Optional[str]:
-        """
-        Helper method to display an interactive menu for option selection.
-        """
-        return await CourseCodeResolver.interactive_course_selector(
-            ctx, options, prompt_prefix
-        )
-
     @staticmethod
     async def interactive_course_selector(
         ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
@@ -214,11 +203,13 @@ class CourseCodeResolver:
                     reacted_emoji,
                     user=user,
                 )
-                return return_value if not is_cancel else "CANCELLED"
+                return "CANCELLED" if is_cancel else return_value
 
             return handler
 
-        controls: dict = {
+        from typing import Callable, Dict
+
+        controls: Dict[str, Callable[..., Any]] = {
             emoji: _make_menu_handler(option, emoji)
             for emoji, (option, _) in zip(REACTION_OPTIONS, limited_options)
         }
