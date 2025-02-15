@@ -26,12 +26,13 @@ class CourseDataProxy:
     _CACHE_STALE_DAYS_BASIC: int = 90
     _CACHE_PURGE_DAYS: int = 180
     _TERM_NAMES: List[str] = ["winter", "spring", "fall"]
-    # Updated URL to include a year parameter.
+    # Updated URL template: the year is removed from the URL lookup.
     _URL_BASE: str = (
-        "https://mytimetable.mcmaster.ca/api/class-data?term={term}&year={year}&course_0_0={course_key}&t={t}&e={e}"
+        "https://mytimetable.mcmaster.ca/api/class-data?term={term}&course_0_0={course_key}&t={t}&e={e}"
     )
     _LISTING_URL: str = (
-        "https://mytimetable.mcmaster.ca/api/courses/suggestions?cams=MCMSTiMCMST_MCMSTiSNPOL_MCMSTiMHK_MCMSTiCON_MCMSTiOFF&course_add=*&page_num=-1"
+        "https://mytimetable.mcmaster.ca/api/courses/suggestions?cams="
+        "MCMSTiMCMST_MCMSTiSNPOL_MCMSTiMHK_MCMSTiCON_MCMSTiOFF&course_add=*&page_num=-1"
     )
     _MAX_RETRIES: int = 1
     _BASE_DELAY: float = 2
@@ -126,7 +127,7 @@ class CourseDataProxy:
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
         normalized: str = CourseCode(course_code).canonical()
         self.log.debug(f"Fetching online data for {normalized}")
-        # Use the refined term order (which now leverages cached course listings if available)
+        # Use the refined term order (leveraging cached course listings when available)
         refined_terms: List[Tuple[str, int]] = await self._determine_term_order_refined(
             normalized
         )
@@ -139,7 +140,7 @@ class CourseDataProxy:
         self.log.debug(
             "Refined term lookup failed; falling back to brute-force term lookup."
         )
-        # Fallback: use a simple term order (all with the current year)
+        # Fallback: use the fixed term names with the current year.
         fallback_terms: List[Tuple[str, int]] = self._determine_term_order_fallback()
         self.log.debug(f"Fallback term order: {fallback_terms}")
         soup, error_message = await self._fetch_data_with_retries(
@@ -152,23 +153,60 @@ class CourseDataProxy:
     ) -> Optional[Tuple[str, int]]:
         """
         Leverage cached course listings to extract term information.
-        Searches for a term name (from _TERM_NAMES) and a four-digit year within the course info.
+        Handles various formats such as:
+          - "Winter 2025, 2025 Winter only"
+          - "Winter 2025 only"
+          - "2024 Fall only"
+          - "2024 Fall, Winter 2025, and 2025 Winter only"
+          - "Not available in any term"
+        Returns a candidate tuple (term, year) if found.
         """
         listings: Dict[str, Any] = await self.config.course_listings()
         courses_listing: Dict[str, Any] = listings.get("courses", {})
         course_info: Optional[str] = courses_listing.get(normalized_course)
-        if course_info:
-            lower_info = course_info.lower()
-            for term in self._TERM_NAMES:
-                if term in lower_info:
-                    match = re.search(r"\b(19|20)\d{2}\b", course_info)
-                    if match:
-                        year: int = int(match.group(0))
-                        self.log.debug(
-                            f"Extracted term from listing for {normalized_course}: ({term}, {year})"
-                        )
-                        return (term, year)
-        return None
+        if not course_info:
+            return None
+
+        # Define regex patterns for both "Term Year" and "Year Term"
+        pattern_term_year = re.compile(
+            r"\b(?P<term>Winter|Spring|Fall)\s+(?P<year>\d{4})\b", re.IGNORECASE
+        )
+        pattern_year_term = re.compile(
+            r"\b(?P<year>\d{4})\s+(?P<term>Winter|Spring|Fall)\b", re.IGNORECASE
+        )
+
+        candidates: List[Tuple[str, int]] = []
+
+        for match in pattern_term_year.finditer(course_info):
+            term = match.group("term").lower()
+            year = int(match.group("year"))
+            candidates.append((term, year))
+
+        for match in pattern_year_term.finditer(course_info):
+            term = match.group("term").lower()
+            year = int(match.group("year"))
+            candidates.append((term, year))
+
+        # Remove duplicates
+        candidates = list(set(candidates))
+        if not candidates:
+            return None
+
+        # Define an order for terms (lower value means higher priority)
+        term_priority = {"winter": 1, "spring": 2, "fall": 3}
+        current_year: int = datetime.now(timezone.utc).year
+
+        # Prefer candidates with a year greater than or equal to current year.
+        future_candidates = [cand for cand in candidates if cand[1] >= current_year]
+        if future_candidates:
+            chosen = min(
+                future_candidates, key=lambda x: (x[1], term_priority.get(x[0], 99))
+            )
+        else:
+            chosen = min(candidates, key=lambda x: (x[1], term_priority.get(x[0], 99)))
+
+        self.log.debug(f"Extracted term from listing for {normalized_course}: {chosen}")
+        return chosen
 
     async def _determine_term_order_refined(
         self, normalized_course: Optional[str] = None
@@ -240,9 +278,10 @@ class CourseDataProxy:
         return term_id
 
     def _build_url(self, term_id: int, normalized_course: str, year: int) -> str:
+        # Note: the year is used only to determine the correct term id and is not included in the URL.
         t, e = self._generate_time_code()
         url: str = self._URL_BASE.format(
-            term=term_id, year=year, course_key=normalized_course, t=t, e=e
+            term=term_id, course_key=normalized_course, t=t, e=e
         )
         self.log.debug(f"Generated URL with t={t}, e={e}: {url}")
         return url
