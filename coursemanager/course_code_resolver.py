@@ -75,8 +75,7 @@ class CourseCodeResolver:
         log.debug(f"Fuzzy matches for '{canonical}': {all_matches}")
         valid_matches: List[FuzzyMatch] = []
         for candidate, score, _ in all_matches:
-            candidate_obj = self._parse_course_code(candidate)
-            if candidate_obj:
+            if candidate_obj := self._parse_course_code(candidate):
                 valid_matches.append((candidate, candidate_obj, score))
             else:
                 log.debug(f"Candidate '{candidate}' failed parsing and is skipped.")
@@ -214,7 +213,7 @@ class CourseCodeResolver:
                     reacted_emoji,
                     user=user,
                 )
-                return return_value if not is_cancel else "CANCELLED"
+                return "CANCELLED" if is_cancel else return_value
 
             return handler
 
