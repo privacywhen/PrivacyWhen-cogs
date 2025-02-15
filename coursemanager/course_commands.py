@@ -115,10 +115,16 @@ class CourseChannelCog(commands.Cog):
 
     @dev_course.command(name="term")
     async def set_term_code(
-        self, ctx: commands.Context, term_name: str, term_id: int
+        self, ctx: commands.Context, term_name: str, year: int, term_id: int
     ) -> None:
         """Set term code for a given term."""
-        await self.course_service.set_term_code(ctx, term_name, term_id)
+        term_key = f"{term_name.lower()}-{year}"
+        async with self.config.term_codes() as term_codes:
+            term_codes[term_key] = term_id
+        log.debug(f"Set term code for {term_key} to {term_id}")
+        await ctx.send(
+            success(f"Term code for {term_name.capitalize()} {year} set to: {term_id}")
+        )
 
     @dev_course.command(name="populate")
     async def populate_courses(self, ctx: commands.Context) -> None:
