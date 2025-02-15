@@ -271,10 +271,7 @@ class CourseDataProxy:
     async def _fetch_data_with_retries(
         self, term_order: List[Tuple[str, int]], normalized_course: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
-        """
-        Iterate through provided term orders and attempt to fetch course data.
-        Stops on the first encountered error message or successful fetch.
-        """
+        last_error: Optional[str] = None
         for term, year in term_order:
             soup, error_message = await self._attempt_fetch_for_term(
                 term, year, normalized_course
@@ -282,8 +279,9 @@ class CourseDataProxy:
             if soup:
                 return soup, None
             if error_message:
-                # Stop further attempts if an error message is returned.
-                return None, error_message
+                last_error = error_message
+        if last_error:
+            return None, last_error
         self.log.error("Max retries reached while fetching course data.")
         return None, "Error: Max retries reached while fetching course data."
 
@@ -393,7 +391,6 @@ class CourseDataProxy:
             description, prerequisites, antirequisites = self._parse_offering(offering)
             selection: Optional[Tag] = course.find("selection")
             credits: str = self._get_tag_attr(selection, "credits")
-            term_elem: Optional[Tag] = course.find("term")
             teacher: str = self._get_tag_attr(course.find("block"), "teacher")
             processed_courses.append(
                 {
