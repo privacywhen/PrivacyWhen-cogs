@@ -1,4 +1,3 @@
-# course_data_proxy.py
 import asyncio
 import logging
 import random
@@ -6,18 +5,19 @@ import re
 from math import floor
 from time import time
 from datetime import date, datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Pattern
 
-from bs4 import BeautifulSoup, Tag
-from redbot.core import Config
 from aiohttp import (
     ClientConnectionError,
     ClientResponseError,
     ClientSession,
     ClientTimeout,
 )
-from .logger_util import get_logger, log_entry_exit
+from bs4 import BeautifulSoup, Tag
+from redbot.core import Config
+
 from .course_code import CourseCode
+from .logger_util import get_logger, log_entry_exit
 
 log = get_logger("red.course_data_proxy")
 
@@ -26,18 +26,17 @@ class CourseDataProxy:
     _CACHE_STALE_DAYS_BASIC: int = 90
     _CACHE_PURGE_DAYS: int = 180
     _TERM_NAMES: List[str] = ["winter", "spring", "fall"]
-    # Updated URL template: the year is removed from the URL lookup.
     _URL_BASE: str = (
         "https://mytimetable.mcmaster.ca/api/class-data?term={term}&course_0_0={course_key}&t={t}&e={e}"
     )
     _LISTING_URL: str = (
-        "https://mytimetable.mcmaster.ca/api/courses/suggestions?cams="
-        "MCMSTiMCMST_MCMSTiSNPOL_MCMSTiMHK_MCMSTiCON_MCMSTiOFF&course_add=*&page_num=-1"
+        "https://mytimetable.mcmaster.ca/api/courses/suggestions?cams=MCMSTiMCMST_MCMSTiSNPOL_"
+        "MCMSTiMHK_MCMSTiCON_MCMSTiOFF&course_add=*&page_num=-1"
     )
     _MAX_RETRIES: int = 1
     _BASE_DELAY: float = 2
     _PARSER: str = "lxml-xml"
-    _BR_REGEX = re.compile(r"<br\s*/?>", flags=re.IGNORECASE)
+    _BR_REGEX: Pattern[str] = re.compile(r"<br\s*/?>", flags=re.IGNORECASE)
 
     def __init__(self, config: Config, logger: logging.Logger) -> None:
         self.config: Config = config
@@ -74,7 +73,7 @@ class CourseDataProxy:
 
     def _is_stale(self, last_updated_str: str, threshold_days: int) -> bool:
         try:
-            last_updated = datetime.fromisoformat(last_updated_str)
+            last_updated: datetime = datetime.fromisoformat(last_updated_str)
             return datetime.now(timezone.utc) - last_updated > timedelta(
                 days=threshold_days
             )
@@ -89,7 +88,9 @@ class CourseDataProxy:
         now: datetime = datetime.now(timezone.utc)
         courses: Dict[str, Any] = await self.config.courses()
         key: str = "detailed" if detailed else "basic"
-        cached = self._get_cache_entry(courses, department, code, suffix, key)
+        cached: Optional[Dict[str, Any]] = self._get_cache_entry(
+            courses, department, code, suffix, key
+        )
         threshold: int = (
             self._CACHE_PURGE_DAYS if detailed else self._CACHE_STALE_DAYS_BASIC
         )
@@ -99,9 +100,9 @@ class CourseDataProxy:
         self.log.debug(f"Fetching {key} data for {course_code}")
         soup, error_msg = await self._fetch_course_online(course_code)
         if soup:
-            processed_data = self._process_course_data(soup)
+            processed_data: List[Dict[str, Any]] = self._process_course_data(soup)
             normalized: str = CourseCode(course_code).canonical()
-            new_entry = {
+            new_entry: Dict[str, Any] = {
                 "cached_course_data": processed_data,
                 "last_updated": now.isoformat(),
             }
@@ -127,7 +128,6 @@ class CourseDataProxy:
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
         normalized: str = CourseCode(course_code).canonical()
         self.log.debug(f"Fetching online data for {normalized}")
-        # Use the refined term order (leveraging cached course listings when available)
         refined_terms: List[Tuple[str, int]] = await self._determine_term_order_refined(
             normalized
         )
@@ -136,11 +136,10 @@ class CourseDataProxy:
             refined_terms, normalized
         )
         if soup:
-            return soup, None
+            return (soup, None)
         self.log.debug(
             "Refined term lookup failed; falling back to brute-force term lookup."
         )
-        # Fallback: use the fixed term names with the current year.
         fallback_terms: List[Tuple[str, int]] = self._determine_term_order_fallback()
         self.log.debug(f"Fallback term order: {fallback_terms}")
         soup, error_message = await self._fetch_data_with_retries(
@@ -151,70 +150,46 @@ class CourseDataProxy:
     async def _extract_term_from_listing(
         self, normalized_course: str
     ) -> Optional[Tuple[str, int]]:
-        """
-        Leverage cached course listings to extract term information.
-        Handles various formats such as:
-          - "Winter 2025, 2025 Winter only"
-          - "Winter 2025 only"
-          - "2024 Fall only"
-          - "2024 Fall, Winter 2025, and 2025 Winter only"
-          - "Not available in any term"
-        Returns a candidate tuple (term, year) if found.
-        """
         listings: Dict[str, Any] = await self.config.course_listings()
         courses_listing: Dict[str, Any] = listings.get("courses", {})
         course_info: Optional[str] = courses_listing.get(normalized_course)
         if not course_info:
             return None
-
-        # Define regex patterns for both "Term Year" and "Year Term"
-        pattern_term_year = re.compile(
+        pattern_term_year: re.Pattern = re.compile(
             r"\b(?P<term>Winter|Spring|Fall)\s+(?P<year>\d{4})\b", re.IGNORECASE
         )
-        pattern_year_term = re.compile(
+        pattern_year_term: re.Pattern = re.compile(
             r"\b(?P<year>\d{4})\s+(?P<term>Winter|Spring|Fall)\b", re.IGNORECASE
         )
-
         candidates: List[Tuple[str, int]] = []
-
         for match in pattern_term_year.finditer(course_info):
-            term = match.group("term").lower()
-            year = int(match.group("year"))
+            term: str = match.group("term").lower()
+            year: int = int(match.group("year"))
             candidates.append((term, year))
-
         for match in pattern_year_term.finditer(course_info):
             term = match.group("term").lower()
             year = int(match.group("year"))
             candidates.append((term, year))
-
-        # Remove duplicates
         candidates = list(set(candidates))
         if not candidates:
             return None
-
-        # Define an order for terms (lower value means higher priority)
-        term_priority = {"winter": 1, "spring": 2, "fall": 3}
+        term_priority: Dict[str, int] = {"winter": 1, "spring": 2, "fall": 3}
         current_year: int = datetime.now(timezone.utc).year
-
-        # Prefer candidates with a year greater than or equal to current year.
-        future_candidates = [cand for cand in candidates if cand[1] >= current_year]
+        future_candidates: List[Tuple[str, int]] = [
+            cand for cand in candidates if cand[1] >= current_year
+        ]
         if future_candidates:
-            chosen = min(
+            chosen: Tuple[str, int] = min(
                 future_candidates, key=lambda x: (x[1], term_priority.get(x[0], 99))
             )
         else:
             chosen = min(candidates, key=lambda x: (x[1], term_priority.get(x[0], 99)))
-
         self.log.debug(f"Extracted term from listing for {normalized_course}: {chosen}")
         return chosen
 
     async def _determine_term_order_refined(
         self, normalized_course: Optional[str] = None
     ) -> List[Tuple[str, int]]:
-        """
-        Compute a refined term order by incorporating a year component based on heuristics.
-        If a term is extracted from cached course listings, that candidate is prioritized.
-        """
         candidate: Optional[Tuple[str, int]] = None
         if normalized_course:
             candidate = await self._extract_term_from_listing(normalized_course)
@@ -239,7 +214,6 @@ class CourseDataProxy:
         return refined
 
     def _determine_term_order_fallback(self) -> List[Tuple[str, int]]:
-        """Fallback term order: use the fixed term names with the current year."""
         current_year: int = datetime.now(timezone.utc).year
         fallback: List[Tuple[str, int]] = [
             (term, current_year) for term in self._TERM_NAMES
@@ -273,12 +247,11 @@ class CourseDataProxy:
     async def _get_term_id(self, term_key: str) -> Optional[int]:
         self.log.debug(f"Retrieving term ID for: {term_key}")
         term_codes: Dict[str, Any] = await self.config.term_codes()
-        term_id = term_codes.get(term_key.lower())
+        term_id: Optional[int] = term_codes.get(term_key.lower())
         self.log.debug(f"Term ID for {term_key}: {term_id}")
         return term_id
 
     def _build_url(self, term_id: int, normalized_course: str, year: int) -> str:
-        # Note: the year is used only to determine the correct term id and is not included in the URL.
         t, e = self._generate_time_code()
         url: str = self._URL_BASE.format(
             term=term_id, course_key=normalized_course, t=t, e=e
@@ -337,7 +310,7 @@ class CourseDataProxy:
                     return (None, f"Error: HTTP {response.status}")
                 content: str = await response.text()
                 soup: BeautifulSoup = BeautifulSoup(content, self._PARSER)
-                error_tag = soup.find("error")
+                error_tag: Optional[Tag] = soup.find("error")
                 if not error_tag:
                     self.log.debug(f"No error tag in response for {url}")
                     return (soup, None)
@@ -356,15 +329,15 @@ class CourseDataProxy:
         self.log.debug(f"Processing soup: found {len(courses)} course entries.")
         processed_courses: List[Dict[str, Any]] = []
         for course in courses:
-            offering = course.find("offering")
-            title = offering.get("title", "") if offering else ""
+            offering: Optional[Tag] = course.find("offering")
+            title: str = offering.get("title", "") if offering else ""
             description, prerequisites, antirequisites = self._parse_offering(offering)
-            selection = course.find("selection")
-            credits = selection.get("credits", "") if selection else ""
-            term_elem = course.find("term")
-            term_found = term_elem.get("v", "") if term_elem else ""
-            block = course.find("block")
-            teacher = block.get("teacher", "") if block else ""
+            selection: Optional[Tag] = course.find("selection")
+            credits: str = selection.get("credits", "") if selection else ""
+            term_elem: Optional[Tag] = course.find("term")
+            term_found: str = term_elem.get("v", "") if term_elem else ""
+            block: Optional[Tag] = course.find("block")
+            teacher: str = block.get("teacher", "") if block else ""
             processed_courses.append(
                 {
                     "title": title,
@@ -381,11 +354,14 @@ class CourseDataProxy:
         return processed_courses
 
     def _parse_offering(self, offering: Optional[Tag]) -> Tuple[str, str, str]:
-        description, prerequisites, antirequisites = ("", "", "")
+        description: str = ""
+        prerequisites: str = ""
+        antirequisites: str = ""
         if not offering:
             return (description, prerequisites, antirequisites)
-        if raw_description := offering.get("desc", ""):
-            desc_lines = [
+        raw_description: str = offering.get("desc", "")
+        if raw_description:
+            desc_lines: List[str] = [
                 line.strip()
                 for line in self._BR_REGEX.split(raw_description)
                 if line.strip()
@@ -393,7 +369,7 @@ class CourseDataProxy:
             if desc_lines:
                 description = desc_lines[0]
             for line in desc_lines:
-                lower_line = line.lower()
+                lower_line: str = line.lower()
                 if lower_line.startswith("prerequisite"):
                     prerequisites = line.split(":", 1)[1].strip() if ":" in line else ""
                 elif lower_line.startswith("antirequisite"):
@@ -406,8 +382,8 @@ class CourseDataProxy:
         self.log.debug("Retrieving full course listings")
         soup, error_msg = await self._fetch_course_listings()
         if soup:
-            processed_listing = self._process_course_listing(soup)
-            new_data = {
+            processed_listing: Dict[str, str] = self._process_course_listing(soup)
+            new_data: Dict[str, Any] = {
                 "courses": processed_listing,
                 "date_updated": datetime.now(timezone.utc).isoformat(),
             }
@@ -437,13 +413,13 @@ class CourseDataProxy:
         return (None, "Unknown error while fetching course listings.")
 
     def _process_course_listing(self, soup: BeautifulSoup) -> Dict[str, str]:
-        courses = soup.find_all("rs")
+        courses: List[Tag] = soup.find_all("rs")
         self.log.debug(f"Processing soup: found {len(courses)} course listing entries.")
         courses_dict: Dict[str, str] = {}
         for course in courses:
             raw_course_code: str = course.text.strip()
             try:
-                normalized_course_code = CourseCode(raw_course_code).canonical()
+                normalized_course_code: str = CourseCode(raw_course_code).canonical()
             except ValueError:
                 self.log.exception(f"Invalid course code format: {raw_course_code}")
                 continue
@@ -454,7 +430,7 @@ class CourseDataProxy:
     async def force_mark_stale(self, course_code: str, detailed: bool = True) -> bool:
         department, code, suffix = self._get_course_keys(course_code)
         key: str = "detailed" if detailed else "basic"
-        courses = await self.config.courses()
+        courses: Dict[str, Any] = await self.config.courses()
         if entry := self._get_cache_entry(courses, department, code, suffix, key):
             entry["last_updated"] = "1970-01-01T00:00:00"
             await self._update_cache_entry(department, code, suffix, key, entry)
