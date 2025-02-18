@@ -20,8 +20,12 @@ class ChannelService:
     async def set_default_category(
         self, ctx: commands.Context, category_name: str
     ) -> None:
-        await self.config.default_category.set(category_name)
-        log.debug(f"Default category set to {category_name}")
+        try:
+            await self.config.default_category.set(category_name)
+            log.debug(f"Default category set to {category_name}")
+        except Exception as exc:
+            log.exception(f"Error setting default category to {category_name}: {exc}")
+            await ctx.send(error("Failed to set default category."))
 
     async def create_channel(
         self,
@@ -31,8 +35,15 @@ class ChannelService:
     ) -> None:
         guild: discord.Guild = ctx.guild
         if category is None:
-            default_cat_name: str = await self.config.default_category()
-            category = await get_or_create_category(guild, default_cat_name)
+            try:
+                default_cat_name: str = await self.config.default_category()
+                category = await get_or_create_category(guild, default_cat_name)
+            except Exception as exc:
+                log.exception(
+                    f"Error retrieving default category for guild '{guild.id}': {exc}"
+                )
+                await ctx.send(error("Failed to retrieve default category."))
+                return
         if category is None:
             await ctx.send(
                 error("I do not have permission to create the default category.")
@@ -47,14 +58,14 @@ class ChannelService:
             )
         except discord.Forbidden as exc:
             log.exception(
-                f"Permission error while creating channel '{channel_name}': {exc}"
+                f"Permission error while creating channel '{channel_name}' in guild '{guild.id}': {exc}"
             )
             await ctx.send(
                 error("I do not have permission to create a channel in that category.")
             )
         except Exception as exc:
             log.exception(
-                f"Unexpected error while creating channel '{channel_name}': {exc}"
+                f"Unexpected error while creating channel '{channel_name}' in guild '{guild.id}': {exc}"
             )
             await ctx.send(
                 error("An unexpected error occurred while creating the channel.")
@@ -91,13 +102,18 @@ class ChannelService:
         )
         if inactivity_duration > prune_threshold:
             log.info(
-                f"Pruning channel '{channel.name}' in guild '{guild.name}'. Inactive for {inactivity_duration} (threshold: {prune_threshold})."
+                f"Pruning channel '{channel.name}' in guild '{guild.name}' (ID: {guild.id}). "
+                f"Inactive for {inactivity_duration} (threshold: {prune_threshold})."
             )
             try:
                 await channel.delete(reason="Auto-pruned due to inactivity.")
+            except discord.Forbidden as exc:
+                log.exception(
+                    f"Permission error while deleting channel '{channel.name}' in guild '{guild.id}': {exc}"
+                )
             except Exception as exc:
                 log.exception(
-                    f"Failed to delete channel '{channel.name}' in guild '{guild.name}': {exc}"
+                    f"Failed to delete channel '{channel.name}' in guild '{guild.id}': {exc}"
                 )
 
     async def auto_channel_prune(self) -> None:
@@ -127,7 +143,7 @@ class ChannelService:
                                 )
                             except Exception as exc:
                                 log.exception(
-                                    f"Error pruning channel '{channel.name}' in guild '{guild.name}': {exc}"
+                                    f"Error pruning channel '{channel.name}' in guild '{guild.id}': {exc}"
                                 )
                 log.debug(
                     f"Auto-channel-prune cycle complete. Sleeping for {prune_interval} seconds."

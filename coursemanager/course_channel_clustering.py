@@ -77,7 +77,7 @@ class CourseChannelClustering:
                 meta2: Optional[str] = course_metadata.get(course2, {}).get(
                     "department"
                 )
-                if meta1 and meta2 and meta1 == meta2:
+                if meta1 and meta2 and (meta1 == meta2):
                     overlaps[course1, course2] = self.sparse_overlap
 
     def _calculate_overlaps(
@@ -173,7 +173,7 @@ class CourseChannelClustering:
     def _map_clusters_to_categories(self, clusters: List[Set[int]]) -> Dict[int, str]:
         mapping: Dict[int, str] = {}
         total_subgroups: int = sum(
-            ceil(len(cluster) / self.max_category_channels) for cluster in clusters
+            (ceil(len(cluster) / self.max_category_channels) for cluster in clusters)
         )
         use_suffix: bool = total_subgroups > 1
         subgroup_counter: int = 1
@@ -236,7 +236,8 @@ class CourseChannelClustering:
         while not shutdown_event.is_set():
             log.info(f"Starting clustering cycle iteration {iteration}")
             try:
-                if course_users_data := get_course_users():
+                course_users_data = get_course_users()
+                if course_users_data:
                     mapping = self.cluster_courses(course_users_data, course_metadata)
                 else:
                     log.warning("No course user data available; no mapping produced.")

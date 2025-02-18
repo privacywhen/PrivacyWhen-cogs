@@ -10,12 +10,7 @@ from redbot.core.utils.menus import menu
 
 from .course_code import CourseCode
 from .course_data_proxy import CourseDataProxy
-from .logger_util import get_logger
-from .utils import (
-    get_categories_by_prefix,
-    get_or_create_category,
-    validate_and_resolve_course_code,
-)
+from .logger_util import get_logger, validate_and_resolve_course_code
 
 log = get_logger("red.course.service")
 T = TypeVar("T")
@@ -98,7 +93,11 @@ class CourseService:
     def get_course_categories(
         self, guild: discord.Guild
     ) -> List[discord.CategoryChannel]:
-        categories = get_categories_by_prefix(guild, self.category_name)
+        categories = [
+            cat
+            for cat in guild.categories
+            if cat.name.upper().startswith(self.category_name.upper())
+        ]
         log.debug(
             f"Found {len(categories)} categories with prefix '{self.category_name}' in guild '{guild.name}'"
         )
@@ -218,7 +217,9 @@ class CourseService:
             guild.categories, name=base_name
         )
         if category is None:
-            category = await get_or_create_category(guild, base_name)
+            category = await __import__("utils").utils.get_or_create_category(
+                guild, base_name
+            )
         if category is None:
             await ctx.send(
                 error("I don't have permission to create the courses category.")
@@ -232,7 +233,9 @@ class CourseService:
                 guild.categories, name=alt_name
             )
             if alt_category is None:
-                alt_category = await get_or_create_category(guild, alt_name)
+                alt_category = await __import__("utils").utils.get_or_create_category(
+                    guild, alt_name
+                )
             if alt_category is None:
                 await ctx.send(
                     error(
@@ -277,6 +280,7 @@ class CourseService:
     async def _resolve_course(
         self, ctx: commands.Context, course_code: str
     ) -> Optional[CourseCode]:
+
         listings: Dict[str, str] = await self._get_course_listings()
         course_obj: Optional[CourseCode] = await validate_and_resolve_course_code(
             ctx, course_code, listings, self.course_data_proxy
@@ -288,15 +292,22 @@ class CourseService:
     async def course_details(
         self, ctx: commands.Context, course_code: str
     ) -> Optional[discord.Embed]:
-        course_obj: Optional[CourseCode] = await self._resolve_course(ctx, course_code)
-        if course_obj is None:
+        try:
+            course_obj: Optional[CourseCode] = await self._resolve_course(
+                ctx, course_code
+            )
+            if course_obj is None:
+                return None
+            data = await self.course_data_proxy.get_course_data(
+                course_obj.canonical(), detailed=True
+            )
+            if not self._is_valid_course_data(data):
+                return None
+            return self._create_course_embed(course_obj.canonical(), data)
+        except Exception as exc:
+            log.exception(f"Error retrieving course details for {course_code}: {exc}")
+            await ctx.send(error("An error occurred while retrieving course details."))
             return None
-        data = await self.course_data_proxy.get_course_data(
-            course_obj.canonical(), detailed=True
-        )
-        if not self._is_valid_course_data(data):
-            return None
-        return self._create_course_embed(course_obj.canonical(), data)
 
     def _create_course_embed(
         self, course_key: str, course_data: Dict[str, Any]
@@ -381,75 +392,89 @@ class CourseService:
     async def grant_course_channel_access(
         self, ctx: commands.Context, course_code: str
     ) -> None:
-        log.debug(
-            f"[grant_course_channel_access] invoked by {ctx.author} in guild '{ctx.guild.name}' with course_code '{course_code}'"
-        )
-        guild: discord.Guild = ctx.guild
-        user: discord.Member = ctx.author
-        if not await self._ensure_user_channel_limit_not_exceeded(ctx, user, guild):
-            return
-        course_obj: Optional[CourseCode] = await self._resolve_course(ctx, course_code)
-        if course_obj is None:
-            return
-        canonical: str = course_obj.canonical()
-        log.debug(f"Parsed course code: canonical={canonical}")
-        channel = self.get_course_channel(guild, course_obj)
-        if channel and await self._handle_existing_channel(
-            ctx, user, channel, canonical
-        ):
-            return
-        log.debug(
-            f"No existing channel for {canonical}. Proceeding with lookup and creation."
-        )
-        async with ctx.typing():
-            candidate_obj, data = await self._lookup_course_data(
-                ctx, course_obj, already_resolved=True
-            )
-        if not candidate_obj or not self._is_valid_course_data(data):
-            log.debug(f"Course data lookup failed for {canonical}.")
-            await ctx.send(error(f"No valid course data found for {canonical}."))
-            return
-        if self._user_already_joined(user, guild, candidate_obj):
+        try:
             log.debug(
-                f"User {user} already has access to {candidate_obj.canonical()} after lookup"
+                f"[grant_course_channel_access] invoked by {ctx.author} in guild '{ctx.guild.name}' with course_code '{course_code}'"
             )
-            await ctx.send(
-                info(f"You are already joined in {candidate_obj.canonical()}."),
-                delete_after=120,
+            guild: discord.Guild = ctx.guild
+            user: discord.Member = ctx.author
+            if not await self._ensure_user_channel_limit_not_exceeded(ctx, user, guild):
+                return
+            course_obj: Optional[CourseCode] = await self._resolve_course(
+                ctx, course_code
             )
-            return
-        if not await self._ensure_user_channel_limit_not_exceeded(ctx, user, guild):
-            return
-        category = await self._resolve_category(guild, ctx)
-        if category is None:
-            return
-        channel = self.get_course_channel(guild, candidate_obj)
-        if not channel:
-            log.debug(f"Creating new channel for {candidate_obj.canonical()}")
-            channel = await self.create_course_channel(guild, category, candidate_obj)
-        await self._grant_access(ctx, channel, candidate_obj.canonical())
+            if course_obj is None:
+                return
+            canonical: str = course_obj.canonical()
+            log.debug(f"Parsed course code: canonical={canonical}")
+            channel = self.get_course_channel(guild, course_obj)
+            if channel and await self._handle_existing_channel(
+                ctx, user, channel, canonical
+            ):
+                return
+            log.debug(
+                f"No existing channel for {canonical}. Proceeding with lookup and creation."
+            )
+            async with ctx.typing():
+                candidate_obj, data = await self._lookup_course_data(
+                    ctx, course_obj, already_resolved=True
+                )
+            if not candidate_obj or not self._is_valid_course_data(data):
+                log.debug(f"Course data lookup failed for {canonical}.")
+                await ctx.send(error(f"No valid course data found for {canonical}."))
+                return
+            if self._user_already_joined(user, guild, candidate_obj):
+                log.debug(
+                    f"User {user} already has access to {candidate_obj.canonical()} after lookup"
+                )
+                await ctx.send(
+                    info(f"You are already joined in {candidate_obj.canonical()}."),
+                    delete_after=120,
+                )
+                return
+            if not await self._ensure_user_channel_limit_not_exceeded(ctx, user, guild):
+                return
+            category = await self._resolve_category(guild, ctx)
+            if category is None:
+                return
+            channel = self.get_course_channel(guild, candidate_obj)
+            if not channel:
+                log.debug(f"Creating new channel for {candidate_obj.canonical()}")
+                channel = await self.create_course_channel(
+                    guild, category, candidate_obj
+                )
+            await self._grant_access(ctx, channel, candidate_obj.canonical())
+        except Exception as exc:
+            log.exception(f"Error in grant_course_channel_access: {exc}")
+            await ctx.send(error("An error occurred while granting access."))
 
     @requires_enabled
     async def revoke_course_channel_access(
         self, ctx: commands.Context, course_code: str
     ) -> None:
-        guild: discord.Guild = ctx.guild
-        course_obj: Optional[CourseCode] = await self._resolve_course(ctx, course_code)
-        if course_obj is None:
-            return
-        canonical: str = course_obj.canonical()
-        channel = self.get_course_channel(guild, course_obj)
-        if not channel:
-            await ctx.send(error(f"You are not a member of {canonical}."))
-            return
-        await self._update_channel_permissions(
-            ctx,
-            channel,
-            ctx.author,
-            None,
-            f"You have successfully left {canonical}.",
-            "Removed permissions",
-        )
+        try:
+            guild: discord.Guild = ctx.guild
+            course_obj: Optional[CourseCode] = await self._resolve_course(
+                ctx, course_code
+            )
+            if course_obj is None:
+                return
+            canonical: str = course_obj.canonical()
+            channel = self.get_course_channel(guild, course_obj)
+            if not channel:
+                await ctx.send(error(f"You are not a member of {canonical}."))
+                return
+            await self._update_channel_permissions(
+                ctx,
+                channel,
+                ctx.author,
+                None,
+                f"You have successfully left {canonical}.",
+                "Removed permissions",
+            )
+        except Exception as exc:
+            log.exception(f"Error in revoke_course_channel_access: {exc}")
+            await ctx.send(error("An error occurred while revoking access."))
 
     async def set_logging(
         self, ctx: commands.Context, channel: discord.TextChannel
@@ -512,10 +537,16 @@ class CourseService:
     async def refresh_course_data(
         self, ctx: commands.Context, course_code: str
     ) -> None:
-        course_obj: Optional[CourseCode] = await self._resolve_course(ctx, course_code)
-        if course_obj is None:
-            return
-        await self._refresh_course_data_and_notify(ctx, course_obj)
+        try:
+            course_obj: Optional[CourseCode] = await self._resolve_course(
+                ctx, course_code
+            )
+            if course_obj is None:
+                return
+            await self._refresh_course_data_and_notify(ctx, course_obj)
+        except Exception as exc:
+            log.exception(f"Error refreshing course data for {course_code}: {exc}")
+            await ctx.send(error("An error occurred while refreshing course data."))
 
     async def print_config(self, ctx: commands.Context) -> None:
         config_data = await self.config.all()

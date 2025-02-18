@@ -58,16 +58,21 @@ class CourseCodeResolver:
             log.debug("No course listings available for fuzzy lookup.")
             return (None, None)
         keys_list: List[str] = list(self.course_listings)
-        all_matches = process.extract(
-            canonical,
-            keys_list,
-            limit=self.FUZZY_LIMIT,
-            score_cutoff=self.FUZZY_SCORE_CUTOFF,
-        )
+        try:
+            all_matches = process.extract(
+                canonical,
+                keys_list,
+                limit=self.FUZZY_LIMIT,
+                score_cutoff=self.FUZZY_SCORE_CUTOFF,
+            )
+        except Exception as exc:
+            log.exception(f"Error during fuzzy extraction for '{canonical}': {exc}")
+            return (None, None)
         log.debug(f"Fuzzy matches for '{canonical}': {all_matches}")
         valid_matches: List[FuzzyMatch] = []
         for candidate, score, _ in all_matches:
-            if candidate_obj := self._parse_course_code(candidate):
+            candidate_obj = self._parse_course_code(candidate)
+            if candidate_obj:
                 valid_matches.append((candidate, candidate_obj, score))
             else:
                 log.debug(f"Candidate '{candidate}' failed parsing and is skipped.")
@@ -125,7 +130,8 @@ class CourseCodeResolver:
         if canonical in self.course_listings:
             log.debug(f"Exact match found for '{canonical}'.")
             return (course, self.course_listings[canonical])
-        if variants := self.find_variant_matches(canonical):
+        variants = self.find_variant_matches(canonical)
+        if variants:
             selected_code: Optional[str] = (
                 variants[0]
                 if len(variants) == 1

@@ -1,4 +1,5 @@
 import asyncio
+import functools
 from typing import Optional
 
 import discord
@@ -13,6 +14,18 @@ from .course_channel_clustering import CourseChannelClustering
 from .logger_util import get_logger
 
 log = get_logger("red.course_channel_cog")
+
+
+def handle_command_errors(func):
+    @functools.wraps(func)
+    async def wrapper(self, ctx, *args, **kwargs):
+        try:
+            return await func(self, ctx, *args, **kwargs)
+        except Exception as exc:
+            log.exception(f"Error in command '{func.__name__}': {exc}")
+            await ctx.send(error("An unexpected error occurred."))
+
+    return wrapper
 
 
 class CourseChannelCog(commands.Cog):
@@ -39,11 +52,7 @@ class CourseChannelCog(commands.Cog):
             return True
         if ctx.command.qualified_name.lower().startswith(
             "course"
-        ) and ctx.command.name.lower() not in {
-            "enable",
-            "disable",
-            "course",
-        }:
+        ) and ctx.command.name.lower() not in {"enable", "disable", "course"}:
             enabled = await self.config.enabled_guilds()
             if ctx.guild.id not in enabled:
                 await ctx.send(
@@ -69,24 +78,28 @@ class CourseChannelCog(commands.Cog):
     @course.command(name="join")
     @commands.cooldown(1, 5, commands.BucketType.user)
     @app_commands.describe(course_code="The course code you wish to join")
+    @handle_command_errors
     async def join_course(self, ctx: commands.Context, *, course_code: str) -> None:
         await self.course_service.grant_course_channel_access(ctx, course_code)
 
     @course.command(name="leave")
     @commands.cooldown(1, 5, commands.BucketType.user)
     @app_commands.describe(course_code="The course code you wish to leave")
+    @handle_command_errors
     async def leave_course(self, ctx: commands.Context, *, course_code: str) -> None:
         await self.course_service.revoke_course_channel_access(ctx, course_code)
 
     @course.command(name="details")
     @commands.cooldown(1, 5, commands.BucketType.user)
     @app_commands.describe(course_code="The course code to view details for")
+    @handle_command_errors
     async def course_details(self, ctx: commands.Context, *, course_code: str) -> None:
         await self.course_service.course_details(ctx, course_code)
 
     @course.command(name="setlogging")
     @commands.admin()
     @app_commands.describe(channel="The text channel to set as logging channel")
+    @handle_command_errors
     async def set_logging(
         self, ctx: commands.Context, channel: discord.TextChannel
     ) -> None:
@@ -100,42 +113,51 @@ class CourseChannelCog(commands.Cog):
     @dev_course.command(name="enable")
     @commands.guild_only()
     @commands.has_permissions(administrator=True)
+    @handle_command_errors
     async def enable(self, ctx: commands.Context) -> None:
         await self.course_service.enable(ctx)
 
     @dev_course.command(name="disable")
     @commands.guild_only()
     @commands.has_permissions(administrator=True)
+    @handle_command_errors
     async def disable(self, ctx: commands.Context) -> None:
         await self.course_service.disable(ctx)
 
     @dev_course.command(name="term")
+    @handle_command_errors
     async def set_term_code(
         self, ctx: commands.Context, term_name: str, year: int, term_id: int
     ) -> None:
         await self.course_service.set_term_code(ctx, term_name, year, term_id)
 
     @dev_course.command(name="populate")
+    @handle_command_errors
     async def populate_courses(self, ctx: commands.Context) -> None:
         await self.course_service.populate_courses(ctx)
 
     @dev_course.command(name="listall")
+    @handle_command_errors
     async def list_all_courses(self, ctx: commands.Context) -> None:
         await self.course_service.list_all_courses(ctx)
 
     @dev_course.command(name="refresh")
+    @handle_command_errors
     async def refresh_course(self, ctx: commands.Context, *, course_code: str) -> None:
         await self.course_service.refresh_course_data(ctx, course_code)
 
     @dev_course.command(name="printconfig")
+    @handle_command_errors
     async def print_config(self, ctx: commands.Context) -> None:
         await self.course_service.print_config(ctx)
 
     @dev_course.command(name="clearall")
+    @handle_command_errors
     async def reset_config(self, ctx: commands.Context) -> None:
         await self.course_service.reset_config(ctx)
 
     @dev_course.command(name="setdefaultcategory")
+    @handle_command_errors
     async def set_default_category(
         self, ctx: commands.Context, *, category_name: str
     ) -> None:
