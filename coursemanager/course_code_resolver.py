@@ -1,8 +1,10 @@
 import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
+
 from rapidfuzz import process
 from redbot.core import commands
 from redbot.core.utils.menus import menu, close_menu
+
 from .constants import REACTION_OPTIONS
 from .course_code import CourseCode
 from .logger_util import get_logger, log_entry_exit
@@ -38,7 +40,6 @@ class CourseCodeResolver:
             (variant, self.course_listings.get(variant, "")) for variant in variants
         ]
         log.debug(f"Prompting variant selection with options: {options}")
-        # Updated the prompt text for a consistent tone.
         return await CourseCodeResolver.interactive_course_selector(
             ctx, options, "Multiple course variants found. Please choose one:"
         )
@@ -56,7 +57,9 @@ class CourseCodeResolver:
         if not self.course_listings:
             log.debug("No course listings available for fuzzy lookup.")
             return (None, None)
-        keys_list: List[str] = list(self.course_listings.keys())
+        keys_list: List[str] = list(
+            self.course_listings
+        )  # Directly iterating over dict keys
         all_matches = process.extract(
             canonical,
             keys_list,

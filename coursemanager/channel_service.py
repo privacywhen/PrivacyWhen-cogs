@@ -6,6 +6,7 @@ import discord
 from redbot.core import Config, commands
 from redbot.core.utils.chat_formatting import error, pagify, success
 from redbot.core.utils.menus import menu
+
 from .logger_util import get_logger, log_entry_exit
 from .utils import get_categories_by_prefix, get_or_create_category
 
@@ -116,9 +117,11 @@ class ChannelService:
                         continue
                     base_category: str = await self.config.course_category()
                     for category in get_categories_by_prefix(guild, base_category):
-                        for channel in category.channels:
-                            if not isinstance(channel, discord.TextChannel):
-                                continue
+                        for channel in (
+                            ch
+                            for ch in category.channels
+                            if isinstance(ch, discord.TextChannel)
+                        ):
                             try:
                                 await self.channel_prune_helper(
                                     guild, channel, prune_threshold

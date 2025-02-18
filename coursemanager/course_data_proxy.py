@@ -207,13 +207,12 @@ class CourseDataProxy:
         pattern_year_term: re.Pattern = re.compile(
             r"\b(?P<year>\d{4})\s+(?P<term>Winter|Spring|Fall)\b", re.IGNORECASE
         )
-        candidates = list(
-            {
-                (match.group("term").lower(), int(match.group("year")))
-                for pattern in (pattern_term_year, pattern_year_term)
-                for match in pattern.finditer(course_info)
-            }
-        )
+        candidates = {
+            (match.group("term").lower(), int(match.group("year")))
+            for pattern in (pattern_term_year, pattern_year_term)
+            for match in pattern.finditer(course_info)
+        }
+
         if not candidates:
             return None
         term_priority: Dict[str, int] = {"winter": 1, "spring": 2, "fall": 3}

@@ -3,9 +3,11 @@ from collections import defaultdict
 from itertools import combinations
 from math import ceil
 from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple
+
 import networkx as nx
 from networkx.algorithms.community import louvain_communities
 from networkx.algorithms.community.quality import modularity
+
 from .logger_util import get_logger
 
 log = get_logger("red.course_channel_clustering")
@@ -48,12 +50,10 @@ class CourseChannelClustering:
     def _normalize_course_users(
         self, course_users: Dict[Any, Set[Any]]
     ) -> Dict[int, Set[int]]:
-        normalized: Dict[int, Set[int]] = {}
-        for course, users in course_users.items():
-            course_id: int = self._normalize_key(course)
-            normalized_users: Set[int] = {self._normalize_key(user) for user in users}
-            normalized[course_id] = normalized_users
-        return normalized
+        return {
+            self._normalize_key(course): {self._normalize_key(user) for user in users}
+            for course, users in course_users.items()
+        }
 
     def _normalize_course_metadata(
         self, course_metadata: Dict[Any, Dict[str, Any]]
