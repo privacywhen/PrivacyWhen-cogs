@@ -172,176 +172,216 @@ class CourseChannelCog(commands.Cog):
         await ctx.send(success(f"Default category set to **{category_name}**"))
 
     ###TEMP TESTING###
-    @dev_course.command(name="testclustering")
+    @dev_course.command(name="testclusteringreal")
     @commands.is_owner()
     @handle_command_errors
-    async def test_clustering(self, ctx: commands.Context) -> None:
+    async def test_clustering_real(self, ctx: commands.Context) -> None:
         """
-        Verbosely test the clustering functionality from course_channel_clustering.py.
+        Run the clustering algorithm on real course channel data from your guild.
 
-        This command performs the following steps:
-          1. Creates dummy course user and metadata inputs.
-          2. Normalizes the data.
-          3. Builds an overlap graph.
-          4. Performs clustering.
-          5. Evaluates clusters (calculates modularity).
-          6. Maps courses to category labels.
-          7. Reports detailed intermediate and final results.
+        This command:
+          1. Finds categories using the course category prefix from config.
+          2. For each text channel, collects IDs of members (excluding bots) who can read it.
+          3. Tries to parse each channel name as a CourseCode to extract metadata.
+          4. Runs the clustering algorithm on the collected data.
+          5. Outputs detailed stats and the final course-to-category mapping.
+
+        Additional logging is emitted to the console to assist with debugging.
         """
         import time
         from json import dumps
+        from typing import Dict, List, Set
+        from discord import TextChannel
+        from .course_code import CourseCode
 
-        def format_dict(d: dict) -> str:
-            return dumps(d, indent=2, sort_keys=True)
+        def safe_dumps(obj) -> str:
+            # Convert sets to lists recursively for JSON serialization.
+            def convert(o):
+                if isinstance(o, set):
+                    return list(o)
+                elif isinstance(o, dict):
+                    return {k: convert(v) for k, v in o.items()}
+                elif isinstance(o, list):
+                    return [convert(i) for i in o]
+                return o
 
-        def format_list(l: list) -> str:
-            return dumps(l, indent=2)
+            return dumps(convert(obj), indent=2, sort_keys=True)
 
-        final_output = []  # Collects output for final reporting
-        final_output.append("===== Test Clustering Output =====\n")
+        # Use the cog's logger to output additional debug info to the console.
+        log.debug("Starting real-data clustering test command.")
 
+        output_lines: List[str] = []
+        output_lines.append("===== Real Data Clustering Test =====\n")
         overall_start = time.time()
 
-        # Step 1: Dummy Data Creation
+        # Step 1: Use the course category prefix from config to collect channel data.
         try:
-            dummy_course_users = {
-                "101": {1, 2, 3},
-                "102": {2, 3, 4},
-                "103": {5},
-                "104": {6, 7},
-                "105": {7, 8},
-            }
-            dummy_course_metadata = {
-                "101": {"department": "CS"},
-                "102": {"department": "CS"},
-                "103": {"department": "MATH"},
-                "104": {"department": "CS"},
-                "105": {"department": "MATH"},
-            }
-            final_output.append("Step 1: Dummy data created successfully.")
-        except Exception as e:
-            final_output.append(f"Step 1 Error: {e}")
-            await ctx.send("\n".join(final_output))
-            return
+            guild = ctx.guild
+            config_prefix: str = await self.config.course_category()
+            output_lines.append(
+                f"Using course category prefix from config: '{config_prefix}'"
+            )
+            log.debug(
+                f"Retrieving categories with prefix '{config_prefix}' in guild '{guild.name}'."
+            )
+            from .utils import get_categories_by_prefix
 
-        # Step 2: Instantiate Clustering Instance with Custom Test Parameters
-        try:
-            clustering_instance = self.clustering.__class__(
-                grouping_threshold=2,
-                max_category_channels=2,  # force splitting clusters if needed
-                category_prefix="TEST",
-                adaptive_threshold=False,
-            )
-            final_output.append(
-                "Step 2: Clustering instance created with test parameters."
-            )
-        except Exception as e:
-            final_output.append(f"Step 2 Error: {e}")
-            await ctx.send("\n".join(final_output))
-            return
-
-        # Step 3: Data Normalization
-        try:
-            norm_start = time.time()
-            normalized_course_users = clustering_instance._normalize_course_users(
-                dummy_course_users
-            )
-            normalized_course_metadata = clustering_instance._normalize_course_metadata(
-                dummy_course_metadata
-            )
-            norm_time = time.time() - norm_start
-            final_output.append(
-                f"Step 3: Normalization complete in {norm_time:.4f} seconds."
-            )
-            final_output.append("  Normalized Course Users:")
-            final_output.append(format_dict(normalized_course_users))
-            final_output.append("  Normalized Course Metadata:")
-            final_output.append(format_dict(normalized_course_metadata))
-        except Exception as e:
-            final_output.append(f"Step 3 Error: {e}")
-            await ctx.send("\n".join(final_output))
-            return
-
-        # Step 4: Graph Building
-        try:
-            graph_start = time.time()
-            graph = clustering_instance._build_graph(
-                normalized_course_users, normalized_course_metadata
-            )
-            graph_time = time.time() - graph_start
-            final_output.append(f"Step 4: Graph built in {graph_time:.4f} seconds.")
-            final_output.append(
-                f"  Graph Nodes: {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges"
-            )
-            # Provide additional graph details
-            node_degrees = dict(graph.degree())
-            final_output.append("  Node Degrees:")
-            final_output.append(format_dict(node_degrees))
-            edges = list(graph.edges(data=True))
-            final_output.append("  Graph Edges with Weights:")
-            final_output.append(
-                format_list(
-                    [
-                        {"source": u, "target": v, "weight": data.get("weight")}
-                        for u, v, data in edges
-                    ]
+            categories = get_categories_by_prefix(guild, config_prefix)
+            if not categories:
+                msg = (
+                    f"No categories found with prefix '{config_prefix}' in this guild."
                 )
+                output_lines.append(msg)
+                log.error(msg)
+                await ctx.send("\n".join(output_lines))
+                return
+
+            channels_processed = 0
+            channels_failed_parse = 0
+            course_users: Dict[int, Set[int]] = {}  # channel ID -> set of member IDs
+            course_metadata: Dict[int, Dict[str, str]] = (
+                {}
+            )  # channel ID -> metadata (e.g., department)
+
+            for category in categories:
+                log.debug(f"Processing category '{category.name}'.")
+                for channel in category.channels:
+                    if not isinstance(channel, TextChannel):
+                        continue
+                    channels_processed += 1
+                    # Collect member IDs (exclude bots)
+                    member_ids = {
+                        member.id
+                        for member in guild.members
+                        if not member.bot
+                        and channel.permissions_for(member).read_messages
+                    }
+                    if member_ids:
+                        course_users[channel.id] = member_ids
+                    # Attempt to parse the channel name as a CourseCode
+                    try:
+                        course_obj = CourseCode(channel.name)
+                        course_metadata[channel.id] = {
+                            "department": course_obj.department
+                        }
+                        log.debug(
+                            f"Channel '{channel.name}' parsed successfully (department: {course_obj.department})."
+                        )
+                    except Exception as parse_exc:
+                        channels_failed_parse += 1
+                        course_metadata[channel.id] = {}
+                        log.warning(
+                            f"Failed to parse channel name '{channel.name}': {parse_exc}"
+                        )
+
+            output_lines.append(
+                f"Step 1: Processed {channels_processed} channels across {len(categories)} categories."
             )
+            output_lines.append(
+                f"         Channels with valid course code parsing: {channels_processed - channels_failed_parse}"
+            )
+            output_lines.append(
+                f"         Channels failed parsing: {channels_failed_parse}"
+            )
+            output_lines.append(
+                f"         Total channels with user data: {len(course_users)}"
+            )
+            log.debug("Step 1 complete: Data collection finished.")
         except Exception as e:
-            final_output.append(f"Step 4 Error: {e}")
-            await ctx.send("\n".join(final_output))
+            msg = f"Step 1 Error: {e}"
+            output_lines.append(msg)
+            log.exception(msg)
+            await ctx.send("\n".join(output_lines))
             return
 
-        # Step 5: Clustering
+        # Step 2: Instantiate the clustering instance.
+        try:
+            grouping_threshold = await self.config.grouping_threshold()
+            max_cat_channels = await self.config.get("max_category_channels", 50)
+            clustering_instance = self.clustering.__class__(
+                grouping_threshold=grouping_threshold,
+                max_category_channels=max_cat_channels,
+                category_prefix=config_prefix,
+                adaptive_threshold=False,  # Use a static threshold for clarity.
+            )
+            output_lines.append("Step 2: Clustering instance created.")
+            log.debug(
+                "Clustering instance created with grouping_threshold=%s, max_category_channels=%s",
+                grouping_threshold,
+                max_cat_channels,
+            )
+        except Exception as e:
+            msg = f"Step 2 Error: {e}"
+            output_lines.append(msg)
+            log.exception(msg)
+            await ctx.send("\n".join(output_lines))
+            return
+
+        # Step 3: Run the clustering algorithm.
         try:
             cluster_start = time.time()
-            clusters = clustering_instance._perform_clustering(graph)
+            mapping = clustering_instance.cluster_courses(course_users, course_metadata)
             cluster_time = time.time() - cluster_start
-            final_output.append(
-                f"Step 5: Clustering complete in {cluster_time:.4f} seconds."
+            output_lines.append(
+                f"Step 3: Clustering executed in {cluster_time:.4f} seconds."
             )
-            clusters_formatted = [sorted(list(cluster)) for cluster in clusters]
-            final_output.append("  Clusters (raw sets):")
-            final_output.append(format_list(clusters_formatted))
+            output_lines.append("  Final Course-to-Category Mapping:")
+            output_lines.append(safe_dumps(mapping))
+            log.debug("Clustering complete. Mapping: %s", mapping)
         except Exception as e:
-            final_output.append(f"Step 5 Error: {e}")
-            await ctx.send("\n".join(final_output))
+            msg = f"Step 3 Error: {e}"
+            output_lines.append(msg)
+            log.exception(msg)
+            await ctx.send("\n".join(output_lines))
             return
 
-        # Step 6: Evaluation (Modularity)
+        # Step 4: Additional statistics.
         try:
-            eval_start = time.time()
-            evaluation_metrics = clustering_instance.evaluate_clusters(graph, clusters)
-            eval_time = time.time() - eval_start
-            final_output.append(
-                f"Step 6: Evaluation complete in {eval_time:.4f} seconds."
+            # Rebuild the graph from normalized data to compute cluster statistics.
+            norm_users = clustering_instance._normalize_course_users(course_users)
+            norm_metadata = clustering_instance._normalize_course_metadata(
+                course_metadata
             )
-            final_output.append("  Evaluation Metrics:")
-            final_output.append(format_dict(evaluation_metrics))
-        except Exception as e:
-            final_output.append(f"Step 6 Error: {e}")
-            await ctx.send("\n".join(final_output))
-            return
-
-        # Step 7: Mapping Courses to Category Labels
-        try:
-            mapping_start = time.time()
-            mapping = clustering_instance._map_clusters_to_categories(clusters)
-            mapping_time = time.time() - mapping_start
-            final_output.append(
-                f"Step 7: Mapping complete in {mapping_time:.4f} seconds."
+            graph = clustering_instance._build_graph(norm_users, norm_metadata)
+            clusters = clustering_instance._perform_clustering(graph)
+            cluster_sizes = [len(cluster) for cluster in clusters]
+            evaluation = clustering_instance.evaluate_clusters(graph, clusters)
+            output_lines.append("Step 4: Additional Statistics:")
+            output_lines.append(
+                f"  Graph: {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges"
             )
-            final_output.append("  Final Course-to-Category Mapping:")
-            final_output.append(format_dict(mapping))
+            output_lines.append(f"  Cluster sizes: {cluster_sizes}")
+            output_lines.append(f"  Evaluation Metrics: {safe_dumps(evaluation)}")
+            log.debug(
+                "Graph statistics: %s nodes, %s edges",
+                graph.number_of_nodes(),
+                graph.number_of_edges(),
+            )
+            log.debug("Cluster sizes: %s", cluster_sizes)
+            log.debug("Evaluation metrics: %s", evaluation)
         except Exception as e:
-            final_output.append(f"Step 7 Error: {e}")
-            await ctx.send("\n".join(final_output))
-            return
+            msg = f"Step 4 Error: {e}"
+            output_lines.append(msg)
+            log.exception(msg)
 
         overall_time = time.time() - overall_start
-        final_output.append(f"\nTotal Execution Time: {overall_time:.4f} seconds")
-        final_output.append("===================================")
+        output_lines.append(f"\nTotal Execution Time: {overall_time:.4f} seconds")
+        output_lines.append("===================================")
+        log.debug("Test clustering command completed in %.4f seconds.", overall_time)
 
-        # Send output as a formatted code block
-        output_message = "```python\n" + "\n".join(final_output) + "\n```"
-        await ctx.send(output_message)
+        # Paginate the output if it's too long.
+        message = "```python\n" + "\n".join(output_lines) + "\n```"
+        if len(message) < 1900:
+            await ctx.send(message)
+        else:
+            chunk = []
+            current_length = 0
+            for line in output_lines:
+                if current_length + len(line) + 1 > 1800:
+                    await ctx.send("```python\n" + "\n".join(chunk) + "\n```")
+                    chunk = []
+                    current_length = 0
+                chunk.append(line)
+                current_length += len(line) + 1
+            if chunk:
+                await ctx.send("```python\n" + "\n".join(chunk) + "\n```")
