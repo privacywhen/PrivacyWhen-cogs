@@ -186,7 +186,7 @@ class CourseChannelCog(commands.Cog):
           4. Runs the clustering algorithm on the collected data.
           5. Outputs detailed stats and the final course-to-category mapping.
 
-        Additional logging is emitted to the console to assist with debugging.
+        Additional logging is emitted to the console (with summaries only) to assist with debugging.
         """
         import time
         from json import dumps
@@ -207,13 +207,31 @@ class CourseChannelCog(commands.Cog):
 
             return dumps(convert(obj), indent=2, sort_keys=True)
 
-        # Log to console using the cog's logger.
+        def paginate_output(
+            lines: List[str], header: str = "```python\n", footer: str = "\n```"
+        ) -> List[str]:
+            """Breaks the output into chunks that are less than 2000 characters."""
+            messages = []
+            current_chunk = header
+            for line in lines:
+                if len(current_chunk) + len(line) + len(footer) + 1 > 1900:
+                    current_chunk += footer
+                    messages.append(current_chunk)
+                    current_chunk = header + line + "\n"
+                else:
+                    current_chunk += line + "\n"
+            if current_chunk.strip() != header.strip():
+                current_chunk += footer
+                messages.append(current_chunk)
+            return messages
+
+        # Additional logging to console.
         log.debug("Starting real-data clustering test command.")
         output_lines: List[str] = []
-        output_lines.append("===== Real Data Clustering Test =====\n")
+        output_lines.append("===== Real Data Clustering Test =====")
         overall_start = time.time()
 
-        # Step 1: Collect channel data using the course category prefix from config.
+        # Step 1: Collect channel data.
         try:
             guild = ctx.guild
             config_prefix: str = await self.config.course_category()
@@ -234,15 +252,14 @@ class CourseChannelCog(commands.Cog):
                 )
                 output_lines.append(msg)
                 log.error(msg)
-                await ctx.send("\n".join(output_lines))
+                for msg_chunk in paginate_output(output_lines):
+                    await ctx.send(msg_chunk)
                 return
 
             channels_processed = 0
             channels_failed_parse = 0
             course_users: Dict[int, Set[int]] = {}  # channel ID -> set of member IDs
-            course_metadata: Dict[int, Dict[str, str]] = (
-                {}
-            )  # channel ID -> metadata (e.g., department)
+            course_metadata: Dict[int, Dict[str, str]] = {}  # channel ID -> metadata
 
             for category in categories:
                 log.debug("Processing category '%s'.", category.name)
@@ -259,7 +276,7 @@ class CourseChannelCog(commands.Cog):
                     }
                     if member_ids:
                         course_users[channel.id] = member_ids
-                    # Attempt to parse the channel name as a CourseCode
+                    # Try to parse the channel name as a CourseCode.
                     try:
                         course_obj = CourseCode(channel.name)
                         course_metadata[channel.id] = {
@@ -283,32 +300,31 @@ class CourseChannelCog(commands.Cog):
                 f"Step 1: Processed {channels_processed} channels across {len(categories)} categories."
             )
             output_lines.append(
-                f"         Channels with valid course code parsing: {channels_processed - channels_failed_parse}"
+                f"         Valid parsing: {channels_processed - channels_failed_parse}"
             )
+            output_lines.append(f"         Failed parsing: {channels_failed_parse}")
             output_lines.append(
-                f"         Channels failed parsing: {channels_failed_parse}"
-            )
-            output_lines.append(
-                f"         Total channels with user data: {len(course_users)}"
+                f"         Channels with user data: {len(course_users)}"
             )
             log.debug("Step 1 complete: Data collection finished.")
         except Exception as e:
             msg = f"Step 1 Error: {e}"
             output_lines.append(msg)
             log.exception(msg)
-            await ctx.send("\n".join(output_lines))
+            for msg_chunk in paginate_output(output_lines):
+                await ctx.send(msg_chunk)
             return
 
-        # Step 2: Instantiate the clustering instance.
+        # Step 2: Instantiate clustering instance.
         try:
             grouping_threshold = await self.config.grouping_threshold()
-            # Use a constant value for max_category_channels (50) instead of self.config.get(...)
+            # Use constant value for max_category_channels (since self.config.get(...) isn't registered).
             max_cat_channels = 50
             clustering_instance = self.clustering.__class__(
                 grouping_threshold=grouping_threshold,
                 max_category_channels=max_cat_channels,
                 category_prefix=config_prefix,
-                adaptive_threshold=False,  # Use a static threshold for clarity.
+                adaptive_threshold=False,
             )
             output_lines.append("Step 2: Clustering instance created.")
             log.debug(
@@ -320,10 +336,11 @@ class CourseChannelCog(commands.Cog):
             msg = f"Step 2 Error: {e}"
             output_lines.append(msg)
             log.exception(msg)
-            await ctx.send("\n".join(output_lines))
+            for msg_chunk in paginate_output(output_lines):
+                await ctx.send(msg_chunk)
             return
 
-        # Step 3: Run the clustering algorithm.
+        # Step 3: Run clustering.
         try:
             cluster_start = time.time()
             mapping = clustering_instance.cluster_courses(course_users, course_metadata)
@@ -331,14 +348,23 @@ class CourseChannelCog(commands.Cog):
             output_lines.append(
                 f"Step 3: Clustering executed in {cluster_time:.4f} seconds."
             )
-            output_lines.append("  Final Course-to-Category Mapping:")
-            output_lines.append(safe_dumps(mapping))
-            log.debug("Clustering complete. Mapping: %s", mapping)
+            output_lines.append(
+                "  Final Course-to-Category Mapping (showing sample keys):"
+            )
+            # Instead of dumping the entire mapping, show a summary sample.
+            sample_keys = list(mapping.keys())[:10]
+            output_lines.append(
+                safe_dumps(
+                    {"sample_mapping_keys": sample_keys, "total_keys": len(mapping)}
+                )
+            )
+            log.debug("Clustering complete. Mapping sample keys: %s", sample_keys)
         except Exception as e:
             msg = f"Step 3 Error: {e}"
             output_lines.append(msg)
             log.exception(msg)
-            await ctx.send("\n".join(output_lines))
+            for msg_chunk in paginate_output(output_lines):
+                await ctx.send(msg_chunk)
             return
 
         # Step 4: Additional statistics.
@@ -358,7 +384,7 @@ class CourseChannelCog(commands.Cog):
             output_lines.append(f"  Cluster sizes: {cluster_sizes}")
             output_lines.append(f"  Evaluation Metrics: {safe_dumps(evaluation)}")
             log.debug(
-                "Graph statistics: %s nodes, %s edges",
+                "Graph: %s nodes, %s edges",
                 graph.number_of_nodes(),
                 graph.number_of_edges(),
             )
@@ -374,19 +400,6 @@ class CourseChannelCog(commands.Cog):
         output_lines.append("===================================")
         log.debug("Test clustering command completed in %.4f seconds.", overall_time)
 
-        # Paginate output if too long.
-        message = "```python\n" + "\n".join(output_lines) + "\n```"
-        if len(message) < 1900:
-            await ctx.send(message)
-        else:
-            chunk = []
-            current_length = 0
-            for line in output_lines:
-                if current_length + len(line) + 1 > 1800:
-                    await ctx.send("```python\n" + "\n".join(chunk) + "\n```")
-                    chunk = []
-                    current_length = 0
-                chunk.append(line)
-                current_length += len(line) + 1
-            if chunk:
-                await ctx.send("```python\n" + "\n".join(chunk) + "\n```")
+        # Paginate and send output.
+        for msg_chunk in paginate_output(output_lines):
+            await ctx.send(msg_chunk)
