@@ -170,3 +170,178 @@ class CourseChannelCog(commands.Cog):
     ) -> None:
         await self.channel_service.set_default_category(ctx, category_name)
         await ctx.send(success(f"Default category set to **{category_name}**"))
+
+    ###TEMP TESTING###
+    @dev_course.command(name="testclustering")
+    @commands.is_owner()
+    @handle_command_errors
+    async def test_clustering(self, ctx: commands.Context) -> None:
+        """
+        Verbosely test the clustering functionality from course_channel_clustering.py.
+
+        This command performs the following steps:
+          1. Creates dummy course user and metadata inputs.
+          2. Normalizes the data.
+          3. Builds an overlap graph.
+          4. Performs clustering.
+          5. Evaluates clusters (calculates modularity).
+          6. Maps courses to category labels.
+          7. Reports detailed intermediate and final results.
+        """
+        import time
+        from json import dumps
+
+        def format_dict(d: dict) -> str:
+            return dumps(d, indent=2, sort_keys=True)
+
+        def format_list(l: list) -> str:
+            return dumps(l, indent=2)
+
+        final_output = []  # Collects output for final reporting
+        final_output.append("===== Test Clustering Output =====\n")
+
+        overall_start = time.time()
+
+        # Step 1: Dummy Data Creation
+        try:
+            dummy_course_users = {
+                "101": {1, 2, 3},
+                "102": {2, 3, 4},
+                "103": {5},
+                "104": {6, 7},
+                "105": {7, 8},
+            }
+            dummy_course_metadata = {
+                "101": {"department": "CS"},
+                "102": {"department": "CS"},
+                "103": {"department": "MATH"},
+                "104": {"department": "CS"},
+                "105": {"department": "MATH"},
+            }
+            final_output.append("Step 1: Dummy data created successfully.")
+        except Exception as e:
+            final_output.append(f"Step 1 Error: {e}")
+            await ctx.send("\n".join(final_output))
+            return
+
+        # Step 2: Instantiate Clustering Instance with Custom Test Parameters
+        try:
+            clustering_instance = self.clustering.__class__(
+                grouping_threshold=2,
+                max_category_channels=2,  # force splitting clusters if needed
+                category_prefix="TEST",
+                adaptive_threshold=False,
+            )
+            final_output.append(
+                "Step 2: Clustering instance created with test parameters."
+            )
+        except Exception as e:
+            final_output.append(f"Step 2 Error: {e}")
+            await ctx.send("\n".join(final_output))
+            return
+
+        # Step 3: Data Normalization
+        try:
+            norm_start = time.time()
+            normalized_course_users = clustering_instance._normalize_course_users(
+                dummy_course_users
+            )
+            normalized_course_metadata = clustering_instance._normalize_course_metadata(
+                dummy_course_metadata
+            )
+            norm_time = time.time() - norm_start
+            final_output.append(
+                f"Step 3: Normalization complete in {norm_time:.4f} seconds."
+            )
+            final_output.append("  Normalized Course Users:")
+            final_output.append(format_dict(normalized_course_users))
+            final_output.append("  Normalized Course Metadata:")
+            final_output.append(format_dict(normalized_course_metadata))
+        except Exception as e:
+            final_output.append(f"Step 3 Error: {e}")
+            await ctx.send("\n".join(final_output))
+            return
+
+        # Step 4: Graph Building
+        try:
+            graph_start = time.time()
+            graph = clustering_instance._build_graph(
+                normalized_course_users, normalized_course_metadata
+            )
+            graph_time = time.time() - graph_start
+            final_output.append(f"Step 4: Graph built in {graph_time:.4f} seconds.")
+            final_output.append(
+                f"  Graph Nodes: {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges"
+            )
+            # Provide additional graph details
+            node_degrees = dict(graph.degree())
+            final_output.append("  Node Degrees:")
+            final_output.append(format_dict(node_degrees))
+            edges = list(graph.edges(data=True))
+            final_output.append("  Graph Edges with Weights:")
+            final_output.append(
+                format_list(
+                    [
+                        {"source": u, "target": v, "weight": data.get("weight")}
+                        for u, v, data in edges
+                    ]
+                )
+            )
+        except Exception as e:
+            final_output.append(f"Step 4 Error: {e}")
+            await ctx.send("\n".join(final_output))
+            return
+
+        # Step 5: Clustering
+        try:
+            cluster_start = time.time()
+            clusters = clustering_instance._perform_clustering(graph)
+            cluster_time = time.time() - cluster_start
+            final_output.append(
+                f"Step 5: Clustering complete in {cluster_time:.4f} seconds."
+            )
+            clusters_formatted = [sorted(list(cluster)) for cluster in clusters]
+            final_output.append("  Clusters (raw sets):")
+            final_output.append(format_list(clusters_formatted))
+        except Exception as e:
+            final_output.append(f"Step 5 Error: {e}")
+            await ctx.send("\n".join(final_output))
+            return
+
+        # Step 6: Evaluation (Modularity)
+        try:
+            eval_start = time.time()
+            evaluation_metrics = clustering_instance.evaluate_clusters(graph, clusters)
+            eval_time = time.time() - eval_start
+            final_output.append(
+                f"Step 6: Evaluation complete in {eval_time:.4f} seconds."
+            )
+            final_output.append("  Evaluation Metrics:")
+            final_output.append(format_dict(evaluation_metrics))
+        except Exception as e:
+            final_output.append(f"Step 6 Error: {e}")
+            await ctx.send("\n".join(final_output))
+            return
+
+        # Step 7: Mapping Courses to Category Labels
+        try:
+            mapping_start = time.time()
+            mapping = clustering_instance._map_clusters_to_categories(clusters)
+            mapping_time = time.time() - mapping_start
+            final_output.append(
+                f"Step 7: Mapping complete in {mapping_time:.4f} seconds."
+            )
+            final_output.append("  Final Course-to-Category Mapping:")
+            final_output.append(format_dict(mapping))
+        except Exception as e:
+            final_output.append(f"Step 7 Error: {e}")
+            await ctx.send("\n".join(final_output))
+            return
+
+        overall_time = time.time() - overall_start
+        final_output.append(f"\nTotal Execution Time: {overall_time:.4f} seconds")
+        final_output.append("===================================")
+
+        # Send output as a formatted code block
+        output_message = "```python\n" + "\n".join(final_output) + "\n```"
+        await ctx.send(output_message)
