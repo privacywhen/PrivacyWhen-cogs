@@ -195,7 +195,7 @@ class CourseChannelCog(commands.Cog):
         from .course_code import CourseCode
 
         def safe_dumps(obj) -> str:
-            # Convert sets to lists recursively for JSON serialization.
+            # Recursively convert sets to lists for JSON serialization.
             def convert(o):
                 if isinstance(o, set):
                     return list(o)
@@ -207,14 +207,13 @@ class CourseChannelCog(commands.Cog):
 
             return dumps(convert(obj), indent=2, sort_keys=True)
 
-        # Use the cog's logger to output additional debug info to the console.
+        # Log to console using the cog's logger.
         log.debug("Starting real-data clustering test command.")
-
         output_lines: List[str] = []
         output_lines.append("===== Real Data Clustering Test =====\n")
         overall_start = time.time()
 
-        # Step 1: Use the course category prefix from config to collect channel data.
+        # Step 1: Collect channel data using the course category prefix from config.
         try:
             guild = ctx.guild
             config_prefix: str = await self.config.course_category()
@@ -222,7 +221,9 @@ class CourseChannelCog(commands.Cog):
                 f"Using course category prefix from config: '{config_prefix}'"
             )
             log.debug(
-                f"Retrieving categories with prefix '{config_prefix}' in guild '{guild.name}'."
+                "Retrieving categories with prefix '%s' in guild '%s'.",
+                config_prefix,
+                guild.name,
             )
             from .utils import get_categories_by_prefix
 
@@ -244,7 +245,7 @@ class CourseChannelCog(commands.Cog):
             )  # channel ID -> metadata (e.g., department)
 
             for category in categories:
-                log.debug(f"Processing category '{category.name}'.")
+                log.debug("Processing category '%s'.", category.name)
                 for channel in category.channels:
                     if not isinstance(channel, TextChannel):
                         continue
@@ -265,13 +266,17 @@ class CourseChannelCog(commands.Cog):
                             "department": course_obj.department
                         }
                         log.debug(
-                            f"Channel '{channel.name}' parsed successfully (department: {course_obj.department})."
+                            "Channel '%s' parsed successfully (department: %s).",
+                            channel.name,
+                            course_obj.department,
                         )
                     except Exception as parse_exc:
                         channels_failed_parse += 1
                         course_metadata[channel.id] = {}
                         log.warning(
-                            f"Failed to parse channel name '{channel.name}': {parse_exc}"
+                            "Failed to parse channel name '%s': %s",
+                            channel.name,
+                            parse_exc,
                         )
 
             output_lines.append(
@@ -297,7 +302,8 @@ class CourseChannelCog(commands.Cog):
         # Step 2: Instantiate the clustering instance.
         try:
             grouping_threshold = await self.config.grouping_threshold()
-            max_cat_channels = await self.config.get("max_category_channels", 50)
+            # Use a constant value for max_category_channels (50) instead of self.config.get(...)
+            max_cat_channels = 50
             clustering_instance = self.clustering.__class__(
                 grouping_threshold=grouping_threshold,
                 max_category_channels=max_cat_channels,
@@ -337,7 +343,6 @@ class CourseChannelCog(commands.Cog):
 
         # Step 4: Additional statistics.
         try:
-            # Rebuild the graph from normalized data to compute cluster statistics.
             norm_users = clustering_instance._normalize_course_users(course_users)
             norm_metadata = clustering_instance._normalize_course_metadata(
                 course_metadata
@@ -369,7 +374,7 @@ class CourseChannelCog(commands.Cog):
         output_lines.append("===================================")
         log.debug("Test clustering command completed in %.4f seconds.", overall_time)
 
-        # Paginate the output if it's too long.
+        # Paginate output if too long.
         message = "```python\n" + "\n".join(output_lines) + "\n```"
         if len(message) < 1900:
             await ctx.send(message)
