@@ -1,10 +1,13 @@
 import time
 from math import ceil
-from typing import Any, Dict, List, Optional, Tuple, TypeVar
+import functools
+from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple, TypeVar
+
 import discord
 from redbot.core import Config, commands
 from redbot.core.utils.chat_formatting import error, info, success, warning, pagify
 from redbot.core.utils.menus import menu
+
 from .course_code import CourseCode
 from .course_data_proxy import CourseDataProxy
 from .logger_util import get_logger
@@ -13,10 +16,9 @@ from .utils import (
     get_or_create_category,
     validate_and_resolve_course_code,
 )
-import functools
-from typing import Any, Callable, Coroutine
 
 log = get_logger("red.course.service")
+
 T = TypeVar("T")
 
 
@@ -233,11 +235,7 @@ class CourseService:
             if alt_category is None:
                 alt_category = await get_or_create_category(guild, alt_name)
             if alt_category is None:
-                await ctx.send(
-                    error(
-                        f"I don't have permission to create the category '{alt_name}'."
-                    )
-                )
+                await ctx.send(error(f"I don't have permission to create the category '{alt_name}'."))  # type: ignore
                 return None
             if len(alt_category.channels) < 50:
                 return alt_category
