@@ -23,9 +23,6 @@ class CourseCodeResolver:
         self.course_data_proxy: Any = course_data_proxy
 
     def find_variant_matches(self, canonical: str) -> List[str]:
-        """
-        Find course code variants that start with the canonical code and are longer.
-        """
         variants: List[str] = [
             key
             for key in self.course_listings
@@ -37,21 +34,16 @@ class CourseCodeResolver:
     async def prompt_variant_selection(
         self, ctx: commands.Context, variants: List[str]
     ) -> Optional[str]:
-        """
-        Prompt the user to select from multiple course code variants.
-        """
         options: List[Tuple[str, Any]] = [
             (variant, self.course_listings.get(variant, "")) for variant in variants
         ]
         log.debug(f"Prompting variant selection with options: {options}")
+        # Updated the prompt text for a consistent tone.
         return await CourseCodeResolver.interactive_course_selector(
             ctx, options, "Multiple course variants found. Please choose one:"
         )
 
     def _parse_course_code(self, raw: str) -> Optional[CourseCode]:
-        """
-        Attempt to parse a raw course code string into a CourseCode object.
-        """
         try:
             return CourseCode(raw)
         except ValueError:
@@ -61,14 +53,9 @@ class CourseCodeResolver:
     async def fallback_fuzzy_lookup(
         self, ctx: commands.Context, canonical: str
     ) -> Tuple[Optional[CourseCode], Optional[Dict[str, Any]]]:
-        """
-        Use fuzzy matching to find the closest course code match when an exact match is not found.
-        """
-        # Guard: Ensure there are course listings to search through.
         if not self.course_listings:
             log.debug("No course listings available for fuzzy lookup.")
             return (None, None)
-
         keys_list: List[str] = list(self.course_listings.keys())
         all_matches = process.extract(
             canonical,
@@ -95,7 +82,6 @@ class CourseCodeResolver:
             len(valid_matches) > 1
             and valid_matches[0][2] - valid_matches[1][2] >= self.SCORE_MARGIN
         ):
-            # Auto-select if the top match is significantly better
             selected_candidate: str = best_candidate
             selected_obj: CourseCode = best_obj
             log.debug(
@@ -130,14 +116,9 @@ class CourseCodeResolver:
     async def resolve_course_code(
         self, ctx: commands.Context, course: CourseCode
     ) -> Tuple[Optional[CourseCode], Optional[Dict[str, Any]]]:
-        """
-        Resolve the course code using exact match, variant matching, or fuzzy lookup.
-        """
-        # Guard: Ensure that a valid course is provided.
         if course is None:
             log.debug("No course provided to resolve_course_code.")
             return (None, None)
-
         canonical: str = course.canonical()
         log.debug(f"Resolving course code for canonical: {canonical}")
         if canonical in self.course_listings:
@@ -166,14 +147,9 @@ class CourseCodeResolver:
     async def interactive_course_selector(
         ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
     ) -> Optional[str]:
-        """
-        Display an interactive menu to the user and return their selection.
-        """
-        # Guard: Ensure that there are options to display.
         if not options:
             log.debug("No options provided to interactive_course_selector.")
             return None
-
         ctx._menu_call_count = getattr(ctx, "_menu_call_count", 0) + 1
         log.debug(
             f"Interactive menu call count for this context: {ctx._menu_call_count}"

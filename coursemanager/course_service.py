@@ -445,13 +445,14 @@ class CourseService:
         await ctx.send(success(f"Logging channel set to {channel.mention}."))
 
     async def set_term_code(
-        self, ctx: commands.Context, term_name: str, term_id: int
+        self, ctx: commands.Context, term_name: str, year: int, term_id: int
     ) -> None:
+        term_key = f"{term_name.lower()}-{year}"
         async with self.config.term_codes() as term_codes:
-            term_codes[term_name.lower()] = term_id
-        log.debug(f"Set term code for {term_name} to {term_id}")
+            term_codes[term_key] = term_id
+        log.debug(f"Set term code for {term_key} to {term_id}")
         await ctx.send(
-            success(f"Term code for {term_name.capitalize()} set to: {term_id}")
+            success(f"Term code for {term_name.capitalize()} {year} set to: {term_id}")
         )
 
     async def list_all_courses(self, ctx: commands.Context) -> None:
@@ -502,3 +503,12 @@ class CourseService:
         if course_obj is None:
             return
         await self._refresh_course_data_and_notify(ctx, course_obj)
+
+    async def print_config(self, ctx: commands.Context) -> None:
+        config_data = await self.config.all()
+        print(config_data)
+        await ctx.send(info("Config printed to console."))
+
+    async def reset_config(self, ctx: commands.Context) -> None:
+        await self.config.clear_all()
+        await ctx.send(success("All config data cleared."))

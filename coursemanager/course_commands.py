@@ -1,10 +1,9 @@
 import asyncio
 from typing import Optional
-
 import discord
 from redbot.core import Config, commands
 from redbot.core.utils.chat_formatting import error, info, success, warning
-
+from redbot.core.utils.menus import menu
 from .channel_service import ChannelService
 from .constants import GLOBAL_DEFAULTS
 from .course_service import CourseService
@@ -37,7 +36,7 @@ class CourseChannelCog(commands.Cog):
             if ctx.guild.id not in enabled:
                 await ctx.send(
                     error(
-                        "Course Manager is disabled in this server. Please enable it using `course enable`."
+                        "Course Manager is disabled in this server. Please enable it using `/course enable`."
                     )
                 )
                 return False
@@ -53,7 +52,6 @@ class CourseChannelCog(commands.Cog):
         name="course", invoke_without_command=True, case_insensitive=True
     )
     async def course(self, ctx: commands.Context) -> None:
-        """Main course command group."""
         await ctx.send_help(ctx.command)
 
     @course.command(name="join")
@@ -87,7 +85,6 @@ class CourseChannelCog(commands.Cog):
     @commands.is_owner()
     @commands.group(name="dc", invoke_without_command=True)
     async def dev_course(self, ctx: commands.Context) -> None:
-        """Developer commands for course management."""
         await ctx.send_help(ctx.command)
 
     @dev_course.command(name="enable")
@@ -106,13 +103,7 @@ class CourseChannelCog(commands.Cog):
     async def set_term_code(
         self, ctx: commands.Context, term_name: str, year: int, term_id: int
     ) -> None:
-        term_key = f"{term_name.lower()}-{year}"
-        async with self.config.term_codes() as term_codes:
-            term_codes[term_key] = term_id
-        log.debug(f"Set term code for {term_key} to {term_id}")
-        await ctx.send(
-            success(f"Term code for {term_name.capitalize()} {year} set to: {term_id}")
-        )
+        await self.course_service.set_term_code(ctx, term_name, year, term_id)
 
     @dev_course.command(name="populate")
     async def populate_courses(self, ctx: commands.Context) -> None:
@@ -128,13 +119,11 @@ class CourseChannelCog(commands.Cog):
 
     @dev_course.command(name="printconfig")
     async def print_config(self, ctx: commands.Context) -> None:
-        print(await self.config.all())
-        await ctx.send(info("Config printed to console."))
+        await self.course_service.print_config(ctx)
 
     @dev_course.command(name="clearall")
     async def reset_config(self, ctx: commands.Context) -> None:
-        await self.config.clear_all()
-        await ctx.send(success("All config data cleared."))
+        await self.course_service.reset_config(ctx)
 
     @dev_course.command(name="setdefaultcategory")
     async def set_default_category(
