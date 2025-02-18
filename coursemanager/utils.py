@@ -1,12 +1,11 @@
 from typing import Any, Dict, List, Optional, Tuple
-
 import discord
 from redbot.core import commands
-
 from .course_code import CourseCode
 from .course_code_resolver import CourseCodeResolver
 from .course_data_proxy import CourseDataProxy
 from .logger_util import get_logger, log_entry_exit
+from redbot.core.utils.chat_formatting import error
 
 log = get_logger("red.utils")
 
@@ -14,9 +13,6 @@ log = get_logger("red.utils")
 def get_categories_by_prefix(
     guild: discord.Guild, prefix: str
 ) -> List[discord.CategoryChannel]:
-    """
-    Retrieve categories from a guild that start with the specified prefix.
-    """
     matching: List[discord.CategoryChannel] = [
         cat for cat in guild.categories if cat.name.upper().startswith(prefix.upper())
     ]
@@ -29,9 +25,6 @@ def get_categories_by_prefix(
 async def get_or_create_category(
     guild: discord.Guild, category_name: str
 ) -> Optional[discord.CategoryChannel]:
-    """
-    Retrieve a category by name, or create it if it does not exist.
-    """
     category = discord.utils.get(guild.categories, name=category_name)
     if category is None:
         try:
@@ -51,15 +44,39 @@ async def get_or_create_category(
     return category
 
 
+async def get_available_course_category(
+    guild: discord.Guild, base_name: str, ctx: commands.Context, max_channels: int = 50
+) -> Optional[discord.CategoryChannel]:
+    category = discord.utils.get(guild.categories, name=base_name)
+    if category is None:
+        category = await get_or_create_category(guild, base_name)
+    if category is None:
+        await ctx.send(error("I don't have permission to create the courses category."))
+        return None
+    if len(category.channels) < max_channels:
+        return category
+    for i in range(2, 100):
+        alt_name = f"{base_name}-{i}"
+        alt_category = discord.utils.get(guild.categories, name=alt_name)
+        if alt_category is None:
+            alt_category = await get_or_create_category(guild, alt_name)
+        if alt_category is None:
+            await ctx.send(
+                error(f"I don't have permission to create the category '{alt_name}'.")
+            )
+            return None
+        if len(alt_category.channels) < max_channels:
+            return alt_category
+    await ctx.send(error("All course categories have reached the channel limit."))
+    return None
+
+
 async def validate_and_resolve_course_code(
     ctx: commands.Context,
     raw_input: str,
     listings: Dict[str, Any],
     course_data_proxy: CourseDataProxy,
 ) -> Optional[CourseCode]:
-    """
-    Validate and resolve a course code using the CourseCode and CourseCodeResolver.
-    """
     resolver = CourseCodeResolver(listings, course_data_proxy=course_data_proxy)
     try:
         course_obj: CourseCode = CourseCode(raw_input)

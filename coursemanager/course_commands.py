@@ -1,6 +1,6 @@
 import asyncio
 import functools
-from typing import Optional
+from typing import Any, Callable, Coroutine, Optional, TypeVar
 
 import discord
 from redbot.core import Config, commands, app_commands
@@ -14,11 +14,14 @@ from .course_channel_clustering import CourseChannelClustering
 from .logger_util import get_logger
 
 log = get_logger("red.course_channel_cog")
+T = TypeVar("T")
 
 
-def handle_command_errors(func):
+def handle_command_errors(
+    func: Callable[..., Coroutine[Any, Any, T]]
+) -> Callable[..., Coroutine[Any, Any, T]]:
     @functools.wraps(func)
-    async def wrapper(self, ctx, *args, **kwargs):
+    async def wrapper(self: Any, ctx: commands.Context, *args: Any, **kwargs: Any) -> T:
         try:
             return await func(self, ctx, *args, **kwargs)
         except Exception as exc:
@@ -52,7 +55,11 @@ class CourseChannelCog(commands.Cog):
             return True
         if ctx.command.qualified_name.lower().startswith(
             "course"
-        ) and ctx.command.name.lower() not in {"enable", "disable", "course"}:
+        ) and ctx.command.name.lower() not in {
+            "enable",
+            "disable",
+            "course",
+        }:
             enabled = await self.config.enabled_guilds()
             if ctx.guild.id not in enabled:
                 await ctx.send(

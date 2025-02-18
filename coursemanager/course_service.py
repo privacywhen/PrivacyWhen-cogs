@@ -2,15 +2,18 @@ import time
 from math import ceil
 import functools
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple, TypeVar
-
 import discord
 from redbot.core import Config, commands
 from redbot.core.utils.chat_formatting import error, info, success, warning, pagify
 from redbot.core.utils.menus import menu
-
 from .course_code import CourseCode
 from .course_data_proxy import CourseDataProxy
-from .logger_util import get_logger, validate_and_resolve_course_code
+from .logger_util import get_logger
+from .utils import (
+    get_categories_by_prefix,
+    get_or_create_category,
+    get_available_course_category,
+)
 
 log = get_logger("red.course.service")
 T = TypeVar("T")
@@ -90,19 +93,6 @@ class CourseService:
     async def disable(self, ctx: commands.Context) -> None:
         await self._update_enabled_status(ctx, False)
 
-    def get_course_categories(
-        self, guild: discord.Guild
-    ) -> List[discord.CategoryChannel]:
-        categories = [
-            cat
-            for cat in guild.categories
-            if cat.name.upper().startswith(self.category_name.upper())
-        ]
-        log.debug(
-            f"Found {len(categories)} categories with prefix '{self.category_name}' in guild '{guild.name}'"
-        )
-        return categories
-
     def get_category(self, guild: discord.Guild) -> Optional[discord.CategoryChannel]:
         category = next(
             (
@@ -127,7 +117,7 @@ class CourseService:
         channel = next(
             (
                 ch
-                for cat in self.get_course_categories(guild)
+                for cat in get_categories_by_prefix(guild, self.category_name)
                 for ch in cat.channels
                 if isinstance(ch, discord.TextChannel) and ch.name == target_name
             ),
@@ -184,8 +174,8 @@ class CourseService:
     def get_user_courses(self, user: discord.Member, guild: discord.Guild) -> List[str]:
         joined_courses = [
             channel.name
-            for category in self.get_course_categories(guild)
-            for channel in category.channels
+            for cat in get_categories_by_prefix(guild, self.category_name)
+            for channel in cat.channels
             if isinstance(channel, discord.TextChannel)
             and self._has_joined(user, channel)
         ]
@@ -208,45 +198,6 @@ class CourseService:
             )
             return False
         return True
-
-    async def _resolve_category(
-        self, guild: discord.Guild, ctx: commands.Context
-    ) -> Optional[discord.CategoryChannel]:
-        base_name: str = self.category_name
-        category: Optional[discord.CategoryChannel] = discord.utils.get(
-            guild.categories, name=base_name
-        )
-        if category is None:
-            category = await __import__("utils").utils.get_or_create_category(
-                guild, base_name
-            )
-        if category is None:
-            await ctx.send(
-                error("I don't have permission to create the courses category.")
-            )
-            return None
-        if len(category.channels) < 50:
-            return category
-        for i in range(2, 100):
-            alt_name: str = f"{base_name}-{i}"
-            alt_category: Optional[discord.CategoryChannel] = discord.utils.get(
-                guild.categories, name=alt_name
-            )
-            if alt_category is None:
-                alt_category = await __import__("utils").utils.get_or_create_category(
-                    guild, alt_name
-                )
-            if alt_category is None:
-                await ctx.send(
-                    error(
-                        f"I don't have permission to create the category '{alt_name}'."
-                    )
-                )
-                return None
-            if len(alt_category.channels) < 50:
-                return alt_category
-        await ctx.send(error("All course categories have reached the channel limit."))
-        return None
 
     async def _lookup_course_data(
         self, ctx: commands.Context, course: CourseCode, already_resolved: bool = False
@@ -280,8 +231,9 @@ class CourseService:
     async def _resolve_course(
         self, ctx: commands.Context, course_code: str
     ) -> Optional[CourseCode]:
-
         listings: Dict[str, str] = await self._get_course_listings()
+        from .utils import validate_and_resolve_course_code
+
         course_obj: Optional[CourseCode] = await validate_and_resolve_course_code(
             ctx, course_code, listings, self.course_data_proxy
         )
@@ -289,25 +241,25 @@ class CourseService:
             await ctx.send(error(f"Invalid course code: {course_code}."))
         return course_obj
 
-    async def course_details(
-        self, ctx: commands.Context, course_code: str
-    ) -> Optional[discord.Embed]:
+    async def course_details(self, ctx: commands.Context, course_code: str) -> None:
         try:
             course_obj: Optional[CourseCode] = await self._resolve_course(
                 ctx, course_code
             )
             if course_obj is None:
-                return None
+                await ctx.send(error("Invalid course code provided."))
+                return
             data = await self.course_data_proxy.get_course_data(
                 course_obj.canonical(), detailed=True
             )
             if not self._is_valid_course_data(data):
-                return None
-            return self._create_course_embed(course_obj.canonical(), data)
+                await ctx.send(error("No valid course data found for that course."))
+                return
+            embed = self._create_course_embed(course_obj.canonical(), data)
+            await ctx.send(embed=embed)
         except Exception as exc:
             log.exception(f"Error retrieving course details for {course_code}: {exc}")
             await ctx.send(error("An error occurred while retrieving course details."))
-            return None
 
     def _create_course_embed(
         self, course_key: str, course_data: Dict[str, Any]
@@ -434,7 +386,9 @@ class CourseService:
                 return
             if not await self._ensure_user_channel_limit_not_exceeded(ctx, user, guild):
                 return
-            category = await self._resolve_category(guild, ctx)
+            category = await get_available_course_category(
+                guild, self.category_name, ctx
+            )
             if category is None:
                 return
             channel = self.get_course_channel(guild, candidate_obj)
@@ -550,7 +504,7 @@ class CourseService:
 
     async def print_config(self, ctx: commands.Context) -> None:
         config_data = await self.config.all()
-        print(config_data)
+        log.info(config_data)
         await ctx.send(info("Config printed to console."))
 
     async def reset_config(self, ctx: commands.Context) -> None:

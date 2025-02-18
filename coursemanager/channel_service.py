@@ -132,10 +132,9 @@ class ChannelService:
                         continue
                     base_category: str = await self.config.course_category()
                     for category in get_categories_by_prefix(guild, base_category):
-                        for channel in (
-                            ch
-                            for ch in category.channels
-                            if isinstance(ch, discord.TextChannel)
+                        for channel in filter(
+                            lambda ch: isinstance(ch, discord.TextChannel),
+                            category.channels,
                         ):
                             try:
                                 await self.channel_prune_helper(
