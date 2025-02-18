@@ -7,6 +7,9 @@ from redbot.core.utils.menus import menu
 from .channel_service import ChannelService
 from .constants import GLOBAL_DEFAULTS
 from .course_service import CourseService
+from .course_channel_clustering import (
+    CourseChannelClustering,
+)  # Newly imported clustering module
 from .logger_util import get_logger
 
 log = get_logger("red.course_channel_cog")
@@ -21,6 +24,14 @@ class CourseChannelCog(commands.Cog):
         self.config.register_global(**GLOBAL_DEFAULTS)
         self.channel_service: ChannelService = ChannelService(bot, self.config)
         self.course_service: CourseService = CourseService(bot, self.config)
+
+        # Initialize CourseChannelClustering with parameters from GLOBAL_DEFAULTS.
+        self.clustering = CourseChannelClustering(
+            grouping_threshold=GLOBAL_DEFAULTS.get("grouping_threshold", 2),
+            max_category_channels=50,
+            category_prefix=GLOBAL_DEFAULTS.get("course_category", "COURSES"),
+        )
+
         self._prune_task: Optional[asyncio.Task] = asyncio.create_task(
             self.channel_service.auto_channel_prune()
         )

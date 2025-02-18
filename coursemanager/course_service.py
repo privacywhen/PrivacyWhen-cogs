@@ -1,6 +1,6 @@
 import time
 from math import ceil
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TypeVar
 import discord
 from redbot.core import Config, commands
 from redbot.core.utils.chat_formatting import error, info, success, warning, pagify
@@ -13,8 +13,25 @@ from .utils import (
     get_or_create_category,
     validate_and_resolve_course_code,
 )
+import functools
+from typing import Any, Callable, Coroutine
 
 log = get_logger("red.course.service")
+T = TypeVar("T")
+
+
+def requires_enabled(
+    func: Callable[..., Coroutine[Any, Any, T]]
+) -> Callable[..., Coroutine[Any, Any, T]]:
+    @functools.wraps(func)
+    async def wrapper(
+        self: "CourseService", ctx: commands.Context, *args: Any, **kwargs: Any
+    ) -> T:
+        if not await self._check_enabled(ctx):
+            return  # type: ignore
+        return await func(self, ctx, *args, **kwargs)
+
+    return wrapper
 
 
 class CourseService:
@@ -359,14 +376,13 @@ class CourseService:
             "Granted access",
         )
 
+    @requires_enabled
     async def grant_course_channel_access(
         self, ctx: commands.Context, course_code: str
     ) -> None:
         log.debug(
             f"[grant_course_channel_access] invoked by {ctx.author} in guild '{ctx.guild.name}' with course_code '{course_code}'"
         )
-        if not await self._check_enabled(ctx):
-            return
         guild: discord.Guild = ctx.guild
         user: discord.Member = ctx.author
         if not await self._ensure_user_channel_limit_not_exceeded(ctx, user, guild):
@@ -412,11 +428,10 @@ class CourseService:
             channel = await self.create_course_channel(guild, category, candidate_obj)
         await self._grant_access(ctx, channel, candidate_obj.canonical())
 
+    @requires_enabled
     async def revoke_course_channel_access(
         self, ctx: commands.Context, course_code: str
     ) -> None:
-        if not await self._check_enabled(ctx):
-            return
         guild: discord.Guild = ctx.guild
         course_obj: Optional[CourseCode] = await self._resolve_course(ctx, course_code)
         if course_obj is None:
@@ -492,11 +507,10 @@ class CourseService:
         else:
             await ctx.send(error(f"Failed to refresh course data for {canonical}."))
 
+    @requires_enabled
     async def refresh_course_data(
         self, ctx: commands.Context, course_code: str
     ) -> None:
-        if not await self._check_enabled(ctx):
-            return
         course_obj: Optional[CourseCode] = await self._resolve_course(ctx, course_code)
         if course_obj is None:
             return

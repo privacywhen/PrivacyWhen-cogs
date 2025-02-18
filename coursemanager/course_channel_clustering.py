@@ -1,13 +1,17 @@
+"""
+This module implements clustering for course channels. It expects that course identifiers
+and user identifiers are provided as Discord IDs (or any values convertible to integers). All
+calculations—including graph construction and clustering—operate on these numeric IDs.
+"""
+
 import asyncio
 from collections import defaultdict
 from itertools import combinations
 from math import ceil
 from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple
-
 import networkx as nx
 from networkx.algorithms.community import louvain_communities
 from networkx.algorithms.community.quality import modularity
-
 from .logger_util import get_logger
 
 log = get_logger("red.course_channel_clustering")
@@ -42,6 +46,10 @@ class CourseChannelClustering:
 
     @staticmethod
     def _normalize_key(key: Any) -> int:
+        """
+        Normalize a key to an integer. This is used to convert course and user IDs
+        (which should be Discord IDs) into integers.
+        """
         try:
             return int(key)
         except Exception as e:
@@ -50,6 +58,11 @@ class CourseChannelClustering:
     def _normalize_course_users(
         self, course_users: Dict[Any, Set[Any]]
     ) -> Dict[int, Set[int]]:
+        """
+        Convert all course keys and user values into integers.
+        Expects course_users to be a mapping where keys are course IDs and
+        values are sets of user IDs.
+        """
         return {
             self._normalize_key(course): {self._normalize_key(user) for user in users}
             for course, users in course_users.items()
@@ -58,10 +71,30 @@ class CourseChannelClustering:
     def _normalize_course_metadata(
         self, course_metadata: Dict[Any, Dict[str, Any]]
     ) -> Dict[int, Dict[str, Any]]:
+        """
+        Convert course metadata keys into integers.
+        """
         return {
             self._normalize_key(course): meta
             for course, meta in course_metadata.items()
         }
+
+    def _add_sparse_overlaps(
+        self,
+        overlaps: Dict[Tuple[int, int], int],
+        courses_sorted: List[int],
+        course_metadata: Dict[int, Dict[str, Any]],
+    ) -> None:
+        for course1, course2 in combinations(courses_sorted, 2):
+            if (course1, course2) not in overlaps:
+                meta1: Optional[str] = course_metadata.get(course1, {}).get(
+                    "department"
+                )
+                meta2: Optional[str] = course_metadata.get(course2, {}).get(
+                    "department"
+                )
+                if meta1 and meta2 and (meta1 == meta2):
+                    overlaps[(course1, course2)] = self.sparse_overlap
 
     def _calculate_overlaps(
         self,
@@ -69,7 +102,7 @@ class CourseChannelClustering:
         course_metadata: Optional[Dict[int, Dict[str, Any]]] = None,
     ) -> Dict[Tuple[int, int], int]:
         overlaps: Dict[Tuple[int, int], int] = defaultdict(int)
-        courses_sorted = sorted(course_users.keys())
+        courses_sorted: List[int] = sorted(course_users.keys())
         if self.optimize_overlap:
             user_to_courses: Dict[int, Set[int]] = defaultdict(set)
             for course, users in course_users.items():
@@ -77,21 +110,16 @@ class CourseChannelClustering:
                     user_to_courses[user].add(course)
             for courses in user_to_courses.values():
                 for course1, course2 in combinations(sorted(courses), 2):
-                    overlaps[course1, course2] += 1
+                    overlaps[(course1, course2)] += 1
             method_used: str = "inverted index"
         else:
             for course1, course2 in combinations(courses_sorted, 2):
-                count = len(course_users[course1] & course_users[course2])
+                count: int = len(course_users[course1] & course_users[course2])
                 if count > 0:
-                    overlaps[course1, course2] = count
+                    overlaps[(course1, course2)] = count
             method_used = "combinations"
         if course_metadata is not None:
-            for course1, course2 in combinations(courses_sorted, 2):
-                if (course1, course2) not in overlaps:
-                    meta1 = course_metadata.get(course1, {}).get("department")
-                    meta2 = course_metadata.get(course2, {}).get("department")
-                    if meta1 and meta2 and (meta1 == meta2):
-                        overlaps[course1, course2] = self.sparse_overlap
+            self._add_sparse_overlaps(overlaps, courses_sorted, course_metadata)
         log.debug(
             f"Calculated overlaps using {method_used} for {len(course_users)} courses: {dict(overlaps)}"
         )
@@ -105,7 +133,7 @@ class CourseChannelClustering:
         median = (
             counts[n // 2] if n % 2 == 1 else (counts[n // 2 - 1] + counts[n // 2]) / 2
         )
-        effective_threshold = max(int(median * self.threshold_factor), 1)
+        effective_threshold: int = max(int(median * self.threshold_factor), 1)
         log.debug(
             f"Dynamic threshold computed: median={median}, threshold_factor={self.threshold_factor}, effective_threshold={effective_threshold}"
         )
@@ -122,7 +150,7 @@ class CourseChannelClustering:
             if not users:
                 log.warning(f"Course '{course}' has no user engagements.")
         overlaps = self._calculate_overlaps(course_users, course_metadata)
-        threshold = (
+        threshold: int = (
             self._compute_dynamic_threshold(overlaps)
             if self.adaptive_threshold and overlaps
             else self.grouping_threshold
@@ -159,6 +187,11 @@ class CourseChannelClustering:
             yield lst[i : i + chunk_size]
 
     def _map_clusters_to_categories(self, clusters: List[Set[int]]) -> Dict[int, str]:
+        """
+        Maps each course (identified by its ID) to a category label.
+        The category labels are generated based on the maximum number of courses
+        allowed per category and whether suffixes are needed.
+        """
         mapping: Dict[int, str] = {}
         total_subgroups: int = sum(
             (ceil(len(cluster) / self.max_category_channels) for cluster in clusters)
@@ -193,6 +226,12 @@ class CourseChannelClustering:
         course_users: Dict[Any, Set[Any]],
         course_metadata: Optional[Dict[Any, Dict[str, Any]]] = None,
     ) -> Dict[int, str]:
+        """
+        Expects:
+          - course_users: a mapping of course IDs to sets of user IDs.
+          - course_metadata (optional): a mapping of course IDs to additional metadata.
+        Returns a mapping of course IDs to category labels.
+        """
         normalized_course_users: Dict[int, Set[int]] = self._normalize_course_users(
             course_users
         )
