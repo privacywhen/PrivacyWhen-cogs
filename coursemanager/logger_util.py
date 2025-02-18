@@ -7,12 +7,8 @@ T = TypeVar("T")
 
 
 def get_logger(name: str, level: int = logging.DEBUG) -> logging.Logger:
-    """
-    Create and configure a logger with the specified name and level.
-    """
     logger = logging.getLogger(name)
     logger.setLevel(level)
-    # Add handler if not already present
     if not logger.handlers:
         handler = logging.StreamHandler()
         formatter = logging.Formatter(
@@ -26,10 +22,6 @@ def get_logger(name: str, level: int = logging.DEBUG) -> logging.Logger:
 def log_entry_exit(
     logger: logging.Logger,
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
-    """
-    Decorator to log entry and exit of a function, including exceptions.
-    """
-
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(func)
         async def async_wrapper(*args: Any, **kwargs: Any) -> T:
@@ -38,8 +30,8 @@ def log_entry_exit(
                 result = await func(*args, **kwargs)
                 logger.debug(f"Exiting {func.__name__}")
                 return result
-            except Exception as e:
-                logger.exception(f"Exception in {func.__name__}: {e}")
+            except Exception as exc:
+                logger.exception(f"Exception in {func.__name__}: {exc}")
                 raise
 
         @functools.wraps(func)
@@ -49,8 +41,8 @@ def log_entry_exit(
                 result = func(*args, **kwargs)
                 logger.debug(f"Exiting {func.__name__}")
                 return result
-            except Exception as e:
-                logger.exception(f"Exception in {func.__name__}: {e}")
+            except Exception as exc:
+                logger.exception(f"Exception in {func.__name__}: {exc}")
                 raise
 
         return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
