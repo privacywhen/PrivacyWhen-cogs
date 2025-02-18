@@ -1,5 +1,4 @@
 import asyncio
-from collections import defaultdict
 import functools
 from typing import Any, Callable, Coroutine, Optional, TypeVar
 
@@ -185,15 +184,15 @@ class CourseChannelCog(commands.Cog):
           2. For each text channel, collects IDs of members (excluding bots) who can read it.
           3. Tries to parse each channel name as a CourseCode to extract metadata.
           4. Runs the clustering algorithm on the collected data.
-          5. Outputs detailed stats, the final course-to-category mapping, and
-             a new channel ordering per category with indications as to why a channel
-             may have been moved (e.g. if a cluster was split due to channel count limits).
+          5. Outputs detailed stats, the final course-to-category mapping, and a new channel ordering per category.
+             The ordering output includes an indication if a cluster was split due to the channel count limit.
 
         Additional logging is emitted to the console (with summaries only) to assist with debugging.
         """
         import time
         from json import dumps
         from typing import Dict, List, Set, DefaultDict
+        from collections import defaultdict
         from discord import TextChannel
         from .course_code import CourseCode
 
@@ -228,7 +227,6 @@ class CourseChannelCog(commands.Cog):
                 messages.append(current_chunk)
             return messages
 
-        # Additional logging to console.
         log.debug("Starting real-data clustering test command.")
         output_lines: List[str] = []
         output_lines.append("===== Real Data Clustering Test =====")
@@ -282,7 +280,6 @@ class CourseChannelCog(commands.Cog):
                     # Try to parse the channel name as a CourseCode.
                     try:
                         course_obj = CourseCode(channel.name)
-                        # We store department and also the original channel name.
                         course_metadata[channel.id] = {
                             "department": course_obj.department,
                             "name": channel.name,
@@ -323,8 +320,7 @@ class CourseChannelCog(commands.Cog):
         # Step 2: Instantiate clustering instance.
         try:
             grouping_threshold = await self.config.grouping_threshold()
-            # Use constant value for max_category_channels (since self.config.get(...) isn't registered).
-            max_cat_channels = 50
+            max_cat_channels = 50  # constant value for max channels per category
             clustering_instance = self.clustering.__class__(
                 grouping_threshold=grouping_threshold,
                 max_category_channels=max_cat_channels,
@@ -401,22 +397,28 @@ class CourseChannelCog(commands.Cog):
 
         # Step 5: Compute and output the new channel ordering per category.
         try:
-            # The mapping from _map_clusters_to_categories is our channel ordering.
-            # We group channels by category label.
-            new_ordering: DefaultDict[str, List[int]] = defaultdict(list)
-            for channel_id, category_label in mapping.items():
-                new_ordering[category_label].append(channel_id)
-            # For clarity, sort each category's channel list numerically.
-            for cat in new_ordering:
-                new_ordering[cat].sort()
+            new_ordering_lines = []
+            subgroup_counter = 1
+            # Use clusters computed in Step 4 to determine splits.
+            for cluster in sorted(clusters, key=lambda c: min(c) if c else 0):
+                courses = sorted(cluster)
+                # Split the cluster into chunks according to max_cat_channels.
+                chunks = list(
+                    clustering_instance._chunk_list(courses, max_cat_channels)
+                )
+                # Only add a note if the cluster was split into more than one chunk.
+                for chunk in chunks:
+                    if len(chunks) > 1:
+                        category_label = f"{config_prefix}-{subgroup_counter}"
+                        note = " (cluster split due to channel limit)"
+                    else:
+                        category_label = config_prefix
+                        note = ""
+                    new_ordering_lines.append(f"  {category_label}:{note} {chunk}")
+                    subgroup_counter += 1
             output_lines.append("Step 5: New Channel Ordering per Category:")
-            for cat, channels in sorted(new_ordering.items()):
-                note = ""
-                # If the category label has a dash, it indicates a split due to max channel limit.
-                if "-" in cat:
-                    note = " (cluster split due to channel limit)"
-                output_lines.append(f"  {cat}:{note} {channels}")
-            log.debug("New channel ordering computed: %s", dict(new_ordering))
+            output_lines.extend(new_ordering_lines)
+            log.debug("New channel ordering computed: %s", new_ordering_lines)
         except Exception as e:
             msg = f"Step 5 Error: {e}"
             output_lines.append(msg)
