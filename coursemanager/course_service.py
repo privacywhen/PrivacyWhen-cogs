@@ -24,7 +24,7 @@ def requires_enabled(
         self: "CourseService", ctx: commands.Context, *args: Any, **kwargs: Any
     ) -> T:
         if not await self._check_enabled(ctx):
-            return
+            return  # type: ignore
         return await func(self, ctx, *args, **kwargs)
 
     return wrapper
@@ -280,7 +280,6 @@ class CourseService:
     async def _resolve_course(
         self, ctx: commands.Context, course_code: str
     ) -> Optional[CourseCode]:
-
         listings: Dict[str, str] = await self._get_course_listings()
         course_obj: Optional[CourseCode] = await validate_and_resolve_course_code(
             ctx, course_code, listings, self.course_data_proxy

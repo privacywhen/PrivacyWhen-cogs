@@ -173,7 +173,7 @@ class CourseChannelClustering:
     def _map_clusters_to_categories(self, clusters: List[Set[int]]) -> Dict[int, str]:
         mapping: Dict[int, str] = {}
         total_subgroups: int = sum(
-            (ceil(len(cluster) / self.max_category_channels) for cluster in clusters)
+            ceil(len(cluster) / self.max_category_channels) for cluster in clusters
         )
         use_suffix: bool = total_subgroups > 1
         subgroup_counter: int = 1
@@ -236,8 +236,7 @@ class CourseChannelClustering:
         while not shutdown_event.is_set():
             log.info(f"Starting clustering cycle iteration {iteration}")
             try:
-                course_users_data = get_course_users()
-                if course_users_data:
+                if course_users_data := get_course_users():
                     mapping = self.cluster_courses(course_users_data, course_metadata)
                 else:
                     log.warning("No course user data available; no mapping produced.")
