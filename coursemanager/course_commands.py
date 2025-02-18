@@ -2,7 +2,7 @@ import asyncio
 from typing import Optional
 
 import discord
-from redbot.core import Config, commands
+from redbot.core import Config, commands, app_commands
 from redbot.core.utils.chat_formatting import error, info, success, warning
 from redbot.core.utils.menus import menu
 
@@ -68,27 +68,25 @@ class CourseChannelCog(commands.Cog):
 
     @course.command(name="join")
     @commands.cooldown(1, 5, commands.BucketType.user)
-    @commands.app_commands.describe(course_code="The course code you wish to join")
+    @app_commands.describe(course_code="The course code you wish to join")
     async def join_course(self, ctx: commands.Context, *, course_code: str) -> None:
         await self.course_service.grant_course_channel_access(ctx, course_code)
 
     @course.command(name="leave")
     @commands.cooldown(1, 5, commands.BucketType.user)
-    @commands.app_commands.describe(course_code="The course code you wish to leave")
+    @app_commands.describe(course_code="The course code you wish to leave")
     async def leave_course(self, ctx: commands.Context, *, course_code: str) -> None:
         await self.course_service.revoke_course_channel_access(ctx, course_code)
 
     @course.command(name="details")
     @commands.cooldown(1, 5, commands.BucketType.user)
-    @commands.app_commands.describe(course_code="The course code to view details for")
+    @app_commands.describe(course_code="The course code to view details for")
     async def course_details(self, ctx: commands.Context, *, course_code: str) -> None:
         await self.course_service.course_details(ctx, course_code)
 
     @course.command(name="setlogging")
     @commands.admin()
-    @commands.app_commands.describe(
-        channel="The text channel to set as logging channel"
-    )
+    @app_commands.describe(channel="The text channel to set as logging channel")
     async def set_logging(
         self, ctx: commands.Context, channel: discord.TextChannel
     ) -> None:
