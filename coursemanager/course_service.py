@@ -241,25 +241,25 @@ class CourseService:
             await ctx.send(error(f"Invalid course code: {course_code}."))
         return course_obj
 
-    async def course_details(
-        self, ctx: commands.Context, course_code: str
-    ) -> Optional[discord.Embed]:
+    async def course_details(self, ctx: commands.Context, course_code: str) -> None:
         try:
             course_obj: Optional[CourseCode] = await self._resolve_course(
                 ctx, course_code
             )
             if course_obj is None:
-                return None
+                await ctx.send(error("Invalid course code provided."))
+                return
             data = await self.course_data_proxy.get_course_data(
                 course_obj.canonical(), detailed=True
             )
             if not self._is_valid_course_data(data):
-                return None
-            return self._create_course_embed(course_obj.canonical(), data)
+                await ctx.send(error("No valid course data found for that course."))
+                return
+            embed = self._create_course_embed(course_obj.canonical(), data)
+            await ctx.send(embed=embed)
         except Exception as exc:
             log.exception(f"Error retrieving course details for {course_code}: {exc}")
             await ctx.send(error("An error occurred while retrieving course details."))
-            return None
 
     def _create_course_embed(
         self, course_key: str, course_data: Dict[str, Any]
