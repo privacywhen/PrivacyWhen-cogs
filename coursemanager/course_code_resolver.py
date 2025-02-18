@@ -57,9 +57,7 @@ class CourseCodeResolver:
         if not self.course_listings:
             log.debug("No course listings available for fuzzy lookup.")
             return (None, None)
-        keys_list: List[str] = list(
-            self.course_listings
-        )  # Directly iterating over dict keys
+        keys_list: List[str] = list(self.course_listings)
         all_matches = process.extract(
             canonical,
             keys_list,

@@ -1,17 +1,13 @@
-"""
-This module implements clustering for course channels. It expects that course identifiers
-and user identifiers are provided as Discord IDs (or any values convertible to integers). All
-calculations—including graph construction and clustering—operate on these numeric IDs.
-"""
-
 import asyncio
 from collections import defaultdict
 from itertools import combinations
 from math import ceil
 from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple
+
 import networkx as nx
 from networkx.algorithms.community import louvain_communities
 from networkx.algorithms.community.quality import modularity
+
 from .logger_util import get_logger
 
 log = get_logger("red.course_channel_clustering")
@@ -46,23 +42,14 @@ class CourseChannelClustering:
 
     @staticmethod
     def _normalize_key(key: Any) -> int:
-        """
-        Normalize a key to an integer. This is used to convert course and user IDs
-        (which should be Discord IDs) into integers.
-        """
         try:
             return int(key)
-        except Exception as e:
-            raise ValueError(f"Key {key} is not convertible to int.") from e
+        except Exception as exc:
+            raise ValueError(f"Key {key} is not convertible to int.") from exc
 
     def _normalize_course_users(
         self, course_users: Dict[Any, Set[Any]]
     ) -> Dict[int, Set[int]]:
-        """
-        Convert all course keys and user values into integers.
-        Expects course_users to be a mapping where keys are course IDs and
-        values are sets of user IDs.
-        """
         return {
             self._normalize_key(course): {self._normalize_key(user) for user in users}
             for course, users in course_users.items()
@@ -71,9 +58,6 @@ class CourseChannelClustering:
     def _normalize_course_metadata(
         self, course_metadata: Dict[Any, Dict[str, Any]]
     ) -> Dict[int, Dict[str, Any]]:
-        """
-        Convert course metadata keys into integers.
-        """
         return {
             self._normalize_key(course): meta
             for course, meta in course_metadata.items()
@@ -93,8 +77,8 @@ class CourseChannelClustering:
                 meta2: Optional[str] = course_metadata.get(course2, {}).get(
                     "department"
                 )
-                if meta1 and meta2 and (meta1 == meta2):
-                    overlaps[(course1, course2)] = self.sparse_overlap
+                if meta1 and meta2 and meta1 == meta2:
+                    overlaps[course1, course2] = self.sparse_overlap
 
     def _calculate_overlaps(
         self,
@@ -110,13 +94,13 @@ class CourseChannelClustering:
                     user_to_courses[user].add(course)
             for courses in user_to_courses.values():
                 for course1, course2 in combinations(sorted(courses), 2):
-                    overlaps[(course1, course2)] += 1
+                    overlaps[course1, course2] += 1
             method_used: str = "inverted index"
         else:
             for course1, course2 in combinations(courses_sorted, 2):
                 count: int = len(course_users[course1] & course_users[course2])
                 if count > 0:
-                    overlaps[(course1, course2)] = count
+                    overlaps[course1, course2] = count
             method_used = "combinations"
         if course_metadata is not None:
             self._add_sparse_overlaps(overlaps, courses_sorted, course_metadata)
@@ -172,8 +156,8 @@ class CourseChannelClustering:
             clusters = louvain_communities(graph, weight="weight")
             log.debug(f"Louvain algorithm detected {len(clusters)} clusters.")
             return clusters
-        except Exception as e:
-            log.exception(f"Default clustering failed: {e}")
+        except Exception as exc:
+            log.exception(f"Default clustering failed: {exc}")
             return [set(graph.nodes())]
 
     def _perform_clustering(self, graph: nx.Graph) -> List[Set[int]]:
@@ -187,14 +171,9 @@ class CourseChannelClustering:
             yield lst[i : i + chunk_size]
 
     def _map_clusters_to_categories(self, clusters: List[Set[int]]) -> Dict[int, str]:
-        """
-        Maps each course (identified by its ID) to a category label.
-        The category labels are generated based on the maximum number of courses
-        allowed per category and whether suffixes are needed.
-        """
         mapping: Dict[int, str] = {}
         total_subgroups: int = sum(
-            (ceil(len(cluster) / self.max_category_channels) for cluster in clusters)
+            ceil(len(cluster) / self.max_category_channels) for cluster in clusters
         )
         use_suffix: bool = total_subgroups > 1
         subgroup_counter: int = 1
@@ -226,12 +205,6 @@ class CourseChannelClustering:
         course_users: Dict[Any, Set[Any]],
         course_metadata: Optional[Dict[Any, Dict[str, Any]]] = None,
     ) -> Dict[int, str]:
-        """
-        Expects:
-          - course_users: a mapping of course IDs to sets of user IDs.
-          - course_metadata (optional): a mapping of course IDs to additional metadata.
-        Returns a mapping of course IDs to category labels.
-        """
         normalized_course_users: Dict[int, Set[int]] = self._normalize_course_users(
             course_users
         )
@@ -270,8 +243,8 @@ class CourseChannelClustering:
                     mapping = {}
                 persist_mapping(mapping)
                 log.info("Clustering cycle complete; mapping persisted.")
-            except Exception as e:
-                log.exception(f"Error during clustering cycle: {e}")
+            except Exception as exc:
+                log.exception(f"Error during clustering cycle: {exc}")
             iteration += 1
             try:
                 await asyncio.wait_for(shutdown_event.wait(), timeout=interval)

@@ -18,7 +18,6 @@ from .utils import (
 )
 
 log = get_logger("red.course.service")
-
 T = TypeVar("T")
 
 
@@ -30,7 +29,7 @@ def requires_enabled(
         self: "CourseService", ctx: commands.Context, *args: Any, **kwargs: Any
     ) -> T:
         if not await self._check_enabled(ctx):
-            return  # type: ignore
+            return
         return await func(self, ctx, *args, **kwargs)
 
     return wrapper
@@ -235,7 +234,11 @@ class CourseService:
             if alt_category is None:
                 alt_category = await get_or_create_category(guild, alt_name)
             if alt_category is None:
-                await ctx.send(error(f"I don't have permission to create the category '{alt_name}'."))  # type: ignore
+                await ctx.send(
+                    error(
+                        f"I don't have permission to create the category '{alt_name}'."
+                    )
+                )
                 return None
             if len(alt_category.channels) < 50:
                 return alt_category
@@ -347,9 +350,9 @@ class CourseService:
         try:
             await channel.set_permissions(user, overwrite=overwrite)
             log.debug(f"{action} for {user} on channel {channel.name}")
-        except discord.Forbidden as e:
+        except discord.Forbidden as exc:
             log.error(
-                f"Failed to {action.lower()} for {user} on channel {channel.name}: {e}"
+                f"Failed to {action.lower()} for {user} on channel {channel.name}: {exc}"
             )
             await ctx.send(
                 error("I don't have permission to manage channel permissions.")

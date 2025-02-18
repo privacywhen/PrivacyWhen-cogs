@@ -45,16 +45,16 @@ class ChannelService:
                     f"Channel {channel.mention} created in category **{category.name}**."
                 )
             )
-        except discord.Forbidden as e:
+        except discord.Forbidden as exc:
             log.exception(
-                f"Permission error while creating channel '{channel_name}': {e}"
+                f"Permission error while creating channel '{channel_name}': {exc}"
             )
             await ctx.send(
                 error("I do not have permission to create a channel in that category.")
             )
-        except Exception as e:
+        except Exception as exc:
             log.exception(
-                f"Unexpected error while creating channel '{channel_name}': {e}"
+                f"Unexpected error while creating channel '{channel_name}': {exc}"
             )
             await ctx.send(
                 error("An unexpected error occurred while creating the channel.")
@@ -95,9 +95,9 @@ class ChannelService:
             )
             try:
                 await channel.delete(reason="Auto-pruned due to inactivity.")
-            except Exception as e:
+            except Exception as exc:
                 log.exception(
-                    f"Failed to delete channel '{channel.name}' in guild '{guild.name}': {e}"
+                    f"Failed to delete channel '{channel.name}' in guild '{guild.name}': {exc}"
                 )
 
     async def auto_channel_prune(self) -> None:
@@ -125,9 +125,9 @@ class ChannelService:
                                 await self.channel_prune_helper(
                                     guild, channel, prune_threshold
                                 )
-                            except Exception as e:
+                            except Exception as exc:
                                 log.exception(
-                                    f"Error pruning channel '{channel.name}' in guild '{guild.name}': {e}"
+                                    f"Error pruning channel '{channel.name}' in guild '{guild.name}': {exc}"
                                 )
                 log.debug(
                     f"Auto-channel-prune cycle complete. Sleeping for {prune_interval} seconds."
@@ -136,5 +136,5 @@ class ChannelService:
         except asyncio.CancelledError:
             log.debug("Auto-channel-prune task cancelled.")
             raise
-        except Exception as e:
-            log.exception(f"Unexpected error in auto-channel-prune task: {e}")
+        except Exception as exc:
+            log.exception(f"Unexpected error in auto-channel-prune task: {exc}")
