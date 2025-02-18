@@ -1,12 +1,10 @@
 import time
 from math import ceil
 from typing import Any, Dict, List, Optional, Tuple
-
 import discord
 from redbot.core import Config, commands
 from redbot.core.utils.chat_formatting import error, info, success, warning, pagify
 from redbot.core.utils.menus import menu
-
 from .course_code import CourseCode
 from .course_data_proxy import CourseDataProxy
 from .logger_util import get_logger
@@ -283,7 +281,7 @@ class CourseService:
         return self._create_course_embed(course_obj.canonical(), data)
 
     def _create_course_embed(
-        self, course_key: str, course_data: dict[str, Any]
+        self, course_key: str, course_data: Dict[str, Any]
     ) -> discord.Embed:
         log.debug(f"Creating embed for course: {course_key}")
         embed = discord.Embed(

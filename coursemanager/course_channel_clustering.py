@@ -3,11 +3,9 @@ from collections import defaultdict
 from itertools import combinations
 from math import ceil
 from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple
-
 import networkx as nx
 from networkx.algorithms.community import louvain_communities
 from networkx.algorithms.community.quality import modularity
-
 from .logger_util import get_logger
 
 log = get_logger("red.course_channel_clustering")
@@ -45,7 +43,6 @@ class CourseChannelClustering:
         try:
             return int(key)
         except Exception as e:
-            # Log error before raising exception
             raise ValueError(f"Key {key} is not convertible to int.") from e
 
     def _normalize_course_users(
@@ -74,7 +71,6 @@ class CourseChannelClustering:
         overlaps: Dict[Tuple[int, int], int] = defaultdict(int)
         courses_sorted = sorted(course_users.keys())
         if self.optimize_overlap:
-            # Use inverted index method for calculating overlaps
             user_to_courses: Dict[int, Set[int]] = defaultdict(set)
             for course, users in course_users.items():
                 for user in users:
@@ -84,13 +80,11 @@ class CourseChannelClustering:
                     overlaps[course1, course2] += 1
             method_used: str = "inverted index"
         else:
-            # Direct combinations method
             for course1, course2 in combinations(courses_sorted, 2):
                 count = len(course_users[course1] & course_users[course2])
                 if count > 0:
                     overlaps[course1, course2] = count
             method_used = "combinations"
-        # Add sparse overlap based on course metadata if provided
         if course_metadata is not None:
             for course1, course2 in combinations(courses_sorted, 2):
                 if (course1, course2) not in overlaps:
@@ -108,7 +102,6 @@ class CourseChannelClustering:
         if not counts:
             return self.grouping_threshold
         n = len(counts)
-        # Compute median value for threshold calculation
         median = (
             counts[n // 2] if n % 2 == 1 else (counts[n // 2 - 1] + counts[n // 2]) / 2
         )
@@ -129,7 +122,6 @@ class CourseChannelClustering:
             if not users:
                 log.warning(f"Course '{course}' has no user engagements.")
         overlaps = self._calculate_overlaps(course_users, course_metadata)
-        # Determine threshold for adding edges
         threshold = (
             self._compute_dynamic_threshold(overlaps)
             if self.adaptive_threshold and overlaps
@@ -144,7 +136,6 @@ class CourseChannelClustering:
         return graph
 
     def _default_clustering(self, graph: nx.Graph) -> List[Set[int]]:
-        # If there are no edges, each course forms its own cluster
         if graph.number_of_edges() == 0:
             clusters: List[Set[int]] = [{node} for node in graph.nodes()]
             log.debug("Graph has no edges; each course is its own cluster.")
@@ -167,15 +158,15 @@ class CourseChannelClustering:
         for i in range(0, len(lst), chunk_size):
             yield lst[i : i + chunk_size]
 
-    def _map_clusters_to_categories(self, clusters: list[set[int]]) -> dict[int, str]:
-        mapping: dict[int, str] = {}
+    def _map_clusters_to_categories(self, clusters: List[Set[int]]) -> Dict[int, str]:
+        mapping: Dict[int, str] = {}
         total_subgroups: int = sum(
-            ceil(len(cluster) / self.max_category_channels) for cluster in clusters
+            (ceil(len(cluster) / self.max_category_channels) for cluster in clusters)
         )
         use_suffix: bool = total_subgroups > 1
         subgroup_counter: int = 1
         for cluster in sorted(clusters, key=lambda c: min(c) if c else 0):
-            courses: list[int] = sorted(cluster)
+            courses: List[int] = sorted(cluster)
             chunks = list(self._chunk_list(courses, self.max_category_channels))
             log.debug(
                 f"Mapping cluster with {len(courses)} courses into {len(chunks)} subgroup(s)."
@@ -186,7 +177,6 @@ class CourseChannelClustering:
                     if use_suffix
                     else self.category_prefix
                 )
-                # Update mapping for all courses in the chunk in one step.
                 mapping |= {course: category_label for course in chunk}
                 log.debug(f"Assigned courses {chunk} to category '{category_label}'.")
                 subgroup_counter += 1
@@ -203,7 +193,6 @@ class CourseChannelClustering:
         course_users: Dict[Any, Set[Any]],
         course_metadata: Optional[Dict[Any, Dict[str, Any]]] = None,
     ) -> Dict[int, str]:
-        """Normalize data, build graph, cluster courses, and map clusters to categories."""
         normalized_course_users: Dict[int, Set[int]] = self._normalize_course_users(
             course_users
         )
