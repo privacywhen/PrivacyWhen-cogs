@@ -71,8 +71,7 @@ class CourseCodeResolver:
         log.debug(f"Fuzzy matches for '{canonical}': {all_matches}")
         valid_matches: List[FuzzyMatch] = []
         for candidate, score, _ in all_matches:
-            candidate_obj = self._parse_course_code(candidate)
-            if candidate_obj:
+            if candidate_obj := self._parse_course_code(candidate):
                 valid_matches.append((candidate, candidate_obj, score))
             else:
                 log.debug(f"Candidate '{candidate}' failed parsing and is skipped.")
@@ -130,8 +129,7 @@ class CourseCodeResolver:
         if canonical in self.course_listings:
             log.debug(f"Exact match found for '{canonical}'.")
             return (course, self.course_listings[canonical])
-        variants = self.find_variant_matches(canonical)
-        if variants:
+        if variants := self.find_variant_matches(canonical):
             selected_code: Optional[str] = (
                 variants[0]
                 if len(variants) == 1
