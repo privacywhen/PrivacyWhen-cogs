@@ -1,4 +1,5 @@
 import asyncio
+from collections import defaultdict
 import functools
 from typing import Any, Callable, Coroutine, Optional, TypeVar
 
@@ -184,13 +185,15 @@ class CourseChannelCog(commands.Cog):
           2. For each text channel, collects IDs of members (excluding bots) who can read it.
           3. Tries to parse each channel name as a CourseCode to extract metadata.
           4. Runs the clustering algorithm on the collected data.
-          5. Outputs detailed stats and the final course-to-category mapping.
+          5. Outputs detailed stats, the final course-to-category mapping, and
+             a new channel ordering per category with indications as to why a channel
+             may have been moved (e.g. if a cluster was split due to channel count limits).
 
         Additional logging is emitted to the console (with summaries only) to assist with debugging.
         """
         import time
         from json import dumps
-        from typing import Dict, List, Set
+        from typing import Dict, List, Set, DefaultDict
         from discord import TextChannel
         from .course_code import CourseCode
 
@@ -279,8 +282,10 @@ class CourseChannelCog(commands.Cog):
                     # Try to parse the channel name as a CourseCode.
                     try:
                         course_obj = CourseCode(channel.name)
+                        # We store department and also the original channel name.
                         course_metadata[channel.id] = {
-                            "department": course_obj.department
+                            "department": course_obj.department,
+                            "name": channel.name,
                         }
                         log.debug(
                             "Channel '%s' parsed successfully (department: %s).",
@@ -289,7 +294,7 @@ class CourseChannelCog(commands.Cog):
                         )
                     except Exception as parse_exc:
                         channels_failed_parse += 1
-                        course_metadata[channel.id] = {}
+                        course_metadata[channel.id] = {"name": channel.name}
                         log.warning(
                             "Failed to parse channel name '%s': %s",
                             channel.name,
@@ -351,7 +356,6 @@ class CourseChannelCog(commands.Cog):
             output_lines.append(
                 "  Final Course-to-Category Mapping (showing sample keys):"
             )
-            # Instead of dumping the entire mapping, show a summary sample.
             sample_keys = list(mapping.keys())[:10]
             output_lines.append(
                 safe_dumps(
@@ -392,6 +396,29 @@ class CourseChannelCog(commands.Cog):
             log.debug("Evaluation metrics: %s", evaluation)
         except Exception as e:
             msg = f"Step 4 Error: {e}"
+            output_lines.append(msg)
+            log.exception(msg)
+
+        # Step 5: Compute and output the new channel ordering per category.
+        try:
+            # The mapping from _map_clusters_to_categories is our channel ordering.
+            # We group channels by category label.
+            new_ordering: DefaultDict[str, List[int]] = defaultdict(list)
+            for channel_id, category_label in mapping.items():
+                new_ordering[category_label].append(channel_id)
+            # For clarity, sort each category's channel list numerically.
+            for cat in new_ordering:
+                new_ordering[cat].sort()
+            output_lines.append("Step 5: New Channel Ordering per Category:")
+            for cat, channels in sorted(new_ordering.items()):
+                note = ""
+                # If the category label has a dash, it indicates a split due to max channel limit.
+                if "-" in cat:
+                    note = " (cluster split due to channel limit)"
+                output_lines.append(f"  {cat}:{note} {channels}")
+            log.debug("New channel ordering computed: %s", dict(new_ordering))
+        except Exception as e:
+            msg = f"Step 5 Error: {e}"
             output_lines.append(msg)
             log.exception(msg)
 
