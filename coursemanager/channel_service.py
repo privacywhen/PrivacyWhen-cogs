@@ -1,13 +1,13 @@
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 import discord
 from redbot.core import Config, commands
 from redbot.core.utils.chat_formatting import error, success
 
-from .logger_util import get_logger, log_entry_exit
-from .utils import get_categories_by_prefix, get_or_create_category
+from .logger_util import get_logger
+from .utils import get_categories_by_prefix, get_or_create_category, utcnow
 
 log = get_logger("red.channel_service")
 
@@ -20,12 +20,13 @@ class ChannelService:
     async def set_default_category(
         self, ctx: commands.Context, category_name: str
     ) -> None:
+        log.debug(f"Attempting to set default category to {category_name}")
         try:
             await self.config.default_category.set(category_name)
             log.debug(f"Default category set to {category_name}")
         except Exception as exc:
             log.exception(f"Error setting default category to {category_name}: {exc}")
-            await ctx.send(error("Failed to set default category."))
+            await ctx.send(error("Unable to set the default category."))
 
     async def create_channel(
         self,
@@ -34,6 +35,9 @@ class ChannelService:
         category: Optional[discord.CategoryChannel] = None,
     ) -> None:
         guild: discord.Guild = ctx.guild
+        log.debug(
+            f"Starting channel creation for '{channel_name}' in guild '{guild.id}'"
+        )
         if category is None:
             try:
                 default_cat_name: str = await self.config.default_category()
@@ -42,15 +46,16 @@ class ChannelService:
                 log.exception(
                     f"Error retrieving default category for guild '{guild.id}': {exc}"
                 )
-                await ctx.send(error("Failed to retrieve default category."))
+                await ctx.send(error("Unable to retrieve the default category."))
                 return
         if category is None:
             await ctx.send(
-                error("I do not have permission to create the default category.")
+                error("Insufficient permissions to create the default category.")
             )
             return
         try:
             channel = await guild.create_text_channel(channel_name, category=category)
+            log.debug(f"Channel '{channel.name}' created in category '{category.name}'")
             await ctx.send(
                 success(
                     f"Channel {channel.mention} created in category **{category.name}**."
@@ -61,14 +66,14 @@ class ChannelService:
                 f"Permission error while creating channel '{channel_name}' in guild '{guild.id}': {exc}"
             )
             await ctx.send(
-                error("I do not have permission to create a channel in that category.")
+                error("Insufficient permissions to create a channel in that category.")
             )
         except Exception as exc:
             log.exception(
                 f"Unexpected error while creating channel '{channel_name}' in guild '{guild.id}': {exc}"
             )
             await ctx.send(
-                error("An unexpected error occurred while creating the channel.")
+                error("An unexpected error occurred during channel creation.")
             )
 
     async def channel_prune_helper(
@@ -77,7 +82,7 @@ class ChannelService:
         channel: discord.TextChannel,
         prune_threshold: timedelta,
     ) -> None:
-        now: datetime = datetime.now(timezone.utc)
+        now = utcnow()
         last_activity: Optional[datetime] = None
         if (last_msg := channel.last_message) and (not last_msg.author.bot):
             last_activity = last_msg.created_at
@@ -107,6 +112,7 @@ class ChannelService:
             )
             try:
                 await channel.delete(reason="Auto-pruned due to inactivity.")
+                log.debug(f"Channel '{channel.name}' pruned successfully.")
             except discord.Forbidden as exc:
                 log.exception(
                     f"Permission error while deleting channel '{channel.name}' in guild '{guild.id}': {exc}"
@@ -122,10 +128,13 @@ class ChannelService:
         prune_interval: int = await self.config.channel_prune_interval()
         await self.bot.wait_until_ready()
         log.debug("Auto-channel-prune task started.")
+        iteration = 1
         try:
             while not self.bot.is_closed():
-                current_time = datetime.now(timezone.utc)
-                log.debug(f"Auto-channel-prune cycle started at {current_time}")
+                current_time = utcnow()
+                log.debug(
+                    f"Auto-channel-prune cycle {iteration} started at {current_time}"
+                )
                 enabled_guilds: List[int] = await self.config.enabled_guilds()
                 for guild in self.bot.guilds:
                     if guild.id not in enabled_guilds:
@@ -145,8 +154,9 @@ class ChannelService:
                                     f"Error pruning channel '{channel.name}' in guild '{guild.id}': {exc}"
                                 )
                 log.debug(
-                    f"Auto-channel-prune cycle complete. Sleeping for {prune_interval} seconds."
+                    f"Auto-channel-prune cycle {iteration} complete. Sleeping for {prune_interval} seconds."
                 )
+                iteration += 1
                 await asyncio.sleep(prune_interval)
         except asyncio.CancelledError:
             log.debug("Auto-channel-prune task cancelled.")
