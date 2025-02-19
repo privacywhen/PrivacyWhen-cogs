@@ -1,17 +1,17 @@
 import time
-from math import ceil
 import functools
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple, TypeVar
+
 import discord
 from redbot.core import Config, commands
 from redbot.core.utils.chat_formatting import error, info, success, warning, pagify
 from redbot.core.utils.menus import menu
+
 from .course_code import CourseCode
 from .course_data_proxy import CourseDataProxy
 from .logger_util import get_logger
 from .utils import (
     get_categories_by_prefix,
-    get_or_create_category,
     get_available_course_category,
 )
 
@@ -124,7 +124,7 @@ class CourseService:
             None,
         )
         log.debug(
-            f"{('Found' if channel else 'No')} course channel '{target_name}' for course '{course.canonical()}' in guild '{guild.name}'"
+            f"{'Found' if channel else 'No'} course channel '{target_name}' for course '{course.canonical()}' in guild '{guild.name}'"
         )
         return channel
 
@@ -212,9 +212,9 @@ class CourseService:
             )
             if self._is_valid_course_data(data):
                 log.debug(f"Fresh data retrieved for '{canonical}'")
-                return (course, data)
+                return course, data
             log.error(f"Failed to fetch fresh data for '{canonical}'")
-            return (course, None)
+            return course, None
         if not already_resolved:
             from .course_code_resolver import CourseCodeResolver
 
@@ -222,11 +222,11 @@ class CourseService:
                 listings, course_data_proxy=self.course_data_proxy
             )
             resolved_course, data = await resolver.resolve_course_code(ctx, course)
-            return (resolved_course, data)
+            return resolved_course, data
         log.debug(
             "Course code already resolved; skipping further resolution and prompt."
         )
-        return (course, None)
+        return course, None
 
     async def _resolve_course(
         self, ctx: commands.Context, course_code: str

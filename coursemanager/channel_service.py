@@ -1,10 +1,12 @@
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import List, Optional
+
 import discord
 from redbot.core import Config, commands
 from redbot.core.utils.chat_formatting import error, success
-from .logger_util import get_logger, log_entry_exit
+
+from .logger_util import get_logger
 from .utils import get_categories_by_prefix, get_or_create_category, utcnow
 
 log = get_logger("red.channel_service")
@@ -105,7 +107,8 @@ class ChannelService:
         )
         if inactivity_duration > prune_threshold:
             log.info(
-                f"Pruning channel '{channel.name}' in guild '{guild.name}' (ID: {guild.id}). Inactive for {inactivity_duration} (threshold: {prune_threshold})."
+                f"Pruning channel '{channel.name}' in guild '{guild.name}' (ID: {guild.id}). "
+                f"Inactive for {inactivity_duration} (threshold: {prune_threshold})."
             )
             try:
                 await channel.delete(reason="Auto-pruned due to inactivity.")

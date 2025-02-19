@@ -1,3 +1,4 @@
+# course_data_proxy.py
 import asyncio
 import logging
 import random
@@ -6,6 +7,7 @@ from math import floor
 from time import time
 from datetime import date, datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple, Pattern
+
 from aiohttp import (
     ClientConnectionError,
     ClientResponseError,
@@ -14,8 +16,9 @@ from aiohttp import (
 )
 from bs4 import BeautifulSoup, Tag
 from redbot.core import Config
+
 from .course_code import CourseCode
-from .logger_util import get_logger, log_entry_exit
+from .logger_util import get_logger
 from .utils import utcnow
 
 log = get_logger("red.course_data_proxy")
@@ -203,7 +206,6 @@ class CourseDataProxy:
         future_candidates: List[Tuple[str, int]] = [
             cand for cand in candidates if cand[1] >= current_year
         ]
-        chosen: Tuple[str, int]
         if future_candidates:
             chosen = min(
                 future_candidates, key=lambda x: (x[1], term_priority.get(x[0], 99))
@@ -245,8 +247,8 @@ class CourseDataProxy:
             self.log.error(
                 f"Error indicates 'not found' for term {term_key}: {error_message}"
             )
-            return (None, error_message)
-        return (None, error_message)
+            return None, error_message
+        return None, error_message
 
     async def _fetch_data_with_retries(
         self, term_order: List[Tuple[str, int]], normalized_course: str
@@ -319,7 +321,7 @@ class CourseDataProxy:
             ) as error:
                 self.log.exception(f"HTTP error during fetch from {url}: {error}")
                 if attempt == _MAX_RETRIES - 1:
-                    return (None, "Error: Issue occurred while fetching course data.")
+                    return None, "Error: Issue occurred while fetching course data."
             delay: float = self._calculate_retry_delay(attempt)
             self.log.debug(f"Retrying in {delay:.2f} seconds...")
             await asyncio.sleep(delay)
@@ -437,7 +439,7 @@ class CourseDataProxy:
                 self.log.debug(
                     f"Received error while fetching listings: {error_message}"
                 )
-                return (None, error_message)
+                return None, error_message
         except (ClientResponseError, ClientConnectionError) as error:
             self.log.exception(f"Exception during fetch from {url}: {error}")
             return None, "Error: Issue occurred while fetching course data."

@@ -1,13 +1,15 @@
-import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
+
 from rapidfuzz import process
 from redbot.core import commands
 from redbot.core.utils.menus import menu, close_menu
+
 from .constants import REACTION_OPTIONS
 from .course_code import CourseCode
-from .logger_util import get_logger, log_entry_exit
+from .logger_util import get_logger
 
 FuzzyMatch = Tuple[str, CourseCode, float]
+
 log = get_logger("red.course_code_resolver")
 
 
@@ -56,7 +58,7 @@ class CourseCodeResolver:
     ) -> Tuple[Optional[CourseCode], Optional[Dict[str, Any]]]:
         if not self.course_listings:
             log.debug("No course listings available for fuzzy lookup.")
-            return (None, None)
+            return None, None
         keys_list: List[str] = list(self.course_listings)
         try:
             all_matches = process.extract(
@@ -67,7 +69,7 @@ class CourseCodeResolver:
             )
         except Exception as exc:
             log.exception(f"Error during fuzzy extraction for '{canonical}': {exc}")
-            return (None, None)
+            return None, None
         log.debug(f"Fuzzy matches for '{canonical}': {all_matches}")
         valid_matches: List[FuzzyMatch] = []
         for candidate, score, _ in all_matches:
@@ -77,7 +79,7 @@ class CourseCodeResolver:
                 log.debug(f"Candidate '{candidate}' failed parsing and is skipped.")
         if not valid_matches:
             log.debug("No valid candidates after filtering fuzzy matches.")
-            return (None, None)
+            return None, None
         valid_matches.sort(key=lambda x: x[2], reverse=True)
         best_candidate, best_obj, best_score = valid_matches[0]
         log.debug(
@@ -101,7 +103,7 @@ class CourseCodeResolver:
             )
             if not selected_candidate:
                 log.debug("No selection made by the user during fuzzy lookup prompt.")
-                return (None, None)
+                return None, None
             selected_obj = next(
                 (
                     obj
@@ -114,16 +116,16 @@ class CourseCodeResolver:
                 log.debug(
                     f"Failed to parse the selected candidate '{selected_candidate}' after user selection."
                 )
-                return (None, None)
+                return None, None
         data: Any = self.course_listings.get(selected_candidate)
-        return (selected_obj, data)
+        return selected_obj, data
 
     async def resolve_course_code(
         self, ctx: commands.Context, course: CourseCode
     ) -> Tuple[Optional[CourseCode], Optional[Dict[str, Any]]]:
         if course is None:
             log.debug("No course provided to resolve_course_code.")
-            return (None, None)
+            return None, None
         canonical: str = course.canonical()
         log.debug(f"Resolving course code for canonical: {canonical}")
         if canonical in self.course_listings:
@@ -137,14 +139,14 @@ class CourseCodeResolver:
             )
             if not selected_code:
                 log.debug("No variant selected by the user.")
-                return (None, None)
+                return None, None
             candidate_obj: Optional[CourseCode] = self._parse_course_code(selected_code)
             if candidate_obj is None:
                 log.debug(f"Failed to parse selected variant '{selected_code}'.")
-                return (None, None)
+                return None, None
             log.debug(f"Variant '{selected_code}' selected and parsed successfully.")
             data = self.course_listings.get(selected_code)
-            return (candidate_obj, data)
+            return candidate_obj, data
         log.debug("No variants found; proceeding with fuzzy lookup.")
         return await self.fallback_fuzzy_lookup(ctx, canonical)
 
