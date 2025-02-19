@@ -1,17 +1,17 @@
 import time
-from math import ceil
 import functools
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple, TypeVar
+
 import discord
 from redbot.core import Config, commands
 from redbot.core.utils.chat_formatting import error, info, success, warning, pagify
 from redbot.core.utils.menus import menu
+
 from .course_code import CourseCode
 from .course_data_proxy import CourseDataProxy
 from .logger_util import get_logger
 from .utils import (
     get_categories_by_prefix,
-    get_or_create_category,
     get_available_course_category,
 )
 
@@ -75,17 +75,17 @@ class CourseService:
         enabled_guilds: List[int] = await self.config.enabled_guilds()
         if enable:
             if ctx.guild.id in enabled_guilds:
-                await ctx.send("Course Manager is already enabled in this server.")
+                await ctx.send("Course Manager is already enabled on this server.")
             else:
                 enabled_guilds.append(ctx.guild.id)
                 await self.config.enabled_guilds.set(enabled_guilds)
-                await ctx.send("Course Manager has been enabled in this server.")
+                await ctx.send("Course Manager has been enabled on this server.")
         elif ctx.guild.id not in enabled_guilds:
-            await ctx.send("Course Manager is already disabled in this server.")
+            await ctx.send("Course Manager is already disabled on this server.")
         else:
             enabled_guilds.remove(ctx.guild.id)
             await self.config.enabled_guilds.set(enabled_guilds)
-            await ctx.send("Course Manager has been disabled in this server.")
+            await ctx.send("Course Manager has been disabled on this server.")
 
     async def enable(self, ctx: commands.Context) -> None:
         await self._update_enabled_status(ctx, True)
@@ -166,7 +166,7 @@ class CourseService:
     ) -> bool:
         if self._has_joined(user, channel):
             await ctx.send(
-                info(f"You are already joined in {canonical}."), delete_after=120
+                info(f"You are already a member of {canonical}."), delete_after=120
             )
             return True
         return bool(await self._grant_access(ctx, channel, canonical))
@@ -193,7 +193,7 @@ class CourseService:
         if self._user_channel_limit_reached(user, guild):
             await ctx.send(
                 error(
-                    f"You have reached the maximum limit of {self.max_courses} course channels."
+                    f"You have reached your course channel limit of {self.max_courses}."
                 )
             )
             return False
@@ -212,9 +212,9 @@ class CourseService:
             )
             if self._is_valid_course_data(data):
                 log.debug(f"Fresh data retrieved for '{canonical}'")
-                return (course, data)
+                return course, data
             log.error(f"Failed to fetch fresh data for '{canonical}'")
-            return (course, None)
+            return course, None
         if not already_resolved:
             from .course_code_resolver import CourseCodeResolver
 
@@ -222,17 +222,16 @@ class CourseService:
                 listings, course_data_proxy=self.course_data_proxy
             )
             resolved_course, data = await resolver.resolve_course_code(ctx, course)
-            return (resolved_course, data)
+            return resolved_course, data
         log.debug(
             "Course code already resolved; skipping further resolution and prompt."
         )
-        return (course, None)
+        return course, None
 
     async def _resolve_course(
         self, ctx: commands.Context, course_code: str
     ) -> Optional[CourseCode]:
         safe_course_code = discord.utils.escape_mentions(course_code)
-
         listings: Dict[str, str] = await self._get_course_listings()
         from .utils import validate_and_resolve_course_code
 
@@ -240,7 +239,7 @@ class CourseService:
             ctx, safe_course_code, listings, self.course_data_proxy
         )
         if course_obj is None:
-            await ctx.send(error(f"Invalid course code: {safe_course_code}."))
+            await ctx.send(error(f"The course code '{safe_course_code}' is invalid."))
         return course_obj
 
     async def course_details(self, ctx: commands.Context, course_code: str) -> None:
@@ -249,13 +248,15 @@ class CourseService:
                 ctx, course_code
             )
             if course_obj is None:
-                await ctx.send(error("Invalid course code provided."))
+                await ctx.send(error("The course code provided is invalid."))
                 return
             data = await self.course_data_proxy.get_course_data(
                 course_obj.canonical(), detailed=True
             )
             if not self._is_valid_course_data(data):
-                await ctx.send(error("No valid course data found for that course."))
+                await ctx.send(
+                    error("No course data could be retrieved for this course.")
+                )
                 return
             embed = self._create_course_embed(course_obj.canonical(), data)
             await ctx.send(embed=embed)
@@ -314,13 +315,15 @@ class CourseService:
     ) -> bool:
         try:
             await channel.set_permissions(user, overwrite=overwrite)
-            log.debug(f"{action} for {user} on channel {channel.name}")
+            log.debug(
+                f"{action} for {user} on channel {channel.name} (ID: {channel.id})"
+            )
         except discord.Forbidden as exc:
             log.error(
                 f"Failed to {action.lower()} for {user} on channel {channel.name}: {exc}"
             )
             await ctx.send(
-                error("I don't have permission to manage channel permissions.")
+                error("Insufficient permissions to manage channel settings.")
             )
             return False
         await ctx.send(success(success_msg), delete_after=120)
@@ -338,7 +341,7 @@ class CourseService:
             channel,
             ctx.author,
             discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            f"You have successfully joined {canonical}.",
+            f"Access granted: You have joined {canonical}.",
             "Granted access",
         )
 
@@ -375,14 +378,16 @@ class CourseService:
                 )
             if not candidate_obj or not self._is_valid_course_data(data):
                 log.debug(f"Course data lookup failed for {canonical}.")
-                await ctx.send(error(f"No valid course data found for {canonical}."))
+                await ctx.send(
+                    error(f"No course data could be retrieved for {canonical}.")
+                )
                 return
             if self._user_already_joined(user, guild, candidate_obj):
                 log.debug(
                     f"User {user} already has access to {candidate_obj.canonical()} after lookup"
                 )
                 await ctx.send(
-                    info(f"You are already joined in {candidate_obj.canonical()}."),
+                    info(f"You are already a member of {candidate_obj.canonical()}."),
                     delete_after=120,
                 )
                 return
@@ -418,14 +423,16 @@ class CourseService:
             canonical: str = course_obj.canonical()
             channel = self.get_course_channel(guild, course_obj)
             if not channel:
-                await ctx.send(error(f"You are not a member of {canonical}."))
+                await ctx.send(
+                    error(f"You are not a member of the course channel {canonical}.")
+                )
                 return
             await self._update_channel_permissions(
                 ctx,
                 channel,
                 ctx.author,
                 None,
-                f"You have successfully left {canonical}.",
+                f"You have left the course channel {canonical}.",
                 "Removed permissions",
             )
         except Exception as exc:
@@ -437,7 +444,9 @@ class CourseService:
     ) -> None:
         self.logging_channel = channel
         log.debug(f"Logging channel set to {channel.name} by admin {ctx.author}")
-        await ctx.send(success(f"Logging channel set to {channel.mention}."))
+        await ctx.send(
+            success(f"Logging channel has been updated to {channel.mention}.")
+        )
 
     async def set_term_code(
         self, ctx: commands.Context, term_name: str, year: int, term_id: int
@@ -461,15 +470,23 @@ class CourseService:
             ]
             await menu(ctx, pages, timeout=60.0, user=ctx.author)
         else:
-            await ctx.send("Course list not found. Run populate command first.")
+            await ctx.send(
+                "No course list available. Please run the 'populate' command to fetch courses."
+            )
 
     async def populate_courses(self, ctx: commands.Context) -> None:
         course_count = await self.course_data_proxy.update_course_listing()
         self._listings_cache = None
         if course_count and int(course_count) > 0:
-            await ctx.send(info(f"Fetched and cached {course_count} courses"))
+            await ctx.send(
+                info(f"Successfully fetched and cached {course_count} courses")
+            )
         else:
-            await ctx.send(warning("0 courses fetched. Check console log"))
+            await ctx.send(
+                warning(
+                    "No courses were fetched. Please check the console log for details."
+                )
+            )
 
     async def _refresh_course_data_and_notify(
         self, ctx: commands.Context, course_obj: CourseCode
@@ -479,15 +496,21 @@ class CourseService:
             canonical, detailed=True
         )
         if not marked:
-            await ctx.send(error(f"No existing detailed data for course {canonical}."))
+            await ctx.send(
+                error(f"No detailed data exists for course {canonical} to refresh.")
+            )
             return
         data: Any = await self.course_data_proxy.get_course_data(
             canonical, detailed=True
         )
         if self._is_valid_course_data(data):
-            await ctx.send(success(f"Course data for {canonical} has been refreshed."))
+            await ctx.send(
+                success(f"The course data for {canonical} has been refreshed.")
+            )
         else:
-            await ctx.send(error(f"Failed to refresh course data for {canonical}."))
+            await ctx.send(
+                error(f"Course data for {canonical} could not be refreshed.")
+            )
 
     @requires_enabled
     async def refresh_course_data(
@@ -502,13 +525,13 @@ class CourseService:
             await self._refresh_course_data_and_notify(ctx, course_obj)
         except Exception as exc:
             log.exception(f"Error refreshing course data for {course_code}: {exc}")
-            await ctx.send(error("An error occurred while refreshing course data."))
+            await ctx.send(error("There was an error refreshing the course data."))
 
     async def print_config(self, ctx: commands.Context) -> None:
         config_data = await self.config.all()
         log.info(config_data)
-        await ctx.send(info("Config printed to console."))
+        await ctx.send(info("Configuration has been printed to the console."))
 
     async def reset_config(self, ctx: commands.Context) -> None:
         await self.config.clear_all()
-        await ctx.send(success("All config data cleared."))
+        await ctx.send(success("All configuration data has been cleared."))

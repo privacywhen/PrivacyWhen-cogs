@@ -24,27 +24,29 @@ def log_entry_exit(
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(func)
-        async def async_wrapper(*args: Any, **kwargs: Any) -> T:
-            logger.debug(f"Entering {func.__name__}")
-            try:
-                result = await func(*args, **kwargs)
-                logger.debug(f"Exiting {func.__name__}")
-                return result
-            except Exception as exc:
-                logger.exception(f"Exception in {func.__name__}: {exc}")
-                raise
-
-        @functools.wraps(func)
-        def sync_wrapper(*args: Any, **kwargs: Any) -> T:
+        def wrapper(*args: Any, **kwargs: Any):
             logger.debug(f"Entering {func.__name__}")
             try:
                 result = func(*args, **kwargs)
-                logger.debug(f"Exiting {func.__name__}")
-                return result
             except Exception as exc:
                 logger.exception(f"Exception in {func.__name__}: {exc}")
                 raise
+            if asyncio.iscoroutine(result):
 
-        return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
+                async def coro_wrapper():
+                    try:
+                        res = await result
+                        logger.debug(f"Exiting {func.__name__}")
+                        return res
+                    except Exception as exc:
+                        logger.exception(f"Exception in {func.__name__}: {exc}")
+                        raise
+
+                return coro_wrapper()
+            else:
+                logger.debug(f"Exiting {func.__name__}")
+                return result
+
+        return wrapper
 
     return decorator

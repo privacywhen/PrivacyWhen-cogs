@@ -77,8 +77,8 @@ class CourseChannelClustering:
                 meta2: Optional[str] = course_metadata.get(course2, {}).get(
                     "department"
                 )
-                if meta1 and meta2 and (meta1 == meta2):
-                    overlaps[course1, course2] = self.sparse_overlap
+                if meta1 and meta2 and meta1 == meta2:
+                    overlaps[(course1, course2)] = self.sparse_overlap
 
     def _calculate_overlaps(
         self,
@@ -94,13 +94,13 @@ class CourseChannelClustering:
                     user_to_courses[user].add(course)
             for courses in user_to_courses.values():
                 for course1, course2 in combinations(sorted(courses), 2):
-                    overlaps[course1, course2] += 1
+                    overlaps[(course1, course2)] += 1
             method_used: str = "inverted index"
         else:
             for course1, course2 in combinations(courses_sorted, 2):
                 count: int = len(course_users[course1] & course_users[course2])
                 if count > 0:
-                    overlaps[course1, course2] = count
+                    overlaps[(course1, course2)] = count
             method_used = "combinations"
         if course_metadata is not None:
             self._add_sparse_overlaps(overlaps, courses_sorted, course_metadata)
@@ -119,7 +119,8 @@ class CourseChannelClustering:
         )
         effective_threshold: int = max(int(median * self.threshold_factor), 1)
         log.debug(
-            f"Dynamic threshold computed: median={median}, threshold_factor={self.threshold_factor}, effective_threshold={effective_threshold}"
+            f"Dynamic threshold computed: median={median}, threshold_factor={self.threshold_factor}, "
+            f"effective_threshold={effective_threshold}"
         )
         return effective_threshold
 
@@ -161,7 +162,13 @@ class CourseChannelClustering:
             return [set(graph.nodes())]
 
     def _perform_clustering(self, graph: nx.Graph) -> List[Set[int]]:
-        return self.clustering_func(graph)
+        try:
+            clusters = self.clustering_func(graph)
+            log.debug(f"Clustering performed, obtained {len(clusters)} clusters.")
+            return clusters
+        except Exception as exc:
+            log.exception(f"Error during clustering: {exc}")
+            return [set(graph.nodes())]
 
     @staticmethod
     def _chunk_list(
@@ -173,7 +180,7 @@ class CourseChannelClustering:
     def _map_clusters_to_categories(self, clusters: List[Set[int]]) -> Dict[int, str]:
         mapping: Dict[int, str] = {}
         total_subgroups: int = sum(
-            ceil(len(cluster) / self.max_category_channels) for cluster in clusters
+            (ceil(len(cluster) / self.max_category_channels) for cluster in clusters)
         )
         use_suffix: bool = total_subgroups > 1
         subgroup_counter: int = 1
@@ -244,7 +251,9 @@ class CourseChannelClustering:
                 persist_mapping(mapping)
                 log.info("Clustering cycle complete; mapping persisted.")
             except Exception as exc:
-                log.exception(f"Error during clustering cycle: {exc}")
+                log.exception(
+                    f"Error during clustering cycle iteration {iteration}: {exc}"
+                )
             iteration += 1
             try:
                 await asyncio.wait_for(shutdown_event.wait(), timeout=interval)
