@@ -6,8 +6,13 @@ from .course_code_resolver import CourseCodeResolver
 from .course_data_proxy import CourseDataProxy
 from .logger_util import get_logger, log_entry_exit
 from redbot.core.utils.chat_formatting import error
+from datetime import datetime, timezone
 
 log = get_logger("red.utils")
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def get_categories_by_prefix(

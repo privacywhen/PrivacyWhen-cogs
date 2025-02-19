@@ -1,18 +1,17 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
-
 import discord
 from redbot.core import Config, commands
 from redbot.core.utils.chat_formatting import error, success
-
 from .logger_util import get_logger, log_entry_exit
-from .utils import get_categories_by_prefix, get_or_create_category
+from .utils import get_categories_by_prefix, get_or_create_category, utcnow
 
 log = get_logger("red.channel_service")
 
 
 class ChannelService:
+
     def __init__(self, bot: commands.Bot, config: Config) -> None:
         self.bot: commands.Bot = bot
         self.config: Config = config
@@ -77,7 +76,7 @@ class ChannelService:
         channel: discord.TextChannel,
         prune_threshold: timedelta,
     ) -> None:
-        now: datetime = datetime.now(timezone.utc)
+        now = utcnow()
         last_activity: Optional[datetime] = None
         if (last_msg := channel.last_message) and (not last_msg.author.bot):
             last_activity = last_msg.created_at
@@ -123,7 +122,7 @@ class ChannelService:
         log.debug("Auto-channel-prune task started.")
         try:
             while not self.bot.is_closed():
-                current_time = datetime.now(timezone.utc)
+                current_time = utcnow()
                 log.debug(f"Auto-channel-prune cycle started at {current_time}")
                 enabled_guilds: List[int] = await self.config.enabled_guilds()
                 for guild in self.bot.guilds:
