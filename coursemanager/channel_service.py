@@ -24,7 +24,7 @@ class ChannelService:
             log.debug(f"Default category set to {category_name}")
         except Exception as exc:
             log.exception(f"Error setting default category to {category_name}: {exc}")
-            await ctx.send(error("Failed to set default category."))
+            await ctx.send(error("Unable to set the default category."))
 
     async def create_channel(
         self,
@@ -44,11 +44,11 @@ class ChannelService:
                 log.exception(
                     f"Error retrieving default category for guild '{guild.id}': {exc}"
                 )
-                await ctx.send(error("Failed to retrieve default category."))
+                await ctx.send(error("Unable to retrieve the default category."))
                 return
         if category is None:
             await ctx.send(
-                error("I do not have permission to create the default category.")
+                error("Insufficient permissions to create the default category.")
             )
             return
         try:
@@ -64,14 +64,14 @@ class ChannelService:
                 f"Permission error while creating channel '{channel_name}' in guild '{guild.id}': {exc}"
             )
             await ctx.send(
-                error("I do not have permission to create a channel in that category.")
+                error("Insufficient permissions to create a channel in that category.")
             )
         except Exception as exc:
             log.exception(
                 f"Unexpected error while creating channel '{channel_name}' in guild '{guild.id}': {exc}"
             )
             await ctx.send(
-                error("An unexpected error occurred while creating the channel.")
+                error("An unexpected error occurred during channel creation.")
             )
 
     async def channel_prune_helper(

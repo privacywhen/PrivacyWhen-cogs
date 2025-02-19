@@ -39,7 +39,9 @@ class CourseCodeResolver:
         ]
         log.debug(f"Prompting variant selection with options: {options}")
         return await CourseCodeResolver.interactive_course_selector(
-            ctx, options, "Multiple course variants found. Please choose one:"
+            ctx,
+            options,
+            "Multiple course variants found. Please select the appropriate course:",
         )
 
     def _parse_course_code(self, raw: str) -> Optional[CourseCode]:

@@ -56,7 +56,9 @@ async def get_available_course_category(
     if category is None:
         category = await get_or_create_category(guild, base_name)
     if category is None:
-        await ctx.send(error("I don't have permission to create the courses category."))
+        await ctx.send(
+            error("Insufficient permissions to create the courses category.")
+        )
         return None
     if len(category.channels) < max_channels:
         return category
@@ -67,12 +69,14 @@ async def get_available_course_category(
             alt_category = await get_or_create_category(guild, alt_name)
         if alt_category is None:
             await ctx.send(
-                error(f"I don't have permission to create the category '{alt_name}'.")
+                error(f"Insufficient permissions to create the category '{alt_name}'.")
             )
             return None
         if len(alt_category.channels) < max_channels:
             return alt_category
-    await ctx.send(error("All course categories have reached the channel limit."))
+    await ctx.send(
+        error("All course categories have reached the maximum channel limit.")
+    )
     return None
 
 

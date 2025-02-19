@@ -52,12 +52,16 @@ class CourseChannelCog(commands.Cog):
             return True
         if ctx.command.qualified_name.lower().startswith(
             "course"
-        ) and ctx.command.name.lower() not in {"enable", "disable", "course"}:
+        ) and ctx.command.name.lower() not in {
+            "enable",
+            "disable",
+            "course",
+        }:
             enabled = await self.config.enabled_guilds()
             if ctx.guild.id not in enabled:
                 await ctx.send(
                     error(
-                        "Course Manager is disabled in this server. Please enable it using `/course enable`."
+                        "The Course Manager is currently disabled in this server. Please enable it using the `/course enable` command."
                     )
                 )
                 return False
