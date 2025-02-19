@@ -3,11 +3,9 @@ from collections import defaultdict
 from itertools import combinations
 from math import ceil
 from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple
-
 import networkx as nx
 from networkx.algorithms.community import louvain_communities
 from networkx.algorithms.community.quality import modularity
-
 from .logger_util import get_logger
 
 log = get_logger("red.course_channel_clustering")
@@ -161,7 +159,13 @@ class CourseChannelClustering:
             return [set(graph.nodes())]
 
     def _perform_clustering(self, graph: nx.Graph) -> List[Set[int]]:
-        return self.clustering_func(graph)
+        try:
+            clusters = self.clustering_func(graph)
+            log.debug(f"Clustering performed, obtained {len(clusters)} clusters.")
+            return clusters
+        except Exception as exc:
+            log.exception(f"Error during clustering: {exc}")
+            return [set(graph.nodes())]
 
     @staticmethod
     def _chunk_list(
@@ -244,7 +248,9 @@ class CourseChannelClustering:
                 persist_mapping(mapping)
                 log.info("Clustering cycle complete; mapping persisted.")
             except Exception as exc:
-                log.exception(f"Error during clustering cycle: {exc}")
+                log.exception(
+                    f"Error during clustering cycle iteration {iteration}: {exc}"
+                )
             iteration += 1
             try:
                 await asyncio.wait_for(shutdown_event.wait(), timeout=interval)

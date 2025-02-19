@@ -10,7 +10,6 @@ from .course_service import CourseService
 from .course_channel_clustering import CourseChannelClustering
 from .logger_util import get_logger
 
-
 log = get_logger("red.course_channel_cog")
 T = TypeVar("T")
 
@@ -53,11 +52,7 @@ class CourseChannelCog(commands.Cog):
             return True
         if ctx.command.qualified_name.lower().startswith(
             "course"
-        ) and ctx.command.name.lower() not in {
-            "enable",
-            "disable",
-            "course",
-        }:
+        ) and ctx.command.name.lower() not in {"enable", "disable", "course"}:
             enabled = await self.config.enabled_guilds()
             if ctx.guild.id not in enabled:
                 await ctx.send(
@@ -72,7 +67,10 @@ class CourseChannelCog(commands.Cog):
         log.debug("Unloading CourseChannelCog; cancelling background tasks.")
         if self._prune_task:
             self._prune_task.cancel()
-        asyncio.create_task(self.course_service.course_data_proxy.close())
+        try:
+            asyncio.create_task(self.course_service.course_data_proxy.close())
+        except Exception as exc:
+            log.exception(f"Error during closing course_data_proxy: {exc}")
 
     @commands.hybrid_group(
         name="course", invoke_without_command=True, case_insensitive=True

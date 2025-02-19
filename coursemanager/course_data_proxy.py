@@ -35,7 +35,6 @@ _BR_REGEX: Pattern[str] = re.compile(r"<br\s*/?>", flags=re.IGNORECASE)
 
 
 class CourseDataProxy:
-
     def __init__(self, config: Config, logger: logging.Logger) -> None:
         self.config: Config = config
         self.log: logging.Logger = logger
@@ -44,8 +43,12 @@ class CourseDataProxy:
 
     async def _get_session(self) -> ClientSession:
         if self.session is None or self.session.closed:
-            self.session = ClientSession(timeout=ClientTimeout(total=15))
-            self.log.debug("Created new HTTP session.")
+            try:
+                self.session = ClientSession(timeout=ClientTimeout(total=15))
+                self.log.debug("Created new HTTP session.")
+            except Exception as exc:
+                self.log.exception(f"Failed to create HTTP session: {exc}")
+                raise
         return self.session
 
     def _get_course_keys(self, course_code: str) -> Tuple[str, str, str]:
@@ -92,7 +95,7 @@ class CourseDataProxy:
             courses, department, code, suffix, key
         )
         threshold: int = _CACHE_PURGE_DAYS if detailed else _CACHE_STALE_DAYS_BASIC
-        if cached and not self._is_stale(cached.get("last_updated", ""), threshold):
+        if cached and (not self._is_stale(cached.get("last_updated", ""), threshold)):
             self.log.debug(f"Using cached {key} data for {course_code}")
             return cached
         self.log.debug(f"Fetching {key} data for {course_code}")
@@ -217,7 +220,11 @@ class CourseDataProxy:
         return fallback
 
     def _calculate_retry_delay(self, attempt: int) -> float:
-        return _BASE_DELAY * 2**attempt + random.uniform(0, _BASE_DELAY)
+        delay = _BASE_DELAY * 2**attempt + random.uniform(0, _BASE_DELAY)
+        self.log.debug(
+            f"Calculated retry delay for attempt {attempt}: {delay:.2f} seconds"
+        )
+        return delay
 
     async def _attempt_fetch_for_term(
         self, term: str, year: int, normalized_course: str
@@ -225,8 +232,8 @@ class CourseDataProxy:
         term_key: str = f"{term}-{year}"
         term_id: Optional[int] = await self._get_term_id(term_key)
         if not term_id:
-            self.log.debug(f"Term ID not found for {term_key}")
-            return None, None
+            self.log.warning(f"Term ID not found for {term_key}")
+            return None, f"Term ID not found for {term_key}"
         self.log.debug(f"Using term '{term}' with year {year} and ID {term_id}")
         url: str = self._build_url(term_id, normalized_course, year)
         self.log.debug(f"Built URL: {url}")
@@ -235,7 +242,7 @@ class CourseDataProxy:
             self.log.debug(f"Successfully fetched data for term {term_key}")
             return soup, None
         if error_message and "not found" in error_message.lower():
-            self.log.debug(
+            self.log.error(
                 f"Error indicates 'not found' for term {term_key}: {error_message}"
             )
             return (None, error_message)

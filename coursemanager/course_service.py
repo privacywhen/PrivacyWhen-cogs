@@ -232,7 +232,6 @@ class CourseService:
         self, ctx: commands.Context, course_code: str
     ) -> Optional[CourseCode]:
         safe_course_code = discord.utils.escape_mentions(course_code)
-
         listings: Dict[str, str] = await self._get_course_listings()
         from .utils import validate_and_resolve_course_code
 
@@ -314,7 +313,9 @@ class CourseService:
     ) -> bool:
         try:
             await channel.set_permissions(user, overwrite=overwrite)
-            log.debug(f"{action} for {user} on channel {channel.name}")
+            log.debug(
+                f"{action} for {user} on channel {channel.name} (ID: {channel.id})"
+            )
         except discord.Forbidden as exc:
             log.error(
                 f"Failed to {action.lower()} for {user} on channel {channel.name}: {exc}"

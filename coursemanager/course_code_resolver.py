@@ -1,10 +1,8 @@
 import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
-
 from rapidfuzz import process
 from redbot.core import commands
 from redbot.core.utils.menus import menu, close_menu
-
 from .constants import REACTION_OPTIONS
 from .course_code import CourseCode
 from .logger_util import get_logger, log_entry_exit
@@ -209,9 +207,13 @@ class CourseCodeResolver:
         controls[cancel_emoji] = _make_menu_handler(
             "CANCELLED", cancel_emoji, is_cancel=True
         )
-        result: Optional[str] = await menu(
-            ctx, [prompt], controls=controls, timeout=30.0, user=ctx.author
-        )
+        try:
+            result: Optional[str] = await menu(
+                ctx, [prompt], controls=controls, timeout=30.0, user=ctx.author
+            )
+        except Exception as e:
+            log.exception(f"Error during interactive menu selection: {e}")
+            return None
         log.debug(f"Menu selection result: {result}")
         if result == "CANCELLED":
             log.debug("User cancellation detected. Exiting menu without re-prompt.")

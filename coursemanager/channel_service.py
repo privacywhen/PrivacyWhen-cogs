@@ -11,7 +11,6 @@ log = get_logger("red.channel_service")
 
 
 class ChannelService:
-
     def __init__(self, bot: commands.Bot, config: Config) -> None:
         self.bot: commands.Bot = bot
         self.config: Config = config
@@ -19,6 +18,7 @@ class ChannelService:
     async def set_default_category(
         self, ctx: commands.Context, category_name: str
     ) -> None:
+        log.debug(f"Attempting to set default category to {category_name}")
         try:
             await self.config.default_category.set(category_name)
             log.debug(f"Default category set to {category_name}")
@@ -33,6 +33,9 @@ class ChannelService:
         category: Optional[discord.CategoryChannel] = None,
     ) -> None:
         guild: discord.Guild = ctx.guild
+        log.debug(
+            f"Starting channel creation for '{channel_name}' in guild '{guild.id}'"
+        )
         if category is None:
             try:
                 default_cat_name: str = await self.config.default_category()
@@ -50,6 +53,7 @@ class ChannelService:
             return
         try:
             channel = await guild.create_text_channel(channel_name, category=category)
+            log.debug(f"Channel '{channel.name}' created in category '{category.name}'")
             await ctx.send(
                 success(
                     f"Channel {channel.mention} created in category **{category.name}**."
@@ -105,6 +109,7 @@ class ChannelService:
             )
             try:
                 await channel.delete(reason="Auto-pruned due to inactivity.")
+                log.debug(f"Channel '{channel.name}' pruned successfully.")
             except discord.Forbidden as exc:
                 log.exception(
                     f"Permission error while deleting channel '{channel.name}' in guild '{guild.id}': {exc}"
@@ -120,10 +125,13 @@ class ChannelService:
         prune_interval: int = await self.config.channel_prune_interval()
         await self.bot.wait_until_ready()
         log.debug("Auto-channel-prune task started.")
+        iteration = 1
         try:
             while not self.bot.is_closed():
                 current_time = utcnow()
-                log.debug(f"Auto-channel-prune cycle started at {current_time}")
+                log.debug(
+                    f"Auto-channel-prune cycle {iteration} started at {current_time}"
+                )
                 enabled_guilds: List[int] = await self.config.enabled_guilds()
                 for guild in self.bot.guilds:
                     if guild.id not in enabled_guilds:
@@ -143,8 +151,9 @@ class ChannelService:
                                     f"Error pruning channel '{channel.name}' in guild '{guild.id}': {exc}"
                                 )
                 log.debug(
-                    f"Auto-channel-prune cycle complete. Sleeping for {prune_interval} seconds."
+                    f"Auto-channel-prune cycle {iteration} complete. Sleeping for {prune_interval} seconds."
                 )
+                iteration += 1
                 await asyncio.sleep(prune_interval)
         except asyncio.CancelledError:
             log.debug("Auto-channel-prune task cancelled.")
