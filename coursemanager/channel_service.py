@@ -102,8 +102,7 @@ class ChannelService:
         )
         if inactivity_duration > prune_threshold:
             log.info(
-                f"Pruning channel '{channel.name}' in guild '{guild.name}' (ID: {guild.id}). "
-                f"Inactive for {inactivity_duration} (threshold: {prune_threshold})."
+                f"Pruning channel '{channel.name}' in guild '{guild.name}' (ID: {guild.id}). Inactive for {inactivity_duration} (threshold: {prune_threshold})."
             )
             try:
                 await channel.delete(reason="Auto-pruned due to inactivity.")

@@ -1,17 +1,21 @@
 import asyncio
 import functools
-from typing import Any, Callable, Coroutine, Optional, TypeVar
-
+import time
+from collections import defaultdict
+from json import dumps
+from typing import Any, Callable, Coroutine, Dict, List, Optional, Set, TypeVar
 import discord
+from discord import TextChannel
 from redbot.core import Config, commands, app_commands
 from redbot.core.utils.chat_formatting import error, info, success, warning
-from redbot.core.utils.menus import menu
-
 from .channel_service import ChannelService
 from .constants import GLOBAL_DEFAULTS
 from .course_service import CourseService
 from .course_channel_clustering import CourseChannelClustering
+from .course_code import CourseCode
 from .logger_util import get_logger
+from .utils import get_categories_by_prefix
+
 
 log = get_logger("red.course_channel_cog")
 T = TypeVar("T")
@@ -171,34 +175,13 @@ class CourseChannelCog(commands.Cog):
         await self.channel_service.set_default_category(ctx, category_name)
         await ctx.send(success(f"Default category set to **{category_name}**"))
 
-    ###TEMP TESTING###
     @dev_course.command(name="testclusteringreal")
     @commands.is_owner()
     @handle_command_errors
     async def test_clustering_real(self, ctx: commands.Context) -> None:
-        """
-        Run the clustering algorithm on real course channel data from your guild.
 
-        This command:
-          1. Finds categories using the course category prefix from config.
-          2. For each text channel, collects IDs of members (excluding bots) who can read it.
-          3. Tries to parse each channel name as a CourseCode to extract metadata.
-          4. Runs the clustering algorithm on the collected data.
-          5. Outputs detailed stats, the final course-to-category mapping, and a new channel ordering per category.
-             The ordering output includes an indication if a cluster was split due to the channel count limit.
-
-        Additional logging is emitted to the console (with summaries only) to assist with debugging.
-        """
-        import time
-        from json import dumps
-        from typing import Dict, List, Set, DefaultDict
-        from collections import defaultdict
-        from discord import TextChannel
-        from .course_code import CourseCode
-
-        def safe_dumps(obj) -> str:
-            # Recursively convert sets to lists for JSON serialization.
-            def convert(o):
+        def safe_dumps(obj: Any) -> str:
+            def convert(o: Any) -> Any:
                 if isinstance(o, set):
                     return list(o)
                 elif isinstance(o, dict):
@@ -212,9 +195,8 @@ class CourseChannelCog(commands.Cog):
         def paginate_output(
             lines: List[str], header: str = "```python\n", footer: str = "\n```"
         ) -> List[str]:
-            """Breaks the output into chunks that are less than 2000 characters."""
-            messages = []
-            current_chunk = header
+            messages: List[str] = []
+            current_chunk: str = header
             for line in lines:
                 if len(current_chunk) + len(line) + len(footer) + 1 > 1900:
                     current_chunk += footer
@@ -231,8 +213,6 @@ class CourseChannelCog(commands.Cog):
         output_lines: List[str] = []
         output_lines.append("===== Real Data Clustering Test =====")
         overall_start = time.time()
-
-        # Step 1: Collect channel data.
         try:
             guild = ctx.guild
             config_prefix: str = await self.config.course_category()
@@ -244,7 +224,6 @@ class CourseChannelCog(commands.Cog):
                 config_prefix,
                 guild.name,
             )
-            from .utils import get_categories_by_prefix
 
             categories = get_categories_by_prefix(guild, config_prefix)
             if not categories:
@@ -256,19 +235,16 @@ class CourseChannelCog(commands.Cog):
                 for msg_chunk in paginate_output(output_lines):
                     await ctx.send(msg_chunk)
                 return
-
             channels_processed = 0
             channels_failed_parse = 0
-            course_users: Dict[int, Set[int]] = {}  # channel ID -> set of member IDs
-            course_metadata: Dict[int, Dict[str, str]] = {}  # channel ID -> metadata
-
+            course_users: Dict[int, Set[int]] = {}
+            course_metadata: Dict[int, Dict[str, str]] = {}
             for category in categories:
                 log.debug("Processing category '%s'.", category.name)
                 for channel in category.channels:
                     if not isinstance(channel, TextChannel):
                         continue
                     channels_processed += 1
-                    # Collect member IDs (exclude bots)
                     member_ids = {
                         member.id
                         for member in guild.members
@@ -277,7 +253,6 @@ class CourseChannelCog(commands.Cog):
                     }
                     if member_ids:
                         course_users[channel.id] = member_ids
-                    # Try to parse the channel name as a CourseCode.
                     try:
                         course_obj = CourseCode(channel.name)
                         course_metadata[channel.id] = {
@@ -297,7 +272,6 @@ class CourseChannelCog(commands.Cog):
                             channel.name,
                             parse_exc,
                         )
-
             output_lines.append(
                 f"Step 1: Processed {channels_processed} channels across {len(categories)} categories."
             )
@@ -316,11 +290,9 @@ class CourseChannelCog(commands.Cog):
             for msg_chunk in paginate_output(output_lines):
                 await ctx.send(msg_chunk)
             return
-
-        # Step 2: Instantiate clustering instance.
         try:
             grouping_threshold = await self.config.grouping_threshold()
-            max_cat_channels = 50  # constant value for max channels per category
+            max_cat_channels = 50
             clustering_instance = self.clustering.__class__(
                 grouping_threshold=grouping_threshold,
                 max_category_channels=max_cat_channels,
@@ -340,8 +312,6 @@ class CourseChannelCog(commands.Cog):
             for msg_chunk in paginate_output(output_lines):
                 await ctx.send(msg_chunk)
             return
-
-        # Step 3: Run clustering.
         try:
             cluster_start = time.time()
             mapping = clustering_instance.cluster_courses(course_users, course_metadata)
@@ -366,8 +336,6 @@ class CourseChannelCog(commands.Cog):
             for msg_chunk in paginate_output(output_lines):
                 await ctx.send(msg_chunk)
             return
-
-        # Step 4: Additional statistics.
         try:
             norm_users = clustering_instance._normalize_course_users(course_users)
             norm_metadata = clustering_instance._normalize_course_metadata(
@@ -394,19 +362,14 @@ class CourseChannelCog(commands.Cog):
             msg = f"Step 4 Error: {e}"
             output_lines.append(msg)
             log.exception(msg)
-
-        # Step 5: Compute and output the new channel ordering per category.
         try:
             new_ordering_lines = []
             subgroup_counter = 1
-            # Use clusters computed in Step 4 to determine splits.
             for cluster in sorted(clusters, key=lambda c: min(c) if c else 0):
                 courses = sorted(cluster)
-                # Split the cluster into chunks according to max_cat_channels.
                 chunks = list(
                     clustering_instance._chunk_list(courses, max_cat_channels)
                 )
-                # Only add a note if the cluster was split into more than one chunk.
                 for chunk in chunks:
                     if len(chunks) > 1:
                         category_label = f"{config_prefix}-{subgroup_counter}"
@@ -423,12 +386,9 @@ class CourseChannelCog(commands.Cog):
             msg = f"Step 5 Error: {e}"
             output_lines.append(msg)
             log.exception(msg)
-
         overall_time = time.time() - overall_start
         output_lines.append(f"\nTotal Execution Time: {overall_time:.4f} seconds")
         output_lines.append("===================================")
         log.debug("Test clustering command completed in %.4f seconds.", overall_time)
-
-        # Paginate and send output.
         for msg_chunk in paginate_output(output_lines):
             await ctx.send(msg_chunk)
