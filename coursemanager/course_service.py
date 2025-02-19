@@ -231,14 +231,16 @@ class CourseService:
     async def _resolve_course(
         self, ctx: commands.Context, course_code: str
     ) -> Optional[CourseCode]:
+        safe_course_code = discord.utils.escape_mentions(course_code)
+
         listings: Dict[str, str] = await self._get_course_listings()
         from .utils import validate_and_resolve_course_code
 
         course_obj: Optional[CourseCode] = await validate_and_resolve_course_code(
-            ctx, course_code, listings, self.course_data_proxy
+            ctx, safe_course_code, listings, self.course_data_proxy
         )
         if course_obj is None:
-            await ctx.send(error(f"Invalid course code: {course_code}."))
+            await ctx.send(error(f"Invalid course code: {safe_course_code}."))
         return course_obj
 
     async def course_details(self, ctx: commands.Context, course_code: str) -> None:
