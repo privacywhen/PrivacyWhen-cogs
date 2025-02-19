@@ -1,14 +1,16 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 import discord
 from redbot.core import commands
 
 from .course_code import CourseCode
 from .course_code_resolver import CourseCodeResolver
-from .course_data_proxy import CourseDataProxy
 from .logger_util import get_logger
 from redbot.core.utils.chat_formatting import error
 from datetime import datetime, timezone
+
+if TYPE_CHECKING:
+    from .course_data_proxy import CourseDataProxy
 
 log = get_logger("red.utils")
 
@@ -86,7 +88,7 @@ async def validate_and_resolve_course_code(
     ctx: commands.Context,
     raw_input: str,
     listings: Dict[str, Any],
-    course_data_proxy: CourseDataProxy,
+    course_data_proxy: "CourseDataProxy",
 ) -> Optional[CourseCode]:
     resolver = CourseCodeResolver(listings, course_data_proxy=course_data_proxy)
     try:
