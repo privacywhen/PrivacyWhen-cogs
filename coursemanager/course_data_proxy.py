@@ -17,7 +17,7 @@ from bs4 import BeautifulSoup, Tag
 from redbot.core import Config
 
 from .course_code import CourseCode
-from .logger_util import get_logger, log_entry_exit
+from .logger_util import get_logger
 
 # Initialize logger for this module
 log = get_logger("red.course_data_proxy")

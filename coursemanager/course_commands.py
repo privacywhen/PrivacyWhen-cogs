@@ -5,7 +5,6 @@ from typing import Any, Callable, Coroutine, Optional, TypeVar
 import discord
 from redbot.core import Config, commands, app_commands
 from redbot.core.utils.chat_formatting import error, info, success, warning
-from redbot.core.utils.menus import menu
 
 from .channel_service import ChannelService
 from .constants import GLOBAL_DEFAULTS

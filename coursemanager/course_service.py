@@ -1,5 +1,4 @@
 import time
-from math import ceil
 import functools
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple, TypeVar
 import discord
@@ -11,7 +10,6 @@ from .course_data_proxy import CourseDataProxy
 from .logger_util import get_logger
 from .utils import (
     get_categories_by_prefix,
-    get_or_create_category,
     get_available_course_category,
 )
 

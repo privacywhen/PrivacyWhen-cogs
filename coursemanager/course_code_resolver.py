@@ -7,7 +7,7 @@ from redbot.core.utils.menus import menu, close_menu
 
 from .constants import REACTION_OPTIONS
 from .course_code import CourseCode
-from .logger_util import get_logger, log_entry_exit
+from .logger_util import get_logger
 
 FuzzyMatch = Tuple[str, CourseCode, float]
 log = get_logger("red.course_code_resolver")
