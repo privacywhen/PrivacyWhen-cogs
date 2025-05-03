@@ -1,6 +1,3 @@
-# course_data_proxy.py
-# Final version with descriptive variable names – 2025‑05‑03
-
 import asyncio
 import logging
 import random
