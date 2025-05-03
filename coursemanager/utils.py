@@ -1,15 +1,15 @@
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import discord
 from redbot.core import commands
+from redbot.core.utils.chat_formatting import error
 
 from .course_code import CourseCode
 from .course_code_resolver import CourseCodeResolver
 from .logger_util import get_logger
-from redbot.core.utils.chat_formatting import error
-from datetime import datetime, timezone
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     from .course_data_proxy import CourseDataProxy
 
 log = get_logger("red.utils")

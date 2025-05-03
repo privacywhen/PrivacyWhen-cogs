@@ -1,12 +1,11 @@
-# course_data_proxy.py
 import asyncio
 import logging
 import random
 import re
+from datetime import date, datetime, timedelta, timezone
 from math import floor
 from time import time
-from datetime import date, datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional, Tuple, Pattern
+from typing import Any, Dict, List, Optional, Pattern, Tuple
 
 from aiohttp import (
     ClientConnectionError,

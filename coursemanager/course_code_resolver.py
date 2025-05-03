@@ -2,7 +2,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from rapidfuzz import process
 from redbot.core import commands
-from redbot.core.utils.menus import menu, close_menu
+from redbot.core.utils.menus import close_menu, menu
 
 from .constants import REACTION_OPTIONS
 from .course_code import CourseCode

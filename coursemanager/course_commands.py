@@ -3,13 +3,13 @@ import functools
 from typing import Any, Callable, Coroutine, Optional, TypeVar
 
 import discord
-from redbot.core import Config, commands, app_commands
+from redbot.core import Config, app_commands, commands
 from redbot.core.utils.chat_formatting import error, info, success, warning
 
 from .channel_service import ChannelService
 from .constants import GLOBAL_DEFAULTS
-from .course_service import CourseService
 from .course_channel_clustering import CourseChannelClustering
+from .course_service import CourseService
 from .logger_util import get_logger
 
 log = get_logger("red.course_channel_cog")
@@ -17,7 +17,7 @@ T = TypeVar("T")
 
 
 def handle_command_errors(
-    func: Callable[..., Coroutine[Any, Any, T]]
+    func: Callable[..., Coroutine[Any, Any, T]],
 ) -> Callable[..., Coroutine[Any, Any, T]]:
     @functools.wraps(func)
     async def wrapper(self: Any, ctx: commands.Context, *args: Any, **kwargs: Any) -> T:

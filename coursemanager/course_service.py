@@ -1,18 +1,18 @@
-import time
 import functools
+import time
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple, TypeVar
 
 import discord
 from redbot.core import Config, commands
-from redbot.core.utils.chat_formatting import error, info, success, warning, pagify
+from redbot.core.utils.chat_formatting import error, info, pagify, success, warning
 from redbot.core.utils.menus import menu
 
 from .course_code import CourseCode
 from .course_data_proxy import CourseDataProxy
 from .logger_util import get_logger
 from .utils import (
-    get_categories_by_prefix,
     get_available_course_category,
+    get_categories_by_prefix,
 )
 
 log = get_logger("red.course.service")
@@ -20,7 +20,7 @@ T = TypeVar("T")
 
 
 def requires_enabled(
-    func: Callable[..., Coroutine[Any, Any, T]]
+    func: Callable[..., Coroutine[Any, Any, T]],
 ) -> Callable[..., Coroutine[Any, Any, T]]:
     @functools.wraps(func)
     async def wrapper(
