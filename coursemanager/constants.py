@@ -17,3 +17,4 @@ GLOBAL_DEFAULTS: Dict[str, Any] = {
 
 REACTION_OPTIONS: List[str] = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "❌"]
 MAX_CATEGORY_CHANNELS: int = 5
+GROUPING_INTERVAL: int = GLOBAL_DEFAULTS["grouping_interval"]  # seconds

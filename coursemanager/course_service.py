@@ -1,18 +1,21 @@
-import time
+import asyncio
 import functools
+import time
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple, TypeVar
 
 import discord
 from redbot.core import Config, commands
-from redbot.core.utils.chat_formatting import error, info, success, warning, pagify
+from redbot.core.utils.chat_formatting import error, info, pagify, success, warning
 from redbot.core.utils.menus import menu
 
+from .channel_service import ChannelService
+from .course_channel_clustering import CourseChannelClustering
 from .course_code import CourseCode
 from .course_data_proxy import CourseDataProxy
 from .logger_util import get_logger
 from .utils import (
-    get_categories_by_prefix,
     get_available_course_category,
+    get_categories_by_prefix,
 )
 
 log = get_logger("red.course.service")
@@ -20,7 +23,7 @@ T = TypeVar("T")
 
 
 def requires_enabled(
-    func: Callable[..., Coroutine[Any, Any, T]]
+    func: Callable[..., Coroutine[Any, Any, T]],
 ) -> Callable[..., Coroutine[Any, Any, T]]:
     @functools.wraps(func)
     async def wrapper(
@@ -535,3 +538,60 @@ class CourseService:
     async def reset_config(self, ctx: commands.Context) -> None:
         await self.config.clear_all()
         await ctx.send(success("All configuration data has been cleared."))
+
+    async def auto_course_clustering(
+        self,
+        channel_service: ChannelService,
+        clustering: CourseChannelClustering,
+        *,
+        interval: Optional[int] = None,
+    ) -> None:
+        """Background task that periodically reclusters course channels.
+
+        Args:
+            channel_service: helper used to move channels after clustering.
+            clustering: clustering engine instance.
+            interval: optional override for the sleep period (seconds).  If
+                ``None`` we read ``grouping_interval`` from config each cycle.
+        """
+        await self.bot.wait_until_ready()
+        iteration: int = 1
+        log.info("Auto‑course‑clustering task started.")
+        try:
+            while not self.bot.is_closed():
+                # determine how long to sleep after *this* cycle
+                effective_interval: int = (
+                    interval
+                    if interval is not None
+                    else await self.config.grouping_interval()
+                )
+
+                log.debug(
+                    f"Clustering cycle {iteration} starting (interval={effective_interval}s)."
+                )
+                enabled: set[int] = set(await self.config.enabled_guilds())
+
+                for guild in self.bot.guilds:
+                    if guild.id not in enabled:
+                        continue
+                    try:
+                        course_users = await self.gather_course_user_data(guild)
+                        mapping = clustering.cluster_courses(course_users)
+                        await self.config.course_groups.set(mapping)
+                        await channel_service.apply_category_mapping(guild, mapping)
+                    except Exception:
+                        log.exception(
+                            f"Error clustering guild '{guild.name}' ({guild.id})."
+                        )
+
+                log.debug(
+                    f"Clustering cycle {iteration} complete; "
+                    f"sleeping for {effective_interval}s."
+                )
+                iteration += 1
+                await asyncio.sleep(effective_interval)
+        except asyncio.CancelledError:
+            log.debug("Auto‑course‑clustering task cancelled.")
+            raise
+        except Exception:
+            log.exception("Unexpected error in auto‑course‑clustering task.")

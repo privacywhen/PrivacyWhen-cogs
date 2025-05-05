@@ -4,13 +4,13 @@ from typing import Any, Callable, Coroutine, Optional, TypeVar
 
 import discord
 from redbot.core import Config, commands, app_commands
-from redbot.core.utils.chat_formatting import error, info, success, warning
+from redbot.core.utils.chat_formatting import error, success
 
 from coursemanager.course_code import CourseCode
 from coursemanager.utils import get_categories_by_prefix
 
 from .channel_service import ChannelService
-from .constants import GLOBAL_DEFAULTS
+from .constants import GLOBAL_DEFAULTS, GROUPING_INTERVAL
 from .course_service import CourseService
 from .course_channel_clustering import CourseChannelClustering
 from .logger_util import get_logger
@@ -49,6 +49,13 @@ class CourseChannelCog(commands.Cog):
         self._prune_task: Optional[asyncio.Task] = asyncio.create_task(
             self.channel_service.auto_channel_prune()
         )
+        self._cluster_task: Optional[asyncio.Task] = asyncio.create_task(
+            self.course_service.auto_course_clustering(
+                self.channel_service,
+                self.clustering,
+                interval=GROUPING_INTERVAL,
+            )
+        )
         log.debug("CourseChannelCog initialized.")
 
     async def cog_check(self, ctx: commands.Context) -> bool:
@@ -73,12 +80,16 @@ class CourseChannelCog(commands.Cog):
 
     def cog_unload(self) -> None:
         log.debug("Unloading CourseChannelCog; cancelling background tasks.")
-        if self._prune_task:
-            self._prune_task.cancel()
+        for task in (self._prune_task, getattr(self, "_cluster_task", None)):
+            if task:
+                task.cancel()
+
         try:
-            asyncio.create_task(self.course_service.course_data_proxy.close())
+            asyncio.get_event_loop().create_task(
+                self.course_service.course_data_proxy.close()
+            )
         except Exception as exc:
-            log.exception(f"Error during closing course_data_proxy: {exc}")
+            log.exception(f"Error during CourseDataProxy shutdown: {exc}")
 
     @commands.hybrid_group(
         name="course", invoke_without_command=True, case_insensitive=True
@@ -235,4 +246,27 @@ class CourseChannelCog(commands.Cog):
         preview = "\n".join(f"{k}: {v}" for k, v in list(mapping.items())[:10])
         await ctx.send(
             success(f"Clustering complete. Sample result (first 10):\n```{preview}```")
+        )
+
+    @dev_course.command(name="recluster")
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    @handle_command_errors
+    async def recluster(self, ctx: commands.Context) -> None:
+        """
+        Recompute clustering and move course channels into their new categories.
+        """
+        guild = ctx.guild
+        # 1️ Gather who’s in what channel
+        course_users = await self.course_service.gather_course_user_data(guild)
+        # 2️ Run clustering to get course_id → category_name
+        mapping = self.clustering.cluster_courses(course_users)
+        # 3️ Persist if you like
+        await self.config.course_groups.set(mapping)
+        # 4️ Apply the moves
+        await self.channel_service.apply_category_mapping(guild, mapping)
+        await ctx.send(
+            success(
+                "Reclustered and moved course channels according to the latest clusters."
+            )
         )

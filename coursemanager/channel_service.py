@@ -1,6 +1,6 @@
 import asyncio
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import discord
 from redbot.core import Config, commands
@@ -163,3 +163,33 @@ class ChannelService:
             raise
         except Exception as exc:
             log.exception(f"Unexpected error in auto-channel-prune task: {exc}")
+
+    async def apply_category_mapping(
+        self, guild: discord.Guild, mapping: Dict[int, str]
+    ) -> None:
+        """
+        Move existing course channels into the categories defined by `mapping`.
+        mapping: course_id → category_name (e.g. 101 → "COURSES-2").
+        """
+        # Base prefix to discover existing course categories
+        base_prefix: str = await self.config.course_category()
+
+        # Iterate all current course categories
+        for category in get_categories_by_prefix(guild, base_prefix):
+            for channel in category.channels:
+                if not isinstance(channel, discord.TextChannel):
+                    continue
+                # Extract numeric course_id from channel name: 'cse-101' → 101
+                try:
+                    course_id = int(channel.name.split("-")[-1])
+                except ValueError:
+                    continue
+                target_category = mapping.get(course_id)
+                # Skip if no mapping or already in correct category
+                if not target_category or category.name == target_category:
+                    continue
+                # Ensure the target category exists (creates it if needed)
+                new_cat = await get_or_create_category(guild, target_category)
+                if new_cat:
+                    await channel.edit(category=new_cat)
+                    log.info(f"Moved '{channel.name}' → '{target_category}'")
