@@ -2,6 +2,7 @@ import asyncio
 from collections import defaultdict
 from itertools import combinations
 from math import ceil
+from statistics import median
 from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple
 
 import networkx as nx
@@ -17,7 +18,7 @@ class CourseChannelClustering:
     def __init__(
         self,
         grouping_threshold: int = 2,
-        max_category_channels: int = 50,
+        max_category_channels: int = 5,
         category_prefix: str = "COURSES",
         clustering_func: Optional[Callable[[nx.Graph], List[Set[int]]]] = None,
         optimize_overlap: bool = True,
@@ -113,13 +114,10 @@ class CourseChannelClustering:
         counts = sorted(overlaps.values())
         if not counts:
             return self.grouping_threshold
-        n = len(counts)
-        median = (
-            counts[n // 2] if n % 2 == 1 else (counts[n // 2 - 1] + counts[n // 2]) / 2
-        )
-        effective_threshold: int = max(int(median * self.threshold_factor), 1)
+        med = median(counts)
+        effective_threshold: int = max(int(med * self.threshold_factor), 1)
         log.debug(
-            f"Dynamic threshold computed: median={median}, threshold_factor={self.threshold_factor}, "
+            f"Dynamic threshold computed: median={med}, threshold_factor={self.threshold_factor}, "
             f"effective_threshold={effective_threshold}"
         )
         return effective_threshold
