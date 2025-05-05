@@ -180,40 +180,59 @@ class CourseChannelCog(commands.Cog):
     @commands.is_owner()
     @handle_command_errors
     async def manual_cluster(self, ctx: commands.Context) -> None:
-        """Manually trigger course clustering from live channel membership."""
+        """Manually trigger course clustering using live Discord state."""
         guild = ctx.guild
         prefix = await self.config.course_category()
 
-        course_users: dict[str, set[int]] = {}
-        course_metadata: dict[str, dict[str, str]] = {}
+        # STEP 1 ─ build raw (string‑keyed) maps
+        course_users_raw: dict[str, set[int]] = {}
+        course_metadata_raw: dict[str, dict[str, str]] = {}
 
-        # Build the user‑course map
         for category in get_categories_by_prefix(guild, prefix):
-            for channel in category.text_channels:  # 1️⃣ not async
+            for channel in category.text_channels:
                 try:
                     course = CourseCode(channel.name)
-                except ValueError:  # skip non‑course channels
-                    continue
+                except ValueError:
+                    continue  # Skip non‑course channels
 
-                if users := {
+                users = {
                     m.id
                     for m in channel.members
                     if not m.bot
                     and channel.permissions_for(m).read_messages
                     and channel.permissions_for(m).send_messages
-                }:
-                    key = course.canonical()  # 2️⃣ stable key
-                    course_users[key] = users
-                    course_metadata[key] = {"department": course.department}
+                }
+                if not users:
+                    continue
 
-        if not course_users:
+                code = course.canonical()  # e.g. "HTHSCI‑2HH3"
+                course_users_raw[code] = users
+                course_metadata_raw[code] = {"department": course.department}
+
+        if not course_users_raw:
             await ctx.send(error("No course membership data found."))
             return
 
-        mapping = self.clustering.cluster_courses(course_users, course_metadata)
+        # STEP 2 ─ convert course codes to deterministic ints
+        sorted_codes = sorted(course_users_raw.keys())
+        code_to_id = {c: idx for idx, c in enumerate(sorted_codes, 1)}  # 1‑based
 
-        # Optional: persist mapping to Config here
-        # await self.config.guild(guild).course_mapping.set(mapping)
+        course_users: dict[int, set[int]] = {
+            code_to_id[c]: users for c, users in course_users_raw.items()
+        }
+        course_metadata: dict[int, dict[str, str]] = {
+            code_to_id[c]: meta for c, meta in course_metadata_raw.items()
+        }
 
+        # STEP 3 ─ cluster
+        mapping_int = self.clustering.cluster_courses(course_users, course_metadata)
+
+        # STEP 4 ─ translate result back to readable codes
+        id_to_code = {v: k for k, v in code_to_id.items()}
+        mapping = {id_to_code[k]: v for k, v in mapping_int.items()}
+
+        # Preview first 10 lines
         preview = "\n".join(f"{k}: {v}" for k, v in list(mapping.items())[:10])
-        await ctx.send(success(f"Clustering complete. Sample result:\n```{preview}```"))
+        await ctx.send(
+            success(f"Clustering complete. Sample result (first 10):\n```{preview}```")
+        )
