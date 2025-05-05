@@ -265,7 +265,6 @@ class CourseDataProxy:
                     self.log.debug("Skipping cached invalid %s @ %s", *pair)
                     continue
                 else:
-                    # TTL expired
                     del self._invalid_course_term_cache[pair]
 
             term_id = await self._get_term_id(term_key)
@@ -284,13 +283,11 @@ class CourseDataProxy:
                 self.log.debug("Attempt %d for URL %s", attempt + 1, url)
                 soup, err = await self._fetch_and_parse(url)
                 if soup or (err and "not found" in err.lower()):
-                    # record invalid if not found
                     if err and "not found" in err.lower():
                         self._invalid_course_term_cache[pair] = utcnow()
                     return soup, err
                 last_error = err
                 if last_error and not last_error.startswith("HTTP 500"):
-                    # non-transient error → prune and move on
                     self._invalid_course_term_cache[pair] = utcnow()
                     break
 
@@ -405,7 +402,7 @@ class CourseDataProxy:
         description = prerequisites = antirequisites = ""
         if not offering:
             return description, prerequisites, antirequisites
-        if raw := offering.get("desc", ""):
+        if raw := offering.get("descr", offering.get("desc", "")):
             lines = [ln.strip() for ln in BR_TAG_REGEX.split(raw) if ln.strip()]
             if lines:
                 description = lines[0]
@@ -485,7 +482,10 @@ class CourseDataProxy:
     def _build_url(self, term_id: int, normalized_course: str) -> str:
         time_code, entropy = self._generate_time_code()
         return URL_BASE.format(
-            term=term_id, course_key=normalized_course, t=time_code, entropy=entropy
+            term=term_id,
+            course_key=normalized_course,
+            time_code=time_code,
+            entropy=entropy,
         )
 
     @staticmethod
