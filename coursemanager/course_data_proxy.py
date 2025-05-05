@@ -42,7 +42,7 @@ BASE_DELAY_SECONDS = 2
 XML_PARSER = "lxml-xml"
 BR_TAG_REGEX: Pattern[str] = re.compile(r"<br\s*/?>", flags=re.IGNORECASE)
 
-INVALID_PAIR_TTL = timedelta(hours=1)  # how long to remember invalid pairs
+INVALID_PAIR_TTL = timedelta(hours=12)
 
 PATTERN_TERM_YEAR = re.compile(r"\b(Winter|Spring|Fall)\s+(\d{4})", re.I)
 PATTERN_YEAR_TERM = re.compile(r"(\d{4})\s+(Winter|Spring|Fall)", re.I)
@@ -60,15 +60,38 @@ def extract_caption_hints(caption: str) -> List[Tuple[str, Optional[int]]]:
     return hints
 
 
-def guess_year_for_term(term: str, current_year: int) -> int:
-    month_today = utcnow().month
-    if term == "winter":
-        return current_year + (1 if month_today >= 10 else 0)
-    if term == "spring":
-        return current_year + (1 if month_today >= 5 else 0)
-    if term == "fall":
-        return current_year if month_today >= 8 else current_year - 1
-    return current_year
+class TermHelper:
+    """Helper for resolving and ordering academic terms."""
+
+    @staticmethod
+    def resolve_term_year(term: str, now: datetime) -> int:
+        month = now.month
+        year = now.year
+        if term == "winter":
+            return year + (1 if month >= 10 else 0)
+        if term == "spring":
+            return year + (1 if month >= 5 else 0)
+        if term == "fall":
+            return year if month >= 8 else year - 1
+        return year
+
+    @staticmethod
+    def hints_to_order(
+        hints: List[Tuple[str, Optional[int]]], now: datetime
+    ) -> List[Tuple[str, int]]:
+        ordered: List[Tuple[str, int]] = []
+        seen: set = set()
+        for season, yr in hints:
+            resolved = yr or TermHelper.resolve_term_year(season, now)
+            pair = (season, resolved)
+            if pair not in seen:
+                ordered.append(pair)
+                seen.add(pair)
+        return ordered
+
+    @staticmethod
+    def fallback_order(now: datetime) -> List[Tuple[str, int]]:
+        return [(season, now.year) for season in TERM_NAMES]
 
 
 class CourseDataProxy:
@@ -186,53 +209,29 @@ class CourseDataProxy:
 
     # ───────────────────── internal – term resolution ──────────────────── #
 
-    def _term_order_from_hints(
-        self, hints: List[Tuple[str, Optional[int]]]
-    ) -> List[Tuple[str, int]]:
-        current_year = utcnow().year
-        ordered: List[Tuple[str, int]] = []
-        seen: set = set()
-        for season, yr in hints:
-            resolved = yr or guess_year_for_term(season, current_year)
-            pair = (season, resolved)
-            if pair not in seen:
-                ordered.append(pair)
-                seen.add(pair)
-        return ordered
-
     async def _determine_term_order_refined(
         self, normalized_course: Optional[str] = None
     ) -> List[Tuple[str, int]]:
         await self._maybe_refresh_listings()
-        candidate = (
-            await self._extract_term_from_listing(normalized_course)
-            if normalized_course
-            else None
-        )
+        candidate = None
+        if normalized_course:
+            candidate = await self._extract_term_from_listing(normalized_course)
 
-        month_today = utcnow().month
-        year_today = utcnow().year
-
-        def year_for(season: str) -> int:
-            if season == "winter":
-                return year_today + (1 if month_today >= 10 else 0)
-            if season == "spring":
-                return year_today + (1 if month_today >= 5 else 0)
-            if season == "fall":
-                return year_today if month_today >= 8 else year_today - 1
-            return year_today
-
-        refined = [(s, year_for(s)) for s in TERM_NAMES]
+        now = utcnow()
+        # build base list
+        refined = [(s, TermHelper.resolve_term_year(s, now)) for s in TERM_NAMES]
+        # insert candidate if present
         if candidate and candidate in refined:
             refined.remove(candidate)
         if candidate:
             refined.insert(0, candidate)
+
         self.log.debug("Refined term order: %s", refined)
         return refined
 
     def _determine_term_order_fallback(self) -> List[Tuple[str, int]]:
-        year_today = utcnow().year
-        fallback = [(s, year_today) for s in TERM_NAMES]
+        now = utcnow()
+        fallback = TermHelper.fallback_order(now)
         self.log.debug("Fallback term order: %s", fallback)
         return fallback
 
@@ -244,58 +243,104 @@ class CourseDataProxy:
         *,
         hints: Optional[List[Tuple[str, Optional[int]]]] = None,
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
-        self.log.debug("Fetching online data for %s", normalized_course)
+        now = utcnow()
+        # choose primary term list
+        if hints:
+            term_order = TermHelper.hints_to_order(hints, now)
+        else:
+            term_order = await self._determine_term_order_refined(normalized_course)
 
-        term_order = (
-            self._term_order_from_hints(hints)
-            if hints
-            else await self._determine_term_order_refined(normalized_course)
-        )
         self.log.debug("Term candidates: %s", term_order)
 
         last_error: Optional[str] = None
-        now = utcnow()
+
+        # primary lookup
         for season, year in term_order:
             term_key = f"{season}-{year}"
-
-            # prune known invalid pairs if still within TTL
             pair = (normalized_course, term_key)
-            if pair in self._invalid_course_term_cache:
-                if (now - self._invalid_course_term_cache[pair]) < INVALID_PAIR_TTL:
-                    self.log.debug("Skipping cached invalid %s @ %s", *pair)
-                    continue
-                else:
-                    del self._invalid_course_term_cache[pair]
-
+            if self._should_skip_invalid(pair):
+                continue
             term_id = await self._get_term_id(term_key)
             if not term_id:
                 self.log.debug("No term ID for %s; skipping", term_key)
                 continue
 
-            url = self._build_url(term_id, normalized_course)
-            for attempt in range(MAX_ATTEMPTS):
-                if attempt:
-                    delay = BASE_DELAY_SECONDS * 2 ** (attempt - 1) + random.uniform(
-                        0, BASE_DELAY_SECONDS
-                    )
-                    await asyncio.sleep(delay)
+            soup, err = await self._attempt_term_fetch(
+                term_key, term_id, normalized_course, pair
+            )
+            if soup or (err and "not found" in err.lower()):
+                return soup, err
+            last_error = err
 
-                self.log.debug("Attempt %d for URL %s", attempt + 1, url)
-                soup, err = await self._fetch_and_parse(url)
-                if soup or (err and "not found" in err.lower()):
-                    if err and "not found" in err.lower():
-                        self._invalid_course_term_cache[pair] = utcnow()
-                    return soup, err
-                last_error = err
-                if last_error and not last_error.startswith("HTTP 500"):
-                    self._invalid_course_term_cache[pair] = utcnow()
-                    break
+        # brute-force fallback
+        self.log.debug("Primary lookup failed; falling back to default term list.")
+        for season, year in self._determine_term_order_fallback():
+            term_key = f"{season}-{year}"
+            pair = (normalized_course, term_key)
+            if self._should_skip_invalid(pair):
+                continue
+            term_id = await self._get_term_id(term_key)
+            if not term_id:
+                continue
+
+            soup, err = await self._attempt_term_fetch(
+                term_key, term_id, normalized_course, pair
+            )
+            if soup or (err and "not found" in err.lower()):
+                return soup, err
+            last_error = err
 
         return None, last_error or "Unknown error fetching course data."
+
+    def _should_skip_invalid(self, pair: Tuple[str, str]) -> bool:
+        """Return True if this course-term pair is known invalid within TTL."""
+        if ts := self._invalid_course_term_cache.get(pair):
+            if utcnow() - ts < INVALID_PAIR_TTL:
+                return True
+            del self._invalid_course_term_cache[pair]
+        return False
+
+    def _record_invalid(self, pair: Tuple[str, str]) -> None:
+        """Mark a course-term pair as invalid starting now."""
+        self._invalid_course_term_cache[pair] = utcnow()
+
+    async def _attempt_term_fetch(
+        self,
+        term_key: str,
+        term_id: int,
+        normalized_course: str,
+        pair: Tuple[str, str],
+    ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
+        """Try fetching data for one term, with retries and invalid-pair pruning."""
+        url = self._build_url(term_id, normalized_course)
+        last_error: Optional[str] = None
+
+        for attempt in range(MAX_ATTEMPTS):
+            if attempt:
+                delay = BASE_DELAY_SECONDS * 2 ** (attempt - 1) + random.uniform(
+                    0, BASE_DELAY_SECONDS
+                )
+                await asyncio.sleep(delay)
+
+            self.log.debug("Attempt %d for URL %s", attempt + 1, url)
+            soup, err = await self._fetch_and_parse(url)
+            if soup or (err and "not found" in err.lower()):
+                if err and "not found" in err.lower():
+                    self._record_invalid(pair)
+                return soup, err
+
+            last_error = err
+            # on non-500 error, prune and stop retries for this term
+            if last_error and not last_error.startswith("HTTP 500"):
+                self._record_invalid(pair)
+                break
+
+        return None, last_error
 
     async def _fetch_and_parse(
         self, url: str
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
+        """Perform a single HTTP GET and parse the XML or return an error."""
         session = await self._get_session()
         try:
             async with session.get(url) as resp:
@@ -319,6 +364,24 @@ class CourseDataProxy:
         if err_tag := soup.find("error"):
             return None, err_tag.text.strip() or "unknown remote error"
         return soup, None
+
+    def _build_url(self, term_id: int, normalized_course: str) -> str:
+        time_code, entropy = self._generate_time_code()
+        return URL_BASE.format(
+            term=term_id,
+            course_key=normalized_course,
+            time_code=time_code,
+            entropy=entropy,
+        )
+
+    @staticmethod
+    def _generate_time_code() -> Tuple[int, int]:
+        from math import floor
+        from time import time
+
+        time_code = floor(time() / 60) % 1000
+        entropy = time_code % 3 + time_code % 39 + time_code % 42
+        return time_code, entropy
 
     # ─────────────────────── term‑id caching ─────────────────────── #
 
@@ -402,7 +465,7 @@ class CourseDataProxy:
         description = prerequisites = antirequisites = ""
         if not offering:
             return description, prerequisites, antirequisites
-        if raw := offering.get("descr", offering.get("desc", "")):
+        if raw := offering.get("desc", ""):
             lines = [ln.strip() for ln in BR_TAG_REGEX.split(raw) if ln.strip()]
             if lines:
                 description = lines[0]
@@ -413,6 +476,8 @@ class CourseDataProxy:
                 elif lower.startswith("antirequisite"):
                     antirequisites = ln.split(":", 1)[1].strip() if ":" in ln else ""
         return description, prerequisites, antirequisites
+
+    # ─────────────────── course listings ─────────────────── #
 
     async def update_course_listing(self) -> Optional[str]:
         self.log.debug("Retrieving full course listings")
@@ -461,7 +526,6 @@ class CourseDataProxy:
         info = self._listings_cache.get(normalized_course)
         if not info:
             return None
-
         candidates = {
             (m.group("term").lower(), int(m.group("year")))
             for m in PATTERN_TERM_YEAR.finditer(info)
@@ -471,28 +535,9 @@ class CourseDataProxy:
         }
         if not candidates:
             return None
-
         rank = {"winter": 1, "spring": 2, "fall": 3}
         now_year = utcnow().year
         future = [c for c in candidates if c[1] >= now_year]
         chosen = min(future or candidates, key=lambda x: (x[1], rank.get(x[0], 99)))
         self.log.debug("Extracted term %s → %s", normalized_course, chosen)
         return chosen
-
-    def _build_url(self, term_id: int, normalized_course: str) -> str:
-        time_code, entropy = self._generate_time_code()
-        return URL_BASE.format(
-            term=term_id,
-            course_key=normalized_course,
-            time_code=time_code,
-            entropy=entropy,
-        )
-
-    @staticmethod
-    def _generate_time_code() -> Tuple[int, int]:
-        from math import floor
-        from time import time
-
-        time_code = floor(time() / 60) % 1000
-        entropy = time_code % 3 + time_code % 39 + time_code % 42
-        return time_code, entropy
