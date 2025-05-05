@@ -171,3 +171,19 @@ class CourseChannelCog(commands.Cog):
     ) -> None:
         await self.channel_service.set_default_category(ctx, category_name)
         await ctx.send(success(f"Default category set to **{category_name}**"))
+
+    @dev_course.command(name="cluster")
+    @commands.guild_only()
+    @commands.is_owner()
+    @handle_command_errors
+    async def manual_cluster(self, ctx: commands.Context) -> None:
+        """Manually trigger course clustering."""
+        await ctx.send("Running course clustering...")
+
+        course_users = self.course_service.get_course_user_mapping()
+        course_metadata = self.course_service.get_course_metadata()
+
+        mapping = self.clustering.cluster_courses(course_users, course_metadata)
+        self.course_service.save_cluster_mapping(mapping)
+
+        await ctx.send(success("Course clustering completed and mappings saved."))
