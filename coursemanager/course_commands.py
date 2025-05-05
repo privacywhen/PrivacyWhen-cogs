@@ -3,16 +3,13 @@ import functools
 from typing import Any, Callable, Coroutine, Optional, TypeVar
 
 import discord
-from redbot.core import Config, commands, app_commands
+from redbot.core import Config, app_commands, commands
 from redbot.core.utils.chat_formatting import error, success
-
-from coursemanager.course_code import CourseCode
-from coursemanager.utils import get_categories_by_prefix
 
 from .channel_service import ChannelService
 from .constants import GLOBAL_DEFAULTS, GROUPING_INTERVAL
-from .course_service import CourseService
 from .course_channel_clustering import CourseChannelClustering
+from .course_service import CourseService
 from .logger_util import get_logger
 
 log = get_logger("red.course_channel_cog")
@@ -193,56 +190,42 @@ class CourseChannelCog(commands.Cog):
     async def manual_cluster(self, ctx: commands.Context) -> None:
         """Manually trigger course clustering using live Discord state."""
         guild = ctx.guild
-        prefix = await self.config.course_category()
 
-        # STEP 1 ─ build raw (string‑keyed) maps
-        course_users_raw: dict[str, set[int]] = {}
-        course_metadata_raw: dict[str, dict[str, str]] = {}
-
-        for category in get_categories_by_prefix(guild, prefix):
-            for channel in category.text_channels:
-                try:
-                    course = CourseCode(channel.name)
-                except ValueError:
-                    continue  # Skip non‑course channels
-
-                users = {
-                    m.id
-                    for m in channel.members
-                    if not m.bot
-                    and channel.permissions_for(m).read_messages
-                    and channel.permissions_for(m).send_messages
-                }
-                if not users:
-                    continue
-
-                code = course.canonical()  # e.g. "HTHSCI‑2HH3"
-                course_users_raw[code] = users
-                course_metadata_raw[code] = {"department": course.department}
-
+        # Gather user-sets and metadata in one shot (string-keyed)
+        (
+            course_users_raw,
+            course_metadata_raw,
+        ) = await self.course_service.gather_course_user_data(
+            guild, include_metadata=True
+        )
         if not course_users_raw:
             await ctx.send(error("No course membership data found."))
             return
 
-        # STEP 2 ─ convert course codes to deterministic ints
-        sorted_codes = sorted(course_users_raw.keys())
-        code_to_id = {c: idx for idx, c in enumerate(sorted_codes, 1)}  # 1‑based
+        # Convert course codes to deterministic ints
+        sorted_codes = sorted(course_users_raw)
+        code_to_id: dict[str, int] = {
+            code: idx for idx, code in enumerate(sorted_codes, start=1)
+        }
+        id_to_code: dict[int, str] = {v: k for k, v in code_to_id.items()}
 
         course_users: dict[int, set[int]] = {
-            code_to_id[c]: users for c, users in course_users_raw.items()
+            code_to_id[code]: users for code, users in course_users_raw.items()
         }
         course_metadata: dict[int, dict[str, str]] = {
-            code_to_id[c]: meta for c, meta in course_metadata_raw.items()
+            code_to_id[code]: meta for code, meta in course_metadata_raw.items()
         }
 
-        # STEP 3 ─ cluster
+        # Run clustering
         mapping_int = self.clustering.cluster_courses(course_users, course_metadata)
 
-        # STEP 4 ─ translate result back to readable codes
-        id_to_code = {v: k for k, v in code_to_id.items()}
-        mapping = {id_to_code[k]: v for k, v in mapping_int.items()}
+        # Convert result back to readable course codes
+        mapping: dict[str, str] = {
+            id_to_code[course_id]: category
+            for course_id, category in mapping_int.items()
+        }
 
-        # Preview first 10 lines
+        # Show a sample of the result
         preview = "\n".join(f"{k}: {v}" for k, v in list(mapping.items())[:10])
         await ctx.send(
             success(f"Clustering complete. Sample result (first 10):\n```{preview}```")
@@ -257,14 +240,17 @@ class CourseChannelCog(commands.Cog):
         Recompute clustering and move course channels into their new categories.
         """
         guild = ctx.guild
-        # 1️ Gather who’s in what channel
+
+        # 1) Gather current membership
         course_users = await self.course_service.gather_course_user_data(guild)
-        # 2️ Run clustering to get course_id → category_name
+
+        # 2) Compute new grouping
         mapping = self.clustering.cluster_courses(course_users)
-        # 3️ Persist if you like
+
+        # 3) Persist and apply
         await self.config.course_groups.set(mapping)
-        # 4️ Apply the moves
         await self.channel_service.apply_category_mapping(guild, mapping)
+
         await ctx.send(
             success(
                 "Reclustered and moved course channels according to the latest clusters."

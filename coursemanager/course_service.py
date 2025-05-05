@@ -595,3 +595,63 @@ class CourseService:
             raise
         except Exception:
             log.exception("Unexpected error in auto‑course‑clustering task.")
+
+    async def gather_course_user_data(
+        self,
+        guild: discord.Guild,
+        *,
+        include_metadata: bool = False,
+    ) -> dict[int, set[int]] | tuple[dict[int, set[int]], dict[int, dict[str, str]]]:
+        """
+        Scan all text‐channels under categories named with the configured prefix and
+        collect for each course the set of member IDs who can both read & send.
+
+        If include_metadata=True, also return a simple per‐course metadata dict
+        (currently only department code).
+
+        Returns either:
+          • course_users: dict[int, set[int]]
+          • (course_users, course_metadata): tuple[..., ...]
+        """
+        prefix = await self.config.course_category()
+
+        # temporary raw maps keyed by canonical code string
+        users_raw: dict[str, set[int]] = {}
+        meta_raw: dict[str, dict[str, str]] = {}
+
+        for cat in get_categories_by_prefix(guild, prefix):
+            for chan in cat.text_channels:
+                try:
+                    course = CourseCode(chan.name)
+                except ValueError:
+                    continue  # not a course‐code channel
+
+                members = {
+                    m.id
+                    for m in chan.members
+                    if not m.bot
+                    and chan.permissions_for(m).read_messages
+                    and chan.permissions_for(m).send_messages
+                }
+                if not members:
+                    continue
+
+                key = course.canonical()
+                users_raw[key] = members
+                meta_raw[key] = {"department": course.department}
+
+        # map string codes → integer IDs for clustering
+        sorted_codes = sorted(users_raw)
+        code_to_id = {code: idx for idx, code in enumerate(sorted_codes, start=1)}
+
+        course_users: dict[int, set[int]] = {
+            code_to_id[code]: members for code, members in users_raw.items()
+        }
+
+        if not include_metadata:
+            return course_users
+
+        course_meta: dict[int, dict[str, str]] = {
+            code_to_id[code]: meta for code, meta in meta_raw.items()
+        }
+        return course_users, course_meta
