@@ -4,6 +4,7 @@ from itertools import combinations
 from math import ceil
 from statistics import median
 from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple
+from .constants import MAX_CATEGORY_CHANNELS
 
 import networkx as nx
 from networkx.algorithms.community import louvain_communities
@@ -18,7 +19,6 @@ class CourseChannelClustering:
     def __init__(
         self,
         grouping_threshold: int = 2,
-        max_category_channels: int = 5,
         category_prefix: str = "COURSES",
         clustering_func: Optional[Callable[[nx.Graph], List[Set[int]]]] = None,
         optimize_overlap: bool = True,
@@ -28,10 +28,7 @@ class CourseChannelClustering:
     ) -> None:
         if grouping_threshold < 1:
             raise ValueError("grouping_threshold must be at least 1.")
-        if max_category_channels < 1:
-            raise ValueError("max_category_channels must be at least 1.")
         self.grouping_threshold: int = grouping_threshold
-        self.max_category_channels: int = max_category_channels
         self.category_prefix: str = category_prefix
         self.clustering_func: Callable[[nx.Graph], List[Set[int]]] = (
             clustering_func or self._default_clustering
@@ -178,13 +175,13 @@ class CourseChannelClustering:
     def _map_clusters_to_categories(self, clusters: List[Set[int]]) -> Dict[int, str]:
         mapping: Dict[int, str] = {}
         total_subgroups: int = sum(
-            (ceil(len(cluster) / self.max_category_channels) for cluster in clusters)
+            (ceil(len(cluster) / MAX_CATEGORY_CHANNELS) for cluster in clusters)
         )
         use_suffix: bool = total_subgroups > 1
         subgroup_counter: int = 1
         for cluster in sorted(clusters, key=lambda c: min(c) if c else 0):
             courses: List[int] = sorted(cluster)
-            chunks = list(self._chunk_list(courses, self.max_category_channels))
+            chunks = list(self._chunk_list(courses, MAX_CATEGORY_CHANNELS))
             log.debug(
                 f"Mapping cluster with {len(courses)} courses into {len(chunks)} subgroup(s)."
             )

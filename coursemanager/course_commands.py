@@ -17,7 +17,7 @@ T = TypeVar("T")
 
 
 def handle_command_errors(
-    func: Callable[..., Coroutine[Any, Any, T]]
+    func: Callable[..., Coroutine[Any, Any, T]],
 ) -> Callable[..., Coroutine[Any, Any, T]]:
     @functools.wraps(func)
     async def wrapper(self: Any, ctx: commands.Context, *args: Any, **kwargs: Any) -> T:
@@ -41,7 +41,6 @@ class CourseChannelCog(commands.Cog):
         self.course_service: CourseService = CourseService(bot, self.config)
         self.clustering = CourseChannelClustering(
             grouping_threshold=GLOBAL_DEFAULTS.get("grouping_threshold", 2),
-            max_category_channels=50,
             category_prefix=GLOBAL_DEFAULTS.get("course_category", "COURSES"),
         )
         self._prune_task: Optional[asyncio.Task] = asyncio.create_task(

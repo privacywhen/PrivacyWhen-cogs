@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 import discord
 from redbot.core import commands
 
+from .constants import MAX_CATEGORY_CHANNELS
 from .course_code import CourseCode
 from .course_code_resolver import CourseCodeResolver
 from .logger_util import get_logger
@@ -54,7 +55,10 @@ async def get_or_create_category(
 
 
 async def get_available_course_category(
-    guild: discord.Guild, base_name: str, ctx: commands.Context, max_channels: int = 50
+    guild: discord.Guild,
+    base_name: str,
+    ctx: commands.Context,
+    max_channels: int = MAX_CATEGORY_CHANNELS,
 ) -> Optional[discord.CategoryChannel]:
     category = discord.utils.get(guild.categories, name=base_name)
     if category is None:
