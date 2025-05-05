@@ -481,3 +481,18 @@ class CourseDataProxy:
         chosen = min(future or candidates, key=lambda x: (x[1], rank.get(x[0], 99)))
         self.log.debug("Extracted term %s → %s", normalized_course, chosen)
         return chosen
+
+    def _build_url(self, term_id: int, normalized_course: str) -> str:
+        time_code, entropy = self._generate_time_code()
+        return URL_BASE.format(
+            term=term_id, course_key=normalized_course, t=time_code, entropy=entropy
+        )
+
+    @staticmethod
+    def _generate_time_code() -> Tuple[int, int]:
+        from math import floor
+        from time import time
+
+        time_code = floor(time() / 60) % 1000
+        entropy = time_code % 3 + time_code % 39 + time_code % 42
+        return time_code, entropy
