@@ -6,6 +6,9 @@ import discord
 from redbot.core import Config, commands, app_commands
 from redbot.core.utils.chat_formatting import error, info, success, warning
 
+from coursemanager.course_code import CourseCode
+from coursemanager.utils import get_categories_by_prefix
+
 from .channel_service import ChannelService
 from .constants import GLOBAL_DEFAULTS
 from .course_service import CourseService
@@ -177,13 +180,40 @@ class CourseChannelCog(commands.Cog):
     @commands.is_owner()
     @handle_command_errors
     async def manual_cluster(self, ctx: commands.Context) -> None:
-        """Manually trigger course clustering."""
-        await ctx.send("Running course clustering...")
+        """Manually trigger course clustering from live channel membership."""
+        guild = ctx.guild
+        prefix = await self.config.course_category()
 
-        course_users = self.course_service.get_course_user_mapping()
-        course_metadata = self.course_service.get_course_metadata()
+        course_users: dict[str, set[int]] = {}
+        course_metadata: dict[str, dict[str, str]] = {}
+
+        # Build the user‑course map
+        for category in get_categories_by_prefix(guild, prefix):
+            for channel in category.text_channels:  # 1️⃣ not async
+                try:
+                    course = CourseCode(channel.name)
+                except ValueError:  # skip non‑course channels
+                    continue
+
+                if users := {
+                    m.id
+                    for m in channel.members
+                    if not m.bot
+                    and channel.permissions_for(m).read_messages
+                    and channel.permissions_for(m).send_messages
+                }:
+                    key = course.canonical()  # 2️⃣ stable key
+                    course_users[key] = users
+                    course_metadata[key] = {"department": course.department}
+
+        if not course_users:
+            await ctx.send(error("No course membership data found."))
+            return
 
         mapping = self.clustering.cluster_courses(course_users, course_metadata)
-        self.course_service.save_cluster_mapping(mapping)
 
-        await ctx.send(success("Course clustering completed and mappings saved."))
+        # Optional: persist mapping to Config here
+        # await self.config.guild(guild).course_mapping.set(mapping)
+
+        preview = "\n".join(f"{k}: {v}" for k, v in list(mapping.items())[:10])
+        await ctx.send(success(f"Clustering complete. Sample result:\n```{preview}```"))
