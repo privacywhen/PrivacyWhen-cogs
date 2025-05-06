@@ -5,7 +5,7 @@ import re
 from datetime import datetime, timedelta
 
 import discord
-from redbot.core import commands  # noqa: TC002
+from redbot.core import Config, commands  # noqa: TC002
 from redbot.core.utils.chat_formatting import error, success
 
 from .course_code import CourseCode
@@ -16,6 +16,10 @@ log = get_logger("red.channel_service")
 
 
 class ChannelService:
+    def __init__(self, bot: commands.Bot, config: Config) -> None:
+        self.bot: commands.Bot = bot
+        self.config: Config = config
+
     # how long to wait after mutating Discord state
     RATE_LIMIT_DELAY: float = 0.25
 
