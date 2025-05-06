@@ -1,6 +1,6 @@
-from typing import Any, Dict, List
+from typing import Any
 
-GLOBAL_DEFAULTS: Dict[str, Any] = {
+GLOBAL_DEFAULTS: dict[str, Any] = {
     "default_category": "CHANNELS",  # Default category for channels
     "grouping_threshold": 2,  # Minimum overlap threshold for grouping
     "grouping_interval": 3600,  # Grouping interval in seconds
@@ -15,6 +15,6 @@ GLOBAL_DEFAULTS: Dict[str, Any] = {
     "prune_threshold_days": 7,  # Number of days of inactivity to trigger pruning
 }
 
-REACTION_OPTIONS: List[str] = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "❌"]
+REACTION_OPTIONS: list[str] = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "❌"]
 MAX_CATEGORY_CHANNELS: int = 5
 GROUPING_INTERVAL: int = GLOBAL_DEFAULTS["grouping_interval"]  # seconds

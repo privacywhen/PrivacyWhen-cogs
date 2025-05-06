@@ -12,7 +12,7 @@ def get_logger(name: str, level: int = logging.DEBUG) -> logging.Logger:
     if not logger.handlers:
         handler = logging.StreamHandler()
         formatter = logging.Formatter(
-            "[%(levelname)s] %(module)s.%(funcName)s:%(lineno)d: %(message)s"
+            "[%(levelname)s] %(module)s.%(funcName)s:%(lineno)d: %(message)s",
         )
         handler.setFormatter(formatter)
         logger.addHandler(handler)
@@ -43,9 +43,8 @@ def log_entry_exit(
                         raise
 
                 return coro_wrapper()
-            else:
-                logger.debug(f"Exiting {func.__name__}")
-                return result
+            logger.debug(f"Exiting {func.__name__}")
+            return result
 
         return wrapper
 

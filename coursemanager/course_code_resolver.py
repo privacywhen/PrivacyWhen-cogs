@@ -1,14 +1,16 @@
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from __future__ import annotations
+
+from typing import Any, Callable, Optional
 
 from rapidfuzz import process
 from redbot.core import commands
-from redbot.core.utils.menus import menu, close_menu
+from redbot.core.utils.menus import close_menu, menu
 
 from .constants import REACTION_OPTIONS
 from .course_code import CourseCode
 from .logger_util import get_logger
 
-FuzzyMatch = Tuple[str, CourseCode, float]
+FuzzyMatch = tuple[str, CourseCode, float]
 
 log = get_logger("red.course_code_resolver")
 
@@ -19,13 +21,15 @@ class CourseCodeResolver:
     SCORE_MARGIN: int = 10
 
     def __init__(
-        self, course_listings: Dict[str, Any], course_data_proxy: Any = None
+        self,
+        course_listings: dict[str, Any],
+        course_data_proxy: Any = None,
     ) -> None:
-        self.course_listings: Dict[str, Any] = course_listings
+        self.course_listings: dict[str, Any] = course_listings
         self.course_data_proxy: Any = course_data_proxy
 
-    def find_variant_matches(self, canonical: str) -> List[str]:
-        variants: List[str] = [
+    def find_variant_matches(self, canonical: str) -> list[str]:
+        variants: list[str] = [
             key
             for key in self.course_listings
             if key.startswith(canonical) and len(key) > len(canonical)
@@ -34,9 +38,11 @@ class CourseCodeResolver:
         return variants
 
     async def prompt_variant_selection(
-        self, ctx: commands.Context, variants: List[str]
+        self,
+        ctx: commands.Context,
+        variants: list[str],
     ) -> Optional[str]:
-        options: List[Tuple[str, Any]] = [
+        options: list[tuple[str, Any]] = [
             (variant, self.course_listings.get(variant, "")) for variant in variants
         ]
         log.debug(f"Prompting variant selection with options: {options}")
@@ -54,12 +60,14 @@ class CourseCodeResolver:
             return None
 
     async def fallback_fuzzy_lookup(
-        self, ctx: commands.Context, canonical: str
-    ) -> Tuple[Optional[CourseCode], Optional[Dict[str, Any]]]:
+        self,
+        ctx: commands.Context,
+        canonical: str,
+    ) -> tuple[Optional[CourseCode], Optional[dict[str, Any]]]:
         if not self.course_listings:
             log.debug("No course listings available for fuzzy lookup.")
             return None, None
-        keys_list: List[str] = list(self.course_listings)
+        keys_list: list[str] = list(self.course_listings)
         try:
             all_matches = process.extract(
                 canonical,
@@ -71,7 +79,7 @@ class CourseCodeResolver:
             log.exception(f"Error during fuzzy extraction for '{canonical}': {exc}")
             return None, None
         log.debug(f"Fuzzy matches for '{canonical}': {all_matches}")
-        valid_matches: List[FuzzyMatch] = []
+        valid_matches: list[FuzzyMatch] = []
         for candidate, score, _ in all_matches:
             if candidate_obj := self._parse_course_code(candidate):
                 valid_matches.append((candidate, candidate_obj, score))
@@ -83,7 +91,7 @@ class CourseCodeResolver:
         valid_matches.sort(key=lambda x: x[2], reverse=True)
         best_candidate, best_obj, best_score = valid_matches[0]
         log.debug(
-            f"Best valid fuzzy match for '{canonical}': {best_candidate} with score {best_score}"
+            f"Best valid fuzzy match for '{canonical}': {best_candidate} with score {best_score}",
         )
         if len(valid_matches) == 1 or (
             len(valid_matches) > 1
@@ -92,14 +100,15 @@ class CourseCodeResolver:
             selected_candidate: str = best_candidate
             selected_obj: CourseCode = best_obj
             log.debug(
-                f"Auto-selected candidate '{selected_candidate}' (score: {best_score})"
+                f"Auto-selected candidate '{selected_candidate}' (score: {best_score})",
             )
         else:
-            candidate_options: List[str] = [
+            candidate_options: list[str] = [
                 candidate for candidate, _, _ in valid_matches
             ]
             selected_candidate = await self.prompt_variant_selection(
-                ctx, candidate_options
+                ctx,
+                candidate_options,
             )
             if not selected_candidate:
                 log.debug("No selection made by the user during fuzzy lookup prompt.")
@@ -114,15 +123,17 @@ class CourseCodeResolver:
             )
             if selected_obj is None:
                 log.debug(
-                    f"Failed to parse the selected candidate '{selected_candidate}' after user selection."
+                    f"Failed to parse the selected candidate '{selected_candidate}' after user selection.",
                 )
                 return None, None
         data: Any = self.course_listings.get(selected_candidate)
         return selected_obj, data
 
     async def resolve_course_code(
-        self, ctx: commands.Context, course: CourseCode
-    ) -> Tuple[Optional[CourseCode], Optional[Dict[str, Any]]]:
+        self,
+        ctx: commands.Context,
+        course: CourseCode,
+    ) -> tuple[Optional[CourseCode], Optional[dict[str, Any]]]:
         if course is None:
             log.debug("No course provided to resolve_course_code.")
             return None, None
@@ -152,18 +163,20 @@ class CourseCodeResolver:
 
     @staticmethod
     async def interactive_course_selector(
-        ctx: commands.Context, options: List[Tuple[str, str]], prompt_prefix: str
+        ctx: commands.Context,
+        options: list[tuple[str, str]],
+        prompt_prefix: str,
     ) -> Optional[str]:
         if not options:
             log.debug("No options provided to interactive_course_selector.")
             return None
         ctx._menu_call_count = getattr(ctx, "_menu_call_count", 0) + 1
         log.debug(
-            f"Interactive menu call count for this context: {ctx._menu_call_count}"
+            f"Interactive menu call count for this context: {ctx._menu_call_count}",
         )
         cancel_emoji: str = REACTION_OPTIONS[-1]
         max_options: int = len(REACTION_OPTIONS) - 1
-        limited_options: List[Tuple[str, str]] = options[:max_options]
+        limited_options: list[tuple[str, str]] = options[:max_options]
         option_lines = [
             f"{REACTION_OPTIONS[i]} **{option}**: {description}"
             for i, (option, description) in enumerate(limited_options)
@@ -173,11 +186,13 @@ class CourseCodeResolver:
         log.debug(f"Prompting menu with:\n{prompt}")
 
         def _make_menu_handler(
-            return_value: str, emoji: str, is_cancel: bool = False
+            return_value: str,
+            emoji: str,
+            is_cancel: bool = False,
         ) -> Callable[..., Any]:
             async def handler(
                 ctx: commands.Context,
-                pages: List[str],
+                pages: list[str],
                 controls: dict,
                 message: Any,
                 page: int,
@@ -204,16 +219,22 @@ class CourseCodeResolver:
 
             return handler
 
-        controls: Dict[str, Callable[..., Any]] = {
+        controls: dict[str, Callable[..., Any]] = {
             emoji: _make_menu_handler(option, emoji)
             for emoji, (option, _) in zip(REACTION_OPTIONS, limited_options)
         }
         controls[cancel_emoji] = _make_menu_handler(
-            "CANCELLED", cancel_emoji, is_cancel=True
+            "CANCELLED",
+            cancel_emoji,
+            is_cancel=True,
         )
         try:
             result: Optional[str] = await menu(
-                ctx, [prompt], controls=controls, timeout=30.0, user=ctx.author
+                ctx,
+                [prompt],
+                controls=controls,
+                timeout=30.0,
+                user=ctx.author,
             )
         except Exception as e:
             log.exception(f"Error during interactive menu selection: {e}")

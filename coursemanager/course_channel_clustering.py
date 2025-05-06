@@ -1,15 +1,17 @@
+from __future__ import annotations
+
 import asyncio
 from collections import defaultdict
 from itertools import combinations
 from math import ceil
 from statistics import median
 from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple
-from .constants import MAX_CATEGORY_CHANNELS
 
 import networkx as nx
 from networkx.algorithms.community import louvain_communities
 from networkx.algorithms.community.quality import modularity
 
+from .constants import MAX_CATEGORY_CHANNELS
 from .logger_util import get_logger
 
 log = get_logger("red.course_channel_clustering")
@@ -46,7 +48,8 @@ class CourseChannelClustering:
             raise ValueError(f"Key {key} is not convertible to int.") from exc
 
     def _normalize_course_users(
-        self, course_users: Dict[Any, Set[Any]]
+        self,
+        course_users: Dict[Any, Set[Any]],
     ) -> Dict[int, Set[int]]:
         return {
             self._normalize_key(course): {self._normalize_key(user) for user in users}
@@ -54,7 +57,8 @@ class CourseChannelClustering:
         }
 
     def _normalize_course_metadata(
-        self, course_metadata: Dict[Any, Dict[str, Any]]
+        self,
+        course_metadata: Dict[Any, Dict[str, Any]],
     ) -> Dict[int, Dict[str, Any]]:
         return {
             self._normalize_key(course): meta
@@ -70,10 +74,10 @@ class CourseChannelClustering:
         for course1, course2 in combinations(courses_sorted, 2):
             if (course1, course2) not in overlaps:
                 meta1: Optional[str] = course_metadata.get(course1, {}).get(
-                    "department"
+                    "department",
                 )
                 meta2: Optional[str] = course_metadata.get(course2, {}).get(
-                    "department"
+                    "department",
                 )
                 if meta1 and meta2 and meta1 == meta2:
                     overlaps[(course1, course2)] = self.sparse_overlap
@@ -103,7 +107,7 @@ class CourseChannelClustering:
         if course_metadata is not None:
             self._add_sparse_overlaps(overlaps, courses_sorted, course_metadata)
         log.debug(
-            f"Calculated overlaps using {method_used} for {len(course_users)} courses: {dict(overlaps)}"
+            f"Calculated overlaps using {method_used} for {len(course_users)} courses: {dict(overlaps)}",
         )
         return dict(overlaps)
 
@@ -115,7 +119,7 @@ class CourseChannelClustering:
         effective_threshold: int = max(int(med * self.threshold_factor), 1)
         log.debug(
             f"Dynamic threshold computed: median={med}, threshold_factor={self.threshold_factor}, "
-            f"effective_threshold={effective_threshold}"
+            f"effective_threshold={effective_threshold}",
         )
         return effective_threshold
 
@@ -139,7 +143,7 @@ class CourseChannelClustering:
             if weight >= threshold:
                 graph.add_edge(course1, course2, weight=weight)
         log.debug(
-            f"Graph built: {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges."
+            f"Graph built: {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges.",
         )
         return graph
 
@@ -167,7 +171,8 @@ class CourseChannelClustering:
 
     @staticmethod
     def _chunk_list(
-        lst: List[Any], chunk_size: int
+        lst: List[Any],
+        chunk_size: int,
     ) -> Generator[List[Any], None, None]:
         for i in range(0, len(lst), chunk_size):
             yield lst[i : i + chunk_size]
@@ -175,7 +180,7 @@ class CourseChannelClustering:
     def _map_clusters_to_categories(self, clusters: List[Set[int]]) -> Dict[int, str]:
         mapping: Dict[int, str] = {}
         total_subgroups: int = sum(
-            (ceil(len(cluster) / MAX_CATEGORY_CHANNELS) for cluster in clusters)
+            ceil(len(cluster) / MAX_CATEGORY_CHANNELS) for cluster in clusters
         )
         use_suffix: bool = total_subgroups > 1
         subgroup_counter: int = 1
@@ -183,7 +188,7 @@ class CourseChannelClustering:
             courses: List[int] = sorted(cluster)
             chunks = list(self._chunk_list(courses, MAX_CATEGORY_CHANNELS))
             log.debug(
-                f"Mapping cluster with {len(courses)} courses into {len(chunks)} subgroup(s)."
+                f"Mapping cluster with {len(courses)} courses into {len(chunks)} subgroup(s).",
             )
             for chunk in chunks:
                 category_label: str = (
@@ -191,13 +196,15 @@ class CourseChannelClustering:
                     if use_suffix
                     else self.category_prefix
                 )
-                mapping |= {course: category_label for course in chunk}
+                mapping |= dict.fromkeys(chunk, category_label)
                 log.debug(f"Assigned courses {chunk} to category '{category_label}'.")
                 subgroup_counter += 1
         return mapping
 
     def evaluate_clusters(
-        self, graph: nx.Graph, clusters: List[Set[int]]
+        self,
+        graph: nx.Graph,
+        clusters: List[Set[int]],
     ) -> Dict[str, float]:
         mod: float = modularity(graph, clusters, weight="weight")
         return {"modularity": mod}
@@ -208,7 +215,7 @@ class CourseChannelClustering:
         course_metadata: Optional[Dict[Any, Dict[str, Any]]] = None,
     ) -> Dict[int, str]:
         normalized_course_users: Dict[int, Set[int]] = self._normalize_course_users(
-            course_users
+            course_users,
         )
         normalized_course_metadata: Optional[Dict[int, Dict[str, Any]]] = (
             self._normalize_course_metadata(course_metadata)
@@ -216,7 +223,8 @@ class CourseChannelClustering:
             else None
         )
         graph: nx.Graph = self._build_graph(
-            normalized_course_users, normalized_course_metadata
+            normalized_course_users,
+            normalized_course_metadata,
         )
         clusters: List[Set[int]] = self._perform_clustering(graph)
         metrics: Dict[str, float] = self.evaluate_clusters(graph, clusters)
@@ -247,7 +255,7 @@ class CourseChannelClustering:
                 log.info("Clustering cycle complete; mapping persisted.")
             except Exception as exc:
                 log.exception(
-                    f"Error during clustering cycle iteration {iteration}: {exc}"
+                    f"Error during clustering cycle iteration {iteration}: {exc}",
                 )
             iteration += 1
             try:

@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import asyncio
 import functools
-from typing import Any, Callable, Coroutine, Optional, TypeVar
+from typing import Any, Callable, Coroutine, TypeVar
 
 import discord
 from redbot.core import Config, app_commands, commands
@@ -34,7 +36,9 @@ class CourseChannelCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot: commands.Bot = bot
         self.config: Config = Config.get_conf(
-            self, identifier=42043360, force_registration=True
+            self,
+            identifier=42043360,
+            force_registration=True,
         )
         self.config.register_global(**GLOBAL_DEFAULTS)
         self.channel_service: ChannelService = ChannelService(bot, self.config)
@@ -43,15 +47,15 @@ class CourseChannelCog(commands.Cog):
             grouping_threshold=GLOBAL_DEFAULTS.get("grouping_threshold", 2),
             category_prefix=GLOBAL_DEFAULTS.get("course_category", "COURSES"),
         )
-        self._prune_task: Optional[asyncio.Task] = asyncio.create_task(
-            self.channel_service.auto_channel_prune()
+        self._prune_task: asyncio.Task | None = asyncio.create_task(
+            self.channel_service.auto_channel_prune(),
         )
-        self._cluster_task: Optional[asyncio.Task] = asyncio.create_task(
+        self._cluster_task: asyncio.Task | None = asyncio.create_task(
             self.course_service.auto_course_clustering(
                 self.channel_service,
                 self.clustering,
                 interval=GROUPING_INTERVAL,
-            )
+            ),
         )
         log.debug("CourseChannelCog initialized.")
 
@@ -59,7 +63,7 @@ class CourseChannelCog(commands.Cog):
         if ctx.guild is None:
             return True
         if ctx.command.qualified_name.lower().startswith(
-            "course"
+            "course",
         ) and ctx.command.name.lower() not in {
             "enable",
             "disable",
@@ -69,8 +73,8 @@ class CourseChannelCog(commands.Cog):
             if ctx.guild.id not in enabled:
                 await ctx.send(
                     error(
-                        "The Course Manager is currently disabled in this server. Please enable it using the `/course enable` command."
-                    )
+                        "The Course Manager is currently disabled in this server. Please enable it using the `/course enable` command.",
+                    ),
                 )
                 return False
         return True
@@ -83,13 +87,15 @@ class CourseChannelCog(commands.Cog):
 
         try:
             asyncio.get_event_loop().create_task(
-                self.course_service.course_data_proxy.close()
+                self.course_service.course_data_proxy.close(),
             )
         except Exception as exc:
             log.exception(f"Error during CourseDataProxy shutdown: {exc}")
 
     @commands.hybrid_group(
-        name="course", invoke_without_command=True, case_insensitive=True
+        name="course",
+        invoke_without_command=True,
+        case_insensitive=True,
     )
     async def course(self, ctx: commands.Context) -> None:
         await ctx.send_help(ctx.command)
@@ -120,7 +126,9 @@ class CourseChannelCog(commands.Cog):
     @app_commands.describe(channel="The text channel to set as logging channel")
     @handle_command_errors
     async def set_logging(
-        self, ctx: commands.Context, channel: discord.TextChannel
+        self,
+        ctx: commands.Context,
+        channel: discord.TextChannel,
     ) -> None:
         await self.course_service.set_logging(ctx, channel)
 
@@ -146,7 +154,11 @@ class CourseChannelCog(commands.Cog):
     @dev_course.command(name="term")
     @handle_command_errors
     async def set_term_code(
-        self, ctx: commands.Context, term_name: str, year: int, term_id: int
+        self,
+        ctx: commands.Context,
+        term_name: str,
+        year: int,
+        term_id: int,
     ) -> None:
         await self.course_service.set_term_code(ctx, term_name, year, term_id)
 
@@ -178,7 +190,10 @@ class CourseChannelCog(commands.Cog):
     @dev_course.command(name="setdefaultcategory")
     @handle_command_errors
     async def set_default_category(
-        self, ctx: commands.Context, *, category_name: str
+        self,
+        ctx: commands.Context,
+        *,
+        category_name: str,
     ) -> None:
         await self.channel_service.set_default_category(ctx, category_name)
         await ctx.send(success(f"Default category set to **{category_name}**"))
@@ -196,39 +211,20 @@ class CourseChannelCog(commands.Cog):
             course_users_raw,
             course_metadata_raw,
         ) = await self.course_service.gather_course_user_data(
-            guild, include_metadata=True
+            guild,
+            include_metadata=True,
         )
         if not course_users_raw:
             await ctx.send(error("No course membership data found."))
             return
 
-        # Convert course codes to deterministic ints
-        sorted_codes = sorted(course_users_raw)
-        code_to_id: dict[str, int] = {
-            code: idx for idx, code in enumerate(sorted_codes, start=1)
-        }
-        id_to_code: dict[int, str] = {v: k for k, v in code_to_id.items()}
-
-        course_users: dict[int, set[int]] = {
-            code_to_id[code]: users for code, users in course_users_raw.items()
-        }
-        course_metadata: dict[int, dict[str, str]] = {
-            code_to_id[code]: meta for code, meta in course_metadata_raw.items()
-        }
-
-        # Run clustering
-        mapping_int = self.clustering.cluster_courses(course_users, course_metadata)
-
-        # Convert result back to readable course codes
-        mapping: dict[str, str] = {
-            id_to_code[course_id]: category
-            for course_id, category in mapping_int.items()
-        }
+        # Run clustering directly on string-keyed maps
+        mapping = self.clustering.cluster_courses(course_users_raw, course_metadata_raw)
 
         # Show a sample of the result
         preview = "\n".join(f"{k}: {v}" for k, v in list(mapping.items())[:10])
         await ctx.send(
-            success(f"Clustering complete. Sample result (first 10):\n```{preview}```")
+            success(f"Clustering complete. Sample result (first 10):\n```{preview}```"),
         )
 
     @dev_course.command(name="recluster")
@@ -236,12 +232,10 @@ class CourseChannelCog(commands.Cog):
     @commands.has_permissions(administrator=True)
     @handle_command_errors
     async def recluster(self, ctx: commands.Context) -> None:
-        """
-        Recompute clustering and move course channels into their new categories.
-        """
+        """Recompute clustering and move course channels into their new categories."""
         guild = ctx.guild
 
-        # 1) Gather current membership
+        # 1) Gather current membership (string-keyed)
         course_users = await self.course_service.gather_course_user_data(guild)
 
         # 2) Compute new grouping
@@ -253,6 +247,6 @@ class CourseChannelCog(commands.Cog):
 
         await ctx.send(
             success(
-                "Reclustered and moved course channels according to the latest clusters."
-            )
+                "Reclustered and moved course channels according to the latest clusters.",
+            ),
         )
