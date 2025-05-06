@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 from itertools import combinations
-from math import ceil
 from statistics import median
 from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple
 
@@ -11,7 +10,7 @@ import networkx as nx
 from networkx.algorithms.community import louvain_communities
 from networkx.algorithms.community.quality import modularity
 
-from .constants import MAX_CATEGORY_CHANNELS
+from .constants import MAX_CATEGORY_CHANNELS, MIN_CATEGORY_CHANNELS
 from .logger_util import get_logger
 
 log = get_logger("red.course_channel_clustering")
@@ -153,27 +152,46 @@ class CourseChannelClustering:
             yield lst[i : i + chunk_size]
 
     def _map_clusters_to_categories(self, clusters: List[Set[str]]) -> Dict[str, str]:
-        mapping: Dict[str, str] = {}
-        total_subgroups: int = sum(
-            ceil(len(cluster) / MAX_CATEGORY_CHANNELS) for cluster in clusters
-        )
-        use_suffix: bool = total_subgroups > 1
-        subgroup_counter: int = 1
+        """- Any cluster with < MIN_CATEGORY_CHANNELS members is *not* mapped 1‑for‑1.
+          Its courses are pooled with other small clusters until we can fill
+          normal‑sized chunks.
+        - All chunks are capped at MAX_CATEGORY_CHANNELS (soft limit = 20).
+        """
+        # ------------------------------------------------------------------ #
+        # 1.  Split clusters into “large enough” and “too small” buckets
+        # ------------------------------------------------------------------ #
+        big_chunks: list[list[str]] = []
+        small_pool: list[str] = []
+
         for cluster in sorted(clusters, key=lambda c: min(c) if c else ""):
-            courses: List[str] = sorted(cluster)
-            chunks = list(self._chunk_list(courses, MAX_CATEGORY_CHANNELS))
-            log.debug(
-                f"Mapping cluster with {len(courses)} courses into {len(chunks)} subgroup(s).",
-            )
-            for chunk in chunks:
-                category_label: str = (
-                    f"{self.category_prefix}-{subgroup_counter}"
-                    if use_suffix
-                    else self.category_prefix
+            if len(cluster) < MIN_CATEGORY_CHANNELS:
+                small_pool.extend(cluster)
+            else:
+                big_chunks.extend(
+                    list(self._chunk_list(sorted(cluster), MAX_CATEGORY_CHANNELS)),
                 )
-                mapping.update(dict.fromkeys(chunk, category_label))
-                log.debug(f"Assigned courses {chunk} to category '{category_label}'.")
-                subgroup_counter += 1
+
+        # ------------------------------------------------------------------ #
+        # 2.  Pack pooled small courses into regular‑sized chunks
+        # ------------------------------------------------------------------ #
+        if small_pool:
+            big_chunks.extend(
+                list(self._chunk_list(sorted(small_pool), MAX_CATEGORY_CHANNELS)),
+            )
+
+        # ------------------------------------------------------------------ #
+        # 3.  Label chunks → category names
+        # ------------------------------------------------------------------ #
+        mapping: dict[str, str] = {}
+        use_suffix = len(big_chunks) > 1
+
+        for idx, chunk in enumerate(big_chunks, start=1):
+            label = (
+                f"{self.category_prefix}-{idx}" if use_suffix else self.category_prefix
+            )
+            mapping |= dict.fromkeys(chunk, label)
+            log.debug(f"Assigned courses {chunk} to category '{label}'.")
+
         return mapping
 
     def evaluate_clusters(
@@ -210,8 +228,7 @@ class CourseChannelClustering:
         while not shutdown_event.is_set():
             log.info(f"Starting clustering cycle iteration {iteration}")
             try:
-                course_users_data = get_course_users()
-                if course_users_data:
+                if course_users_data := get_course_users():
                     mapping = self.cluster_courses(course_users_data, course_metadata)
                 else:
                     log.warning("No course user data available; no mapping produced.")
