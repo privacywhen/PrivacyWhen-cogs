@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from collections import defaultdict
 from itertools import combinations
 from statistics import median
@@ -8,7 +7,6 @@ from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple
 
 import networkx as nx
 from networkx.algorithms.community import louvain_communities
-from networkx.algorithms.community.quality import modularity
 
 from .constants import MAX_CATEGORY_CHANNELS, MIN_CATEGORY_CHANNELS
 from .logger_util import get_logger
@@ -152,96 +150,40 @@ class CourseChannelClustering:
             yield lst[i : i + chunk_size]
 
     def _map_clusters_to_categories(self, clusters: List[Set[str]]) -> Dict[str, str]:
-        """- Any cluster with < MIN_CATEGORY_CHANNELS members is *not* mapped 1‑for‑1.
-          Its courses are pooled with other small clusters until we can fill
-          normal‑sized chunks.
-        - All chunks are capped at MAX_CATEGORY_CHANNELS (soft limit = 20).
+        """1. Split clusters into ≤ MAX_CATEGORY_CHANNELS buckets.
+        2. Merge buckets that land < MIN_CATEGORY_CHANNELS where possible.
+        3. Sort buckets by size DESC, label sequentially with zero‑padded suffix.
         """
-        # ------------------------------------------------------------------ #
-        # 1.  Split clusters into “large enough” and “too small” buckets
-        # ------------------------------------------------------------------ #
-        big_chunks: list[list[str]] = []
-        small_pool: list[str] = []
+        # ── 1 .  Split large clusters ────────────────────────────────────────
+        buckets: list[list[str]] = []
+        for cluster in clusters:
+            sorted_cluster = sorted(cluster)
+            for i in range(0, len(sorted_cluster), MAX_CATEGORY_CHANNELS):
+                buckets.append(sorted_cluster[i : i + MAX_CATEGORY_CHANNELS])
 
-        for cluster in sorted(clusters, key=lambda c: min(c) if c else ""):
-            if len(cluster) < MIN_CATEGORY_CHANNELS:
-                small_pool.extend(cluster)
-            else:
-                big_chunks.extend(
-                    list(self._chunk_list(sorted(cluster), MAX_CATEGORY_CHANNELS)),
-                )
-
-        # ------------------------------------------------------------------ #
-        # 2.  Pack pooled small courses into regular‑sized chunks
-        # ------------------------------------------------------------------ #
-        if small_pool:
-            big_chunks.extend(
-                list(self._chunk_list(sorted(small_pool), MAX_CATEGORY_CHANNELS)),
-            )
-
-        # ------------------------------------------------------------------ #
-        # 3.  Label chunks → category names
-        # ------------------------------------------------------------------ #
-        mapping: dict[str, str] = {}
-        use_suffix = len(big_chunks) > 1
-
-        for idx, chunk in enumerate(big_chunks, start=1):
-            label = (
-                f"{self.category_prefix}-{idx}" if use_suffix else self.category_prefix
-            )
-            mapping |= dict.fromkeys(chunk, label)
-            log.debug(f"Assigned courses {chunk} to category '{label}'.")
-
-        return mapping
-
-    def evaluate_clusters(
-        self,
-        graph: nx.Graph,
-        clusters: List[Set[str]],
-    ) -> Dict[str, float]:
-        mod: float = modularity(graph, clusters, weight="weight")
-        return {"modularity": mod}
-
-    def cluster_courses(
-        self,
-        course_users: Dict[str, Set[int]],
-        course_metadata: Optional[Dict[str, Dict[str, Any]]] = None,
-    ) -> Dict[str, str]:
-        graph: nx.Graph = self._build_graph(course_users, course_metadata)
-        clusters: List[Set[str]] = self._perform_clustering(graph)
-        metrics: Dict[str, float] = self.evaluate_clusters(graph, clusters)
-        log.info(f"Cluster quality metrics: {metrics}")
-        mapping: Dict[str, str] = self._map_clusters_to_categories(clusters)
-        log.info(f"Final course-to-category mapping: {mapping}")
-        return mapping
-
-    async def run_periodic(
-        self,
-        interval: int,
-        get_course_users: Callable[[], Dict[str, Set[int]]],
-        persist_mapping: Callable[[Dict[str, str]], Any],
-        shutdown_event: asyncio.Event,
-        course_metadata: Optional[Dict[str, Dict[str, Any]]] = None,
-    ) -> None:
-        log.info("Starting periodic course clustering task.")
-        iteration: int = 1
-        while not shutdown_event.is_set():
-            log.info(f"Starting clustering cycle iteration {iteration}")
-            try:
-                if course_users_data := get_course_users():
-                    mapping = self.cluster_courses(course_users_data, course_metadata)
-                else:
-                    log.warning("No course user data available; no mapping produced.")
-                    mapping = {}
-                persist_mapping(mapping)
-                log.info("Clustering cycle complete; mapping persisted.")
-            except Exception as exc:
-                log.exception(
-                    f"Error during clustering cycle iteration {iteration}: {exc}",
-                )
-            iteration += 1
-            try:
-                await asyncio.wait_for(shutdown_event.wait(), timeout=interval)
-            except asyncio.TimeoutError:
+        # ── 2 .  Merge under‑filled buckets (greedy, largest‑fit) ────────────
+        buckets.sort(key=len, reverse=True)  # work big → small
+        i = len(buckets) - 1  # start from tail
+        while i >= 0 and len(buckets) > 1:
+            if len(buckets[i]) >= MIN_CATEGORY_CHANNELS:
+                i -= 1
                 continue
-        log.info("Clustering task received shutdown signal; terminating gracefully.")
+
+            # find biggest bucket that can absorb it
+            for j in range(len(buckets)):
+                if i == j:
+                    continue
+                if len(buckets[j]) + len(buckets[i]) <= MAX_CATEGORY_CHANNELS:
+                    buckets[j].extend(buckets.pop(i))
+                    break
+            i -= 1
+
+        # ── 3 .  Rename buckets & build mapping ──────────────────────────────
+        buckets.sort(key=len, reverse=True)  # final order
+        pad = max(2, len(str(len(buckets))))  # 01, 02 … or wider
+        mapping: Dict[str, str] = {}
+        for idx, bucket in enumerate(buckets, start=1):
+            label = f"{self.category_prefix}-{idx:0{pad}d}"
+            mapping |= dict.fromkeys(bucket, label)
+            log.debug("Bucket → %s : %d channels", label, len(bucket))
+        return mapping

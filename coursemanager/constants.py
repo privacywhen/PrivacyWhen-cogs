@@ -18,5 +18,5 @@ GLOBAL_DEFAULTS: dict[str, Any] = {
 REACTION_OPTIONS: list[str] = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "❌"]
 MAX_CATEGORY_CHANNELS: int = 10
 MIN_CATEGORY_CHANNELS: int = 5
-HARD_CATEGORY_CHANNELS: int = 50  # For Reference only
+HARD_CHANNELS_PER_CATEGORY: int = 50  # For Reference only
 GROUPING_INTERVAL: int = GLOBAL_DEFAULTS["grouping_interval"]  # seconds

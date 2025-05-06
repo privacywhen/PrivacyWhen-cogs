@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import datetime, timedelta
 
 import discord
-from redbot.core import Config, commands  # noqa: TC002
+from redbot.core import commands  # noqa: TC002
 from redbot.core.utils.chat_formatting import error, success
 
 from .course_code import CourseCode
@@ -15,9 +16,52 @@ log = get_logger("red.channel_service")
 
 
 class ChannelService:
-    def __init__(self, bot: commands.Bot, config: Config) -> None:
-        self.bot: commands.Bot = bot
-        self.config: Config = config
+    # how long to wait after mutating Discord state
+    RATE_LIMIT_DELAY: float = 0.25
+
+    _prune_paused: bool = False
+    _re_num = re.compile(r"(\d+|\D+)")
+
+    @staticmethod
+    def _nat_key(s: str) -> list:
+        return [
+            int(tok) if tok.isdigit() else tok.casefold()
+            for tok in ChannelService._re_num.findall(s)
+        ]
+
+    def pause_pruning(self) -> None:
+        self._prune_paused = True
+
+    def resume_pruning(self) -> None:
+        self._prune_paused = False
+
+    async def _sort_category_channels(self, category: discord.CategoryChannel) -> None:
+        text_channels = [
+            c for c in category.channels if isinstance(c, discord.TextChannel)
+        ]
+        sorted_chans = sorted(text_channels, key=lambda c: self._nat_key(c.name))
+        for idx, chan in enumerate(sorted_chans):
+            if chan.position != idx:
+                await chan.edit(position=idx)
+                await asyncio.sleep(self.RATE_LIMIT_DELAY)
+
+    async def _reorder_course_categories(
+        self,
+        guild: discord.Guild,
+        prefix: str,
+    ) -> None:
+        non_course = [
+            c for c in guild.categories if not c.name.upper().startswith(prefix)
+        ]
+        course_cats = sorted(
+            [c for c in guild.categories if c.name.upper().startswith(prefix)],
+            key=lambda c: self._nat_key(c.name),
+        )
+        desired = non_course + course_cats
+        for idx, cat in enumerate(desired):
+            if cat.position != idx:
+                await cat.edit(position=idx)
+                await asyncio.sleep(self.RATE_LIMIT_DELAY)
 
     async def set_default_category(
         self,
@@ -135,6 +179,11 @@ class ChannelService:
         iteration = 1
         try:
             while not self.bot.is_closed():
+                # Respect pause flag
+                if self._prune_paused:
+                    await asyncio.sleep(5)
+                    continue
+
                 current_time = utcnow()
                 log.debug(
                     f"Auto-channel-prune cycle {iteration} started at {current_time}",
@@ -160,7 +209,8 @@ class ChannelService:
                                     f"Error pruning channel '{channel.name}' in guild '{guild.id}': {exc}",
                                 )
                 log.debug(
-                    f"Auto-channel-prune cycle {iteration} complete. Sleeping for {prune_interval} seconds.",
+                    f"Auto-channel-prune cycle {iteration} complete. "
+                    f"Sleeping for {prune_interval} seconds.",
                 )
                 iteration += 1
                 await asyncio.sleep(prune_interval)
@@ -175,23 +225,43 @@ class ChannelService:
         guild: discord.Guild,
         mapping: dict[str, str],
     ) -> None:
-        """Move existing course channels into the categories defined by `mapping`.
-        mapping: canonical_course_code → category_name (e.g. "CSE-101" → "COURSES-2").
-        """
         base_prefix: str = await self.config.course_category()
-        for category in get_categories_by_prefix(guild, base_prefix):
-            for channel in category.channels:
-                if not isinstance(channel, discord.TextChannel):
-                    continue
-                # Parse the channel name into its canonical code
-                try:
-                    code = CourseCode(channel.name).canonical()
-                except ValueError:
-                    continue
-                target_category = mapping.get(code)
-                if not target_category or category.name == target_category:
-                    continue
-                new_cat = await get_or_create_category(guild, target_category)
-                if new_cat:
-                    await channel.edit(category=new_cat)
-                    log.info(f"Moved '{channel.name}' → '{target_category}'")
+        self.pause_pruning()
+        try:
+            # 1) Move channels
+            for category in get_categories_by_prefix(guild, base_prefix):
+                for channel in list(category.channels):
+                    if not isinstance(channel, discord.TextChannel):
+                        continue
+                    try:
+                        code = CourseCode(channel.name).canonical()
+                    except ValueError:
+                        continue
+                    target = mapping.get(code)
+                    if not target or category.name == target:
+                        continue
+                    new_cat = await get_or_create_category(guild, target)
+                    if new_cat:
+                        await channel.edit(category=new_cat)
+                        log.info("Moved '%s' → '%s'", channel.name, target)
+                        await asyncio.sleep(self.RATE_LIMIT_DELAY)
+
+            # 2) Sort channels within each category
+            for category in get_categories_by_prefix(guild, base_prefix):
+                await self._sort_category_channels(category)
+
+            # 3) Delete empty categories
+            for category in get_categories_by_prefix(guild, base_prefix):
+                if not category.channels:
+                    try:
+                        await category.delete(reason="Removed empty course category")
+                        log.info("Deleted empty category '%s'", category.name)
+                        await asyncio.sleep(self.RATE_LIMIT_DELAY)
+                    except discord.Forbidden:
+                        log.warning("No permission to delete '%s'", category.name)
+
+            # 4) Reorder all categories so ours appear below everyone else's
+            await self._reorder_course_categories(guild, base_prefix)
+
+        finally:
+            self.resume_pruning()

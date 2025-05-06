@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 from rapidfuzz import process
 from redbot.core import commands
@@ -41,7 +41,7 @@ class CourseCodeResolver:
         self,
         ctx: commands.Context,
         variants: list[str],
-    ) -> Optional[str]:
+    ) -> str | None:
         options: list[tuple[str, Any]] = [
             (variant, self.course_listings.get(variant, "")) for variant in variants
         ]
@@ -52,18 +52,18 @@ class CourseCodeResolver:
             "Multiple course variants found. Please select the appropriate course:",
         )
 
-    def _parse_course_code(self, raw: str) -> Optional[CourseCode]:
+    def _parse_course_code(self, raw: str) -> CourseCode | None:
         try:
             return CourseCode(raw)
         except ValueError:
-            log.error(f"Invalid course code format: {raw}")
+            log.exception(f"Invalid course code format: {raw}")
             return None
 
     async def fallback_fuzzy_lookup(
         self,
         ctx: commands.Context,
         canonical: str,
-    ) -> tuple[Optional[CourseCode], Optional[dict[str, Any]]]:
+    ) -> tuple[CourseCode | None, dict[str, Any] | None]:
         if not self.course_listings:
             log.debug("No course listings available for fuzzy lookup.")
             return None, None
@@ -133,7 +133,7 @@ class CourseCodeResolver:
         self,
         ctx: commands.Context,
         course: CourseCode,
-    ) -> tuple[Optional[CourseCode], Optional[dict[str, Any]]]:
+    ) -> tuple[CourseCode | None, dict[str, Any] | None]:
         if course is None:
             log.debug("No course provided to resolve_course_code.")
             return None, None
@@ -143,7 +143,7 @@ class CourseCodeResolver:
             log.debug(f"Exact match found for '{canonical}'.")
             return (course, self.course_listings[canonical])
         if variants := self.find_variant_matches(canonical):
-            selected_code: Optional[str] = (
+            selected_code: str | None = (
                 variants[0]
                 if len(variants) == 1
                 else await self.prompt_variant_selection(ctx, variants)
@@ -151,7 +151,7 @@ class CourseCodeResolver:
             if not selected_code:
                 log.debug("No variant selected by the user.")
                 return None, None
-            candidate_obj: Optional[CourseCode] = self._parse_course_code(selected_code)
+            candidate_obj: CourseCode | None = self._parse_course_code(selected_code)
             if candidate_obj is None:
                 log.debug(f"Failed to parse selected variant '{selected_code}'.")
                 return None, None
@@ -166,7 +166,7 @@ class CourseCodeResolver:
         ctx: commands.Context,
         options: list[tuple[str, str]],
         prompt_prefix: str,
-    ) -> Optional[str]:
+    ) -> str | None:
         if not options:
             log.debug("No options provided to interactive_course_selector.")
             return None
@@ -199,7 +199,7 @@ class CourseCodeResolver:
                 timeout: float,
                 reacted_emoji: str,
                 *,
-                user: Optional[Any] = None,
+                user: Any | None = None,
             ) -> str:
                 if is_cancel:
                     log.debug("User cancelled the menu")
@@ -229,7 +229,7 @@ class CourseCodeResolver:
             is_cancel=True,
         )
         try:
-            result: Optional[str] = await menu(
+            result: str | None = await menu(
                 ctx,
                 [prompt],
                 controls=controls,
