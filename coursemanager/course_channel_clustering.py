@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple
 
 import networkx as nx
 from networkx.algorithms.community import louvain_communities
+from networkx.algorithms.community.quality import modularity
 
 from .constants import MAX_CATEGORY_CHANNELS, MIN_CATEGORY_CHANNELS
 from .logger_util import get_logger
@@ -187,3 +188,58 @@ class CourseChannelClustering:
             mapping |= dict.fromkeys(bucket, label)
             log.debug("Bucket → %s : %d channels", label, len(bucket))
         return mapping
+
+    def evaluate_clusters(
+        self,
+        graph: nx.Graph,
+        clusters: List[Set[str]],
+    ) -> Dict[str, float]:
+        """Compute and return modularity (just for logging/metrics)."""
+        return {"modularity": modularity(graph, clusters, weight="weight")}
+
+    def cluster_courses(
+        self,
+        course_users: Dict[str, Set[int]],
+        course_metadata: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> Dict[str, str]:
+        """Build the overlap graph, run your clustering function,
+        optionally log metrics, then map clusters → category names.
+        """
+        graph = self._build_graph(course_users, course_metadata)
+        clusters = self._perform_clustering(graph)
+        metrics = self.evaluate_clusters(graph, clusters)
+        log.info(f"Cluster quality metrics: {metrics}")
+        mapping = self._map_clusters_to_categories(clusters)
+        log.info(f"Final course-to-category mapping: {mapping}")
+        return mapping
+
+    async def run_periodic(
+        self,
+        interval: int,
+        get_course_users: Callable[[], Dict[str, Set[int]]],
+        persist_mapping: Callable[[Dict[str, str]], Any],
+        shutdown_event: asyncio.Event,
+        course_metadata: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> None:
+        log.info("Starting periodic course clustering task.")
+        iteration: int = 1
+        while not shutdown_event.is_set():
+            log.info(f"Starting clustering cycle iteration {iteration}")
+            try:
+                if course_users_data := get_course_users():
+                    mapping = self.cluster_courses(course_users_data, course_metadata)
+                else:
+                    log.warning("No course user data available; no mapping produced.")
+                    mapping = {}
+                persist_mapping(mapping)
+                log.info("Clustering cycle complete; mapping persisted.")
+            except Exception as exc:
+                log.exception(
+                    f"Error during clustering cycle iteration {iteration}: {exc}",
+                )
+            iteration += 1
+            try:
+                await asyncio.wait_for(shutdown_event.wait(), timeout=interval)
+            except asyncio.TimeoutError:
+                continue
+        log.info("Clustering task received shutdown signal; terminating gracefully.")
