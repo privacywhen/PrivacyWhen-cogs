@@ -252,20 +252,35 @@ class ChannelService:
 
             # 2) Sort channels within each category
             for category in get_categories_by_prefix(guild, base_prefix):
-                await self._sort_category_channels(category)
+                try:
+                    log.debug("Sorting channels in category '%s'", category.name)
+                    await self._sort_category_channels(category)
+                except Exception as exc:
+                    log.exception(f"Error sorting channels in '{category.name}': {exc}")
 
-            # 3) Delete empty categories
+            # 3) Delete categories that have no text channels remaining
             for category in get_categories_by_prefix(guild, base_prefix):
-                if not category.channels:
+                has_text = any(
+                    isinstance(ch, discord.TextChannel) for ch in category.channels
+                )
+                if not has_text:
                     try:
                         await category.delete(reason="Removed empty course category")
                         log.info("Deleted empty category '%s'", category.name)
                         await asyncio.sleep(self.RATE_LIMIT_DELAY)
                     except discord.Forbidden:
                         log.warning("No permission to delete '%s'", category.name)
+                    except Exception as exc:
+                        log.exception(
+                            f"Failed to delete empty category '{category.name}': {exc}",
+                        )
 
             # 4) Reorder all categories so ours appear below everyone else's
-            await self._reorder_course_categories(guild, base_prefix)
+            try:
+                log.debug("Reordering course categories with prefix '%s'", base_prefix)
+                await self._reorder_course_categories(guild, base_prefix)
+            except Exception as exc:
+                log.exception(f"Error reordering course categories: {exc}")
 
         finally:
             self.resume_pruning()
