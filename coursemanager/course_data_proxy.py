@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 import random
@@ -46,9 +48,9 @@ BR_TAG_REGEX: Pattern[str] = re.compile(r"<br\s*/?>", flags=re.IGNORECASE)
 
 INVALID_PAIR_TTL = timedelta(hours=12)
 
-PATTERN_TERM_YEAR = re.compile(r"\b(Winter|Spring|Fall)\s+(\d{4})", re.I)
-PATTERN_YEAR_TERM = re.compile(r"(\d{4})\s+(Winter|Spring|Fall)", re.I)
-PATTERN_TERM_ONLY = re.compile(r"\b(Winter|Spring|Fall)\s+only", re.I)
+PATTERN_TERM_YEAR = re.compile(r"\b(Winter|Spring|Fall)\s+(\d{4})", re.IGNORECASE)
+PATTERN_YEAR_TERM = re.compile(r"(\d{4})\s+(Winter|Spring|Fall)", re.IGNORECASE)
+PATTERN_TERM_ONLY = re.compile(r"\b(Winter|Spring|Fall)\s+only", re.IGNORECASE)
 
 # Transient XML errors (environmental) that should not mark the pair invalid
 TRANSIENT_XML_ERRORS: List[str] = [
@@ -87,7 +89,8 @@ class TermHelper:
 
     @staticmethod
     def hints_to_order(
-        hints: List[Tuple[str, Optional[int]]], now: datetime
+        hints: List[Tuple[str, Optional[int]]],
+        now: datetime,
     ) -> List[Tuple[str, int]]:
         """Convert raw hints into a deduplicated ordered list of (term, year)."""
         ordered: List[Tuple[str, int]] = []
@@ -107,8 +110,7 @@ class TermHelper:
 
 
 class CourseDataProxy:
-    """
-    Scrapes McMaster timetable API, caches results in Config,
+    """Scrapes McMaster timetable API, caches results in Config,
     uses in-memory TTL caches, and prunes invalid course-term pairs briefly.
     """
 
@@ -120,7 +122,7 @@ class CourseDataProxy:
         # TTL caches
         self._term_codes_cache: Dict[str, int] = {}
         self._term_codes_last_update: datetime = datetime.min.replace(
-            tzinfo=timezone.utc
+            tzinfo=timezone.utc,
         )
         self._listings_cache: Dict[str, str] = {}
         self._listings_last_update: datetime = datetime.min.replace(tzinfo=timezone.utc)
@@ -129,7 +131,7 @@ class CourseDataProxy:
         self._invalid_course_term_cache: Dict[Tuple[str, str], datetime] = {}
 
         self.log.debug(
-            "CourseDataProxy initialized with TTL-based invalid-pair pruning."
+            "CourseDataProxy initialized with TTL-based invalid-pair pruning.",
         )
 
     # ───────────────────── session management ───────────────────── #
@@ -138,7 +140,7 @@ class CourseDataProxy:
         """Get or create the aiohttp ClientSession."""
         if not self._session or self._session.closed:
             self._session = ClientSession(
-                timeout=ClientTimeout(connect=10, sock_read=10)
+                timeout=ClientTimeout(connect=10, sock_read=10),
             )
             self.log.debug("Created new HTTP session.")
         return self._session
@@ -159,8 +161,7 @@ class CourseDataProxy:
         hints: Optional[List[Tuple[str, Optional[int]]]] = None,
         detailed: bool = False,
     ) -> Dict[str, Any]:
-        """
-        Main entry: return cached or freshly fetched course data.
+        """Main entry: return cached or freshly fetched course data.
         Falls back to basic data on detailed fetch failures.
         """
         department, course_number, suffix_str = self._get_course_keys(course_code)
@@ -169,12 +170,17 @@ class CourseDataProxy:
 
         courses_cache = await self.config.courses()
         cached_entry = self._get_cache_entry(
-            courses_cache, department, course_number, suffix_str, cache_key
+            courses_cache,
+            department,
+            course_number,
+            suffix_str,
+            cache_key,
         )
         threshold = CACHE_PURGE_DAYS if detailed else CACHE_STALE_DAYS_BASIC
 
         if cached_entry and not self._is_stale(
-            cached_entry.get("last_updated", ""), threshold
+            cached_entry.get("last_updated", ""),
+            threshold,
         ):
             self.log.debug("Using cached %s data for %s", cache_key, course_code)
             return cached_entry
@@ -189,11 +195,18 @@ class CourseDataProxy:
         soup, error_msg = await self._fetch_course_online(normalized, hints=hints)
         if not soup:
             self.log.error(
-                "Error fetching %s for %s: %s", cache_key, normalized, error_msg
+                "Error fetching %s for %s: %s",
+                cache_key,
+                normalized,
+                error_msg,
             )
             if detailed:
                 if fallback := self._get_cache_entry(
-                    courses_cache, department, course_number, suffix_str, "basic"
+                    courses_cache,
+                    department,
+                    course_number,
+                    suffix_str,
+                    "basic",
                 ):
                     self.log.debug("Falling back to basic data for %s", normalized)
                     return fallback
@@ -206,12 +219,16 @@ class CourseDataProxy:
         }
         if not detailed:
             new_entry["available_terms"] = await self._determine_term_order_refined(
-                normalized
+                normalized,
             )
 
         if new_entry != cached_entry:
             await self._update_cache_entry(
-                department, course_number, suffix_str, cache_key, new_entry
+                department,
+                course_number,
+                suffix_str,
+                cache_key,
+                new_entry,
             )
             self.log.debug("Updated cache for %s data on %s", cache_key, normalized)
 
@@ -229,7 +246,8 @@ class CourseDataProxy:
     # ───────────────────── internal – term resolution ──────────────────── #
 
     async def _determine_term_order_refined(
-        self, normalized_course: Optional[str] = None
+        self,
+        normalized_course: Optional[str] = None,
     ) -> List[Tuple[str, int]]:
         """Build a prioritized term list: extracted candidate first, then other terms."""
         await self._maybe_refresh_listings()
@@ -298,7 +316,10 @@ class CourseDataProxy:
 
             self.log.debug("Fetching %s (term_id=%s)", term_key, term_id)
             soup, err = await self._attempt_term_fetch(
-                term_key, term_id, normalized_course, course_term
+                term_key,
+                term_id,
+                normalized_course,
+                course_term,
             )
 
             # Transient XML errors: return immediately (no invalidation)
@@ -342,7 +363,8 @@ class CourseDataProxy:
         for attempt in range(MAX_ATTEMPTS):
             if attempt:
                 delay = BASE_DELAY_SECONDS * 2 ** (attempt - 1) + random.uniform(
-                    0, BASE_DELAY_SECONDS
+                    0,
+                    BASE_DELAY_SECONDS,
                 )
                 await asyncio.sleep(delay)
 
@@ -370,7 +392,8 @@ class CourseDataProxy:
         return None, last_error
 
     async def _fetch_and_parse(
-        self, url: str
+        self,
+        url: str,
     ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
         """Perform a single HTTP GET and parse the XML or return an error."""
         session = await self._get_session()
@@ -427,7 +450,11 @@ class CourseDataProxy:
 
     @staticmethod
     def _get_cache_entry(
-        courses: Dict[str, Any], department: str, code: str, suffix: str, key: str
+        courses: Dict[str, Any],
+        department: str,
+        code: str,
+        suffix: str,
+        key: str,
     ) -> Optional[Dict[str, Any]]:
         return courses.get(department, {}).get(code, {}).get(suffix, {}).get(key)
 
@@ -487,7 +514,7 @@ class CourseDataProxy:
                     "description": desc,
                     "prerequisites": prereq,
                     "antirequisites": antireq,
-                }
+                },
             )
         return result
 
@@ -517,7 +544,7 @@ class CourseDataProxy:
         if soup:
             listing = self._process_course_listing(soup)
             await self.config.course_listings.set(
-                {"courses": listing, "date_updated": utcnow().isoformat()}
+                {"courses": listing, "date_updated": utcnow().isoformat()},
             )
             self.log.debug("Cached %d listings", len(listing))
             return str(len(listing))
@@ -555,7 +582,8 @@ class CourseDataProxy:
         return False
 
     async def _extract_term_from_listing(
-        self, normalized_course: str
+        self,
+        normalized_course: str,
     ) -> Optional[Tuple[str, int]]:
         """Derive a single preferred term from listing info, if present."""
         info = self._listings_cache.get(normalized_course)

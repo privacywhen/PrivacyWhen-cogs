@@ -1,5 +1,4 @@
-"""
-This module provides a unified approach to parsing, normalizing, and converting course codes.
+"""This module provides a unified approach to parsing, normalizing, and converting course codes.
 The CourseCode class extracts and standardizes course code information, ensuring consistency
 across the codebase.
 
@@ -10,9 +9,11 @@ Example:
     print(cc.department)     # Output: "SOCWORK"
     print(cc.code)           # Output: "2A06" (the core code)
     print(cc.suffix)         # Output: "A" (if present)
+
 """
 
 import re
+
 from .logger_util import get_logger
 
 log = get_logger("red.course_code")
@@ -26,14 +27,14 @@ class CourseCode:
     _pattern = re.compile(r"^\s*([A-Za-z]+)[\s\-_]*(\d[A-Za-z0-9]{2}\d)([A-Za-z])?\s*$")
 
     def __init__(self, raw: str) -> None:
-        """
-        Initialize a CourseCode object by parsing the raw course code input.
+        """Initialize a CourseCode object by parsing the raw course code input.
 
         Args:
             raw (str): The raw course code string (e.g., "socwork-2a06a").
 
         Raises:
             ValueError: If the provided input does not match the expected course code pattern.
+
         """
         self._raw = raw
         self._parse()
