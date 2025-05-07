@@ -1,80 +1,156 @@
+from __future__ import annotations
+
 import asyncio
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Iterable, Sequence
 
 import discord
-from redbot.core import Config, commands
+from redbot.core import Config, commands  # noqa: TC002
 from redbot.core.utils.chat_formatting import error, success
 
+from .constants import RATE_LIMIT_DELAY
+from .course_code import CourseCode
 from .logger_util import get_logger
-from .utils import get_categories_by_prefix, get_or_create_category, utcnow
+from .utils import get_categories_by_prefix, get_or_create_category, nat_key, utcnow
 
-log = get_logger("red.channel_service")
+log = get_logger(__name__)
+
+
+# --------------------------------------------------------------------------- #
+# Module-level helpers
+# --------------------------------------------------------------------------- #
+async def _safe_sleep(seconds: float) -> None:
+    """Wrap asyncio.sleep to simplify testing."""
+    if seconds > 0:
+        await asyncio.sleep(seconds)
+
+
+def _iter_course_text_channels(
+    guild: discord.Guild,
+    prefix: str,
+) -> Iterable[discord.TextChannel]:
+    """Yield all text channels in categories whose name starts with *prefix*."""
+    for category in get_categories_by_prefix(guild, prefix):
+        for channel in category.channels:
+            if isinstance(channel, discord.TextChannel):
+                yield channel
 
 
 class ChannelService:
+    """Manage creation, sorting, and pruning of course channels/categories."""
+
+    RATE_LIMIT_DELAY: float = RATE_LIMIT_DELAY
+
+    # --------------------------------------------------------------------- #
+    # Construction
+    # --------------------------------------------------------------------- #
     def __init__(self, bot: commands.Bot, config: Config) -> None:
         self.bot: commands.Bot = bot
         self.config: Config = config
 
+    # --------------------------------------------------------------------- #
+    # Time hook (for testability)
+    # --------------------------------------------------------------------- #
+    def _now(self) -> datetime:
+        """Return current UTC datetime (hookable in tests)."""
+        return utcnow()
+
+    # --------------------------------------------------------------------- #
+    # Category resolution
+    # --------------------------------------------------------------------- #
+    async def _resolve_default_category(
+        self,
+        guild: discord.Guild,
+    ) -> discord.CategoryChannel | None:
+        """Fetch or create the guild's default category.
+
+        Returns None on failure or missing permissions.
+        """
+        try:
+            name: str = await self.config.default_category()
+            return await get_or_create_category(guild, name)
+        except Exception:
+            log.exception("Unable to resolve default category for guild %s", guild.id)
+            return None
+
+    # --------------------------------------------------------------------- #
+    # Public commands
+    # --------------------------------------------------------------------- #
     async def set_default_category(
-        self, ctx: commands.Context, category_name: str
+        self,
+        ctx: commands.Context,
+        category_name: str,
     ) -> None:
-        log.debug(f"Attempting to set default category to {category_name}")
+        """Persist *category_name* as the default for new channels."""
+        log.debug("Setting default category → %s", category_name)
         try:
             await self.config.default_category.set(category_name)
-            log.debug(f"Default category set to {category_name}")
-        except Exception as exc:
-            log.exception(f"Error setting default category to {category_name}: {exc}")
+        except Exception:
+            log.exception("Failed to set default category")
             await ctx.send(error("Unable to set the default category."))
+        else:
+            await ctx.send(success(f"Default category set to **{category_name}**."))
 
     async def create_channel(
         self,
         ctx: commands.Context,
         channel_name: str,
-        category: Optional[discord.CategoryChannel] = None,
+        category: discord.CategoryChannel | None = None,
     ) -> None:
-        guild: discord.Guild = ctx.guild
-        log.debug(
-            f"Starting channel creation for '{channel_name}' in guild '{guild.id}'"
-        )
-        if category is None:
-            try:
-                default_cat_name: str = await self.config.default_category()
-                category = await get_or_create_category(guild, default_cat_name)
-            except Exception as exc:
-                log.exception(
-                    f"Error retrieving default category for guild '{guild.id}': {exc}"
-                )
-                await ctx.send(error("Unable to retrieve the default category."))
-                return
-        if category is None:
-            await ctx.send(
-                error("Insufficient permissions to create the default category.")
-            )
+        """Create a text channel named *channel_name*, optionally under *category*."""
+        guild = ctx.guild
+        if guild is None:
+            await ctx.send(error("This command must be used in a server."))
             return
+
+        log.debug("Begin channel creation '%s' in guild %s", channel_name, guild.id)
+
+        if category is None:
+            category = await self._resolve_default_category(guild)
+        if category is None:
+            await ctx.send(error("Cannot retrieve or create the default category."))
+            return
+
         try:
-            channel = await guild.create_text_channel(channel_name, category=category)
-            log.debug(f"Channel '{channel.name}' created in category '{category.name}'")
+            channel = await guild.create_text_channel(
+                channel_name,
+                category=category,
+            )
+        except discord.Forbidden:
+            log.exception("Forbidden creating text channel '%s'", channel_name)
+            await ctx.send(error("Insufficient permissions to create that channel."))
+        except Exception:
+            log.exception("Unexpected error creating text channel '%s'", channel_name)
+            await ctx.send(error("An unexpected error occurred during creation."))
+        else:
+            log.info(
+                "Channel '%s' created in category '%s'",
+                channel.name,
+                category.name,
+            )
             await ctx.send(
                 success(
-                    f"Channel {channel.mention} created in category **{category.name}**."
-                )
+                    f"Channel {channel.mention} created in category **{category.name}**.",
+                ),
             )
-        except discord.Forbidden as exc:
-            log.exception(
-                f"Permission error while creating channel '{channel_name}' in guild '{guild.id}': {exc}"
-            )
-            await ctx.send(
-                error("Insufficient permissions to create a channel in that category.")
-            )
-        except Exception as exc:
-            log.exception(
-                f"Unexpected error while creating channel '{channel_name}' in guild '{guild.id}': {exc}"
-            )
-            await ctx.send(
-                error("An unexpected error occurred during channel creation.")
-            )
+
+    # --------------------------------------------------------------------- #
+    # Prune helpers
+    # --------------------------------------------------------------------- #
+    async def _compute_last_activity(
+        self,
+        channel: discord.TextChannel,
+    ) -> datetime:
+        """Return timestamp of last non-bot message or channel creation time."""
+        if (msg := channel.last_message) and not msg.author.bot:
+            return msg.created_at
+
+        limit = await self.config.channel_prune_history_limit()
+        async for message in channel.history(limit=limit):
+            if not message.author.bot:
+                return message.created_at
+
+        return channel.created_at
 
     async def channel_prune_helper(
         self,
@@ -82,114 +158,112 @@ class ChannelService:
         channel: discord.TextChannel,
         prune_threshold: timedelta,
     ) -> None:
-        now = utcnow()
-        last_activity: Optional[datetime] = None
-        if (last_msg := channel.last_message) and (not last_msg.author.bot):
-            last_activity = last_msg.created_at
-            log.debug(f"Using channel.last_message for {channel.name}: {last_activity}")
-        else:
-            prune_history_limit: int = await self.config.channel_prune_history_limit()
-            async for message in channel.history(limit=prune_history_limit):
-                if not message.author.bot:
-                    last_activity = message.created_at
-                    log.debug(
-                        f"Found non-bot message in {channel.name} at {last_activity}"
-                    )
-                    break
-        if last_activity is None:
-            last_activity = channel.created_at
-            log.debug(
-                f"No non-bot messages found in {channel.name}. Using channel.created_at: {last_activity}"
-            )
-        inactivity_duration: timedelta = now - last_activity
-        log.debug(
-            f"Channel '{channel.name}' inactivity duration: {inactivity_duration}"
+        """Delete *channel* if inactivity (since last student message) exceeds *prune_threshold*."""
+        now = self._now()
+        last_activity = await self._compute_last_activity(channel)
+        inactivity = now - last_activity
+
+        if inactivity <= prune_threshold:
+            return
+
+        log.info(
+            "Pruning '%s' in guild %s (inactive %s > %s)",
+            channel.name,
+            guild.id,
+            inactivity,
+            prune_threshold,
         )
-        if inactivity_duration > prune_threshold:
-            log.info(
-                f"Pruning channel '{channel.name}' in guild '{guild.name}' (ID: {guild.id}). "
-                f"Inactive for {inactivity_duration} (threshold: {prune_threshold})."
+        try:
+            await channel.delete(reason="Auto-pruned due to inactivity.")
+        except discord.Forbidden:
+            log.exception(
+                "Forbidden deleting channel '%s' in guild %s",
+                channel.name,
+                guild.id,
             )
-            try:
-                await channel.delete(reason="Auto-pruned due to inactivity.")
-                log.debug(f"Channel '{channel.name}' pruned successfully.")
-            except discord.Forbidden as exc:
-                log.exception(
-                    f"Permission error while deleting channel '{channel.name}' in guild '{guild.id}': {exc}"
-                )
-            except Exception as exc:
-                log.exception(
-                    f"Failed to delete channel '{channel.name}' in guild '{guild.id}': {exc}"
-                )
+        except Exception:
+            log.exception(
+                "Failed deleting channel '%s' in guild %s",
+                channel.name,
+                guild.id,
+            )
 
     async def auto_channel_prune(self) -> None:
-        prune_threshold_days: int = await self.config.prune_threshold_days()
-        prune_threshold: timedelta = timedelta(days=prune_threshold_days)
-        prune_interval: int = await self.config.channel_prune_interval()
+        """Background task: periodically prune inactive course channels."""
+        prune_threshold = timedelta(days=await self.config.prune_threshold_days())
+        prune_interval = await self.config.channel_prune_interval()
+
         await self.bot.wait_until_ready()
-        log.debug("Auto-channel-prune task started.")
+        log.debug("Auto-prune task started (interval %s s)", prune_interval)
+
         iteration = 1
         try:
             while not self.bot.is_closed():
-                current_time = utcnow()
-                log.debug(
-                    f"Auto-channel-prune cycle {iteration} started at {current_time}"
-                )
-                enabled_guilds: List[int] = await self.config.enabled_guilds()
+                enabled = set(await self.config.enabled_guilds())
+                log.debug("Prune cycle #%d - enabled guilds: %s", iteration, enabled)
+
                 for guild in self.bot.guilds:
-                    if guild.id not in enabled_guilds:
+                    if guild.id not in enabled:
                         continue
-                    base_category: str = await self.config.course_category()
-                    for category in get_categories_by_prefix(guild, base_category):
-                        for channel in filter(
-                            lambda ch: isinstance(ch, discord.TextChannel),
-                            category.channels,
-                        ):
-                            try:
-                                await self.channel_prune_helper(
-                                    guild, channel, prune_threshold
-                                )
-                            except Exception as exc:
-                                log.exception(
-                                    f"Error pruning channel '{channel.name}' in guild '{guild.id}': {exc}"
-                                )
-                log.debug(
-                    f"Auto-channel-prune cycle {iteration} complete. Sleeping for {prune_interval} seconds."
-                )
+                    base_prefix = await self.config.course_category()
+                    for channel in _iter_course_text_channels(guild, base_prefix):
+                        # Exceptions are handled inside channel_prune_helper
+                        await self.channel_prune_helper(guild, channel, prune_threshold)
+
                 iteration += 1
-                await asyncio.sleep(prune_interval)
+                log.debug("Prune cycle complete; sleeping %s s", prune_interval)
+                await _safe_sleep(prune_interval)
         except asyncio.CancelledError:
-            log.debug("Auto-channel-prune task cancelled.")
+            log.debug("Auto-prune task cancelled")
             raise
-        except Exception as exc:
-            log.exception(f"Unexpected error in auto-channel-prune task: {exc}")
+        except Exception:
+            log.exception("Unexpected error in auto-prune loop")
 
+    # --------------------------------------------------------------------- #
+    # Category mapping & ordering
+    # --------------------------------------------------------------------- #
     async def apply_category_mapping(
-        self, guild: discord.Guild, mapping: Dict[int, str]
+        self,
+        guild: discord.Guild,
+        mapping: dict[str, str],
     ) -> None:
-        """
-        Move existing course channels into the categories defined by `mapping`.
-        mapping: course_id → category_name (e.g. 101 → "COURSES-2").
-        """
-        # Base prefix to discover existing course categories
-        base_prefix: str = await self.config.course_category()
+        """Move course text channels into the categories defined by *mapping*.
 
-        # Iterate all current course categories
-        for category in get_categories_by_prefix(guild, base_prefix):
-            for channel in category.channels:
-                if not isinstance(channel, discord.TextChannel):
-                    continue
-                # Extract numeric course_id from channel name: 'cse-101' → 101
-                try:
-                    course_id = int(channel.name.split("-")[-1])
-                except ValueError:
-                    continue
-                target_category = mapping.get(course_id)
-                # Skip if no mapping or already in correct category
-                if not target_category or category.name == target_category:
-                    continue
-                # Ensure the target category exists (creates it if needed)
-                new_cat = await get_or_create_category(guild, target_category)
-                if new_cat:
-                    await channel.edit(category=new_cat)
-                    log.info(f"Moved '{channel.name}' → '{target_category}'")
+        Keys are canonical course codes.
+        """
+        base_prefix = await self.config.course_category()
+
+        for channel in _iter_course_text_channels(guild, base_prefix):
+            try:
+                code = CourseCode(channel.name).canonical()
+            except ValueError:
+                continue
+
+            target = mapping.get(code)
+            if not target or ((cat := channel.category) and cat.name == target):
+                continue
+
+            new_cat = await get_or_create_category(guild, target)
+            if new_cat:
+                await channel.edit(category=new_cat)
+                log.info("Moved '%s' → '%s'", channel.name, target)
+                await _safe_sleep(self.RATE_LIMIT_DELAY)
+
+    async def _reorder_course_categories(
+        self,
+        guild: discord.Guild,
+        prefix: str,
+    ) -> None:
+        """Ensure course categories appear alphabetically after other categories."""
+        non_course = [
+            c for c in guild.categories if not c.name.upper().startswith(prefix)
+        ]
+        course_cats = sorted(
+            (c for c in guild.categories if c.name.upper().startswith(prefix)),
+            key=lambda c: nat_key(c.name),
+        )
+        desired: Sequence[discord.CategoryChannel] = (*non_course, *course_cats)
+        for idx, cat in enumerate(desired):
+            if cat.position != idx:
+                await cat.edit(position=idx)
+                await _safe_sleep(self.RATE_LIMIT_DELAY)

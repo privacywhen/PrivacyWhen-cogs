@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 import asyncio
 import functools
-from typing import Any, Callable, Coroutine, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Coroutine, TypeVar
 
-import discord
 from redbot.core import Config, app_commands, commands
 from redbot.core.utils.chat_formatting import error, success
 
@@ -12,7 +13,10 @@ from .course_channel_clustering import CourseChannelClustering
 from .course_service import CourseService
 from .logger_util import get_logger
 
-log = get_logger("red.course_channel_cog")
+if TYPE_CHECKING:
+    import discord
+
+log = get_logger(__name__)
 T = TypeVar("T")
 
 
@@ -23,8 +27,8 @@ def handle_command_errors(
     async def wrapper(self: Any, ctx: commands.Context, *args: Any, **kwargs: Any) -> T:
         try:
             return await func(self, ctx, *args, **kwargs)
-        except Exception as exc:
-            log.exception(f"Error in command '{func.__name__}': {exc}")
+        except Exception:
+            log.exception("Error in command '%s'", func.__name__)
             await ctx.send(error("An unexpected error occurred."))
 
     return wrapper
@@ -34,7 +38,9 @@ class CourseChannelCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot: commands.Bot = bot
         self.config: Config = Config.get_conf(
-            self, identifier=42043360, force_registration=True
+            self,
+            identifier=42043360,
+            force_registration=True,
         )
         self.config.register_global(**GLOBAL_DEFAULTS)
         self.channel_service: ChannelService = ChannelService(bot, self.config)
@@ -43,23 +49,43 @@ class CourseChannelCog(commands.Cog):
             grouping_threshold=GLOBAL_DEFAULTS.get("grouping_threshold", 2),
             category_prefix=GLOBAL_DEFAULTS.get("course_category", "COURSES"),
         )
-        self._prune_task: Optional[asyncio.Task] = asyncio.create_task(
-            self.channel_service.auto_channel_prune()
+        self._prune_task: asyncio.Task | None = asyncio.create_task(
+            self.channel_service.auto_channel_prune(),
         )
-        self._cluster_task: Optional[asyncio.Task] = asyncio.create_task(
+        self._cluster_task: asyncio.Task | None = asyncio.create_task(
             self.course_service.auto_course_clustering(
                 self.channel_service,
                 self.clustering,
                 interval=GROUPING_INTERVAL,
-            )
+            ),
         )
         log.debug("CourseChannelCog initialized.")
+
+    async def cog_command_error(
+        self,
+        ctx: commands.Context,
+        exc: Exception,
+    ) -> None:
+        if isinstance(exc, commands.CommandOnCooldown):
+            await ctx.send(
+                error(
+                    f"You're on cooldown. Try again in {exc.retry_after:.2f}\u202fs.",
+                ),
+            )
+            return
+
+        if isinstance(exc, commands.MissingPermissions):
+            await ctx.send(error("You lack the required permissions for this command."))
+            return
+
+        log.exception("Unhandled exception in CourseChannelCog command: %s", exc)
+        await ctx.send(error("An unexpected error occurred. Please try again later."))
 
     async def cog_check(self, ctx: commands.Context) -> bool:
         if ctx.guild is None:
             return True
         if ctx.command.qualified_name.lower().startswith(
-            "course"
+            "course",
         ) and ctx.command.name.lower() not in {
             "enable",
             "disable",
@@ -69,8 +95,8 @@ class CourseChannelCog(commands.Cog):
             if ctx.guild.id not in enabled:
                 await ctx.send(
                     error(
-                        "The Course Manager is currently disabled in this server. Please enable it using the `/course enable` command."
-                    )
+                        "The Course Manager is currently disabled in this server. Please enable it using the `/course enable` command.",
+                    ),
                 )
                 return False
         return True
@@ -83,13 +109,15 @@ class CourseChannelCog(commands.Cog):
 
         try:
             asyncio.get_event_loop().create_task(
-                self.course_service.course_data_proxy.close()
+                self.course_service.course_data_proxy.close(),
             )
-        except Exception as exc:
-            log.exception(f"Error during CourseDataProxy shutdown: {exc}")
+        except Exception:
+            log.exception("Error during CourseDataProxy shutdown")
 
     @commands.hybrid_group(
-        name="course", invoke_without_command=True, case_insensitive=True
+        name="course",
+        invoke_without_command=True,
+        case_insensitive=True,
     )
     async def course(self, ctx: commands.Context) -> None:
         await ctx.send_help(ctx.command)
@@ -120,7 +148,9 @@ class CourseChannelCog(commands.Cog):
     @app_commands.describe(channel="The text channel to set as logging channel")
     @handle_command_errors
     async def set_logging(
-        self, ctx: commands.Context, channel: discord.TextChannel
+        self,
+        ctx: commands.Context,
+        channel: discord.TextChannel,
     ) -> None:
         await self.course_service.set_logging(ctx, channel)
 
@@ -146,7 +176,11 @@ class CourseChannelCog(commands.Cog):
     @dev_course.command(name="term")
     @handle_command_errors
     async def set_term_code(
-        self, ctx: commands.Context, term_name: str, year: int, term_id: int
+        self,
+        ctx: commands.Context,
+        term_name: str,
+        year: int,
+        term_id: int,
     ) -> None:
         await self.course_service.set_term_code(ctx, term_name, year, term_id)
 
@@ -178,7 +212,10 @@ class CourseChannelCog(commands.Cog):
     @dev_course.command(name="setdefaultcategory")
     @handle_command_errors
     async def set_default_category(
-        self, ctx: commands.Context, *, category_name: str
+        self,
+        ctx: commands.Context,
+        *,
+        category_name: str,
     ) -> None:
         await self.channel_service.set_default_category(ctx, category_name)
         await ctx.send(success(f"Default category set to **{category_name}**"))
@@ -196,7 +233,8 @@ class CourseChannelCog(commands.Cog):
             course_users_raw,
             course_metadata_raw,
         ) = await self.course_service.gather_course_user_data(
-            guild, include_metadata=True
+            guild,
+            include_metadata=True,
         )
         if not course_users_raw:
             await ctx.send(error("No course membership data found."))
@@ -228,7 +266,7 @@ class CourseChannelCog(commands.Cog):
         # Show a sample of the result
         preview = "\n".join(f"{k}: {v}" for k, v in list(mapping.items())[:10])
         await ctx.send(
-            success(f"Clustering complete. Sample result (first 10):\n```{preview}```")
+            success(f"Clustering complete. Sample result (first 10):\n```{preview}```"),
         )
 
     @dev_course.command(name="recluster")
@@ -236,9 +274,7 @@ class CourseChannelCog(commands.Cog):
     @commands.has_permissions(administrator=True)
     @handle_command_errors
     async def recluster(self, ctx: commands.Context) -> None:
-        """
-        Recompute clustering and move course channels into their new categories.
-        """
+        """Recompute clustering and move course channels into their new categories."""
         guild = ctx.guild
 
         # 1) Gather current membership
@@ -253,6 +289,6 @@ class CourseChannelCog(commands.Cog):
 
         await ctx.send(
             success(
-                "Reclustered and moved course channels according to the latest clusters."
-            )
+                "Reclustered and moved course channels according to the latest clusters.",
+            ),
         )

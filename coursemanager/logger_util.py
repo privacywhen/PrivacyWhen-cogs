@@ -1,18 +1,27 @@
-import asyncio
+from __future__ import annotations
+
 import functools
+import inspect
 import logging
-from typing import Any, Callable, TypeVar
+from typing import Any, Awaitable, Callable, TypeVar
 
 T = TypeVar("T")
 
 
 def get_logger(name: str, level: int = logging.DEBUG) -> logging.Logger:
+    """Create a logger with a standard StreamHandler if none exists.
+
+    Args:
+        name: the logger name (usually `__name__` of the module).
+        level: the logging level to set.
+
+    """
     logger = logging.getLogger(name)
     logger.setLevel(level)
     if not logger.handlers:
         handler = logging.StreamHandler()
         formatter = logging.Formatter(
-            "[%(levelname)s] %(module)s.%(funcName)s:%(lineno)d: %(message)s"
+            "[%(levelname)s] %(module)s.%(funcName)s:%(lineno)d: %(message)s",
         )
         handler.setFormatter(formatter)
         logger.addHandler(handler)
@@ -21,32 +30,41 @@ def get_logger(name: str, level: int = logging.DEBUG) -> logging.Logger:
 
 def log_entry_exit(
     logger: logging.Logger,
-) -> Callable[[Callable[..., T]], Callable[..., T]]:
+) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
+    """Decorate functions to log entry and exit, handling both sync and async.
+
+    Args:
+        logger: the logger to use for messages.
+
+    """
+
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any):
-            logger.debug(f"Entering {func.__name__}")
+        if inspect.iscoroutinefunction(func):
+
+            async def async_wrapper(*args: Any, **kwargs: Any) -> T:
+                logger.debug("Entering %s", func.__name__)
+                try:
+                    result = await func(*args, **kwargs)
+                except Exception:
+                    logger.exception("Exception in %s", func.__name__)
+                    raise
+                else:
+                    logger.debug("Exiting %s", func.__name__)
+                    return result
+
+            return functools.wraps(func)(async_wrapper)
+
+        def sync_wrapper(*args: Any, **kwargs: Any) -> T:
+            logger.debug("Entering %s", func.__name__)
             try:
                 result = func(*args, **kwargs)
-            except Exception as exc:
-                logger.exception(f"Exception in {func.__name__}: {exc}")
+            except Exception:
+                logger.exception("Exception in %s", func.__name__)
                 raise
-            if asyncio.iscoroutine(result):
-
-                async def coro_wrapper():
-                    try:
-                        res = await result
-                        logger.debug(f"Exiting {func.__name__}")
-                        return res
-                    except Exception as exc:
-                        logger.exception(f"Exception in {func.__name__}: {exc}")
-                        raise
-
-                return coro_wrapper()
             else:
-                logger.debug(f"Exiting {func.__name__}")
+                logger.debug("Exiting %s", func.__name__)
                 return result
 
-        return wrapper
+        return functools.wraps(func)(sync_wrapper)
 
     return decorator

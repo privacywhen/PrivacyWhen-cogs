@@ -1,36 +1,63 @@
+from __future__ import annotations
+
 import asyncio
+import logging
 from collections import defaultdict
 from itertools import combinations
 from math import ceil
 from statistics import median
-from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple
-from .constants import MAX_CATEGORY_CHANNELS
+from typing import Any, Callable, Coroutine, Generator, Iterable, Mapping
 
 import networkx as nx
 from networkx.algorithms.community import louvain_communities
 from networkx.algorithms.community.quality import modularity
+from networkx.exception import NetworkXError
 
+from .constants import MAX_CATEGORY_CHANNELS
 from .logger_util import get_logger
 
-log = get_logger("red.course_channel_clustering")
+log = get_logger(__name__)
+
+# --------------------------------------------------------------------------- #
+# Type aliases - keep public surface identical to earlier versions
+# --------------------------------------------------------------------------- #
+CourseUsers = dict[str, set[int]]
+CourseMetadata = dict[str, dict[str, Any]]
+OverlapKey = tuple[str, str]
+Cluster = set[str]
+ClusterList = list[Cluster]
+CategoryMapping = dict[str, str]
+
+# --------------------------------------------------------------------------- #
+# Tunables / magic-number constants
+# --------------------------------------------------------------------------- #
+MIN_DYNAMIC_THRESHOLD = 1
+MIN_SPARSE_OVERLAP = 1
 
 
 class CourseChannelClustering:
+    """Compute *course → Discord-category* mappings."""
+
+    # --------------------------------------------------------------------- #
+    # Construction
+    # --------------------------------------------------------------------- #
     def __init__(
         self,
+        *,
         grouping_threshold: int = 2,
         category_prefix: str = "COURSES",
-        clustering_func: Optional[Callable[[nx.Graph], List[Set[int]]]] = None,
+        clustering_func: Callable[[nx.Graph], ClusterList] | None = None,
         optimize_overlap: bool = True,
         adaptive_threshold: bool = False,
         threshold_factor: float = 1.0,
-        sparse_overlap: int = 1,
+        sparse_overlap: int = MIN_SPARSE_OVERLAP,
     ) -> None:
-        if grouping_threshold < 1:
-            raise ValueError("grouping_threshold must be at least 1.")
+        if grouping_threshold < MIN_DYNAMIC_THRESHOLD:
+            msg = "grouping_threshold must be at least 1"
+            raise ValueError(msg)
         self.grouping_threshold: int = grouping_threshold
         self.category_prefix: str = category_prefix
-        self.clustering_func: Callable[[nx.Graph], List[Set[int]]] = (
+        self.clustering_func: Callable[[nx.Graph], ClusterList] = (
             clustering_func or self._default_clustering
         )
         self.optimize_overlap: bool = optimize_overlap
@@ -38,220 +65,233 @@ class CourseChannelClustering:
         self.threshold_factor: float = threshold_factor
         self.sparse_overlap: int = sparse_overlap
 
+    # --------------------------------------------------------------------- #
+    # Internal helpers
+    # --------------------------------------------------------------------- #
     @staticmethod
-    def _normalize_key(key: Any) -> int:
-        try:
-            return int(key)
-        except Exception as exc:
-            raise ValueError(f"Key {key} is not convertible to int.") from exc
+    def _chunk_list(items: list[Any], size: int) -> Generator[list[Any], None, None]:
+        """Yield *size*‑length chunks from *items* (preserves order)."""
+        for i in range(0, len(items), size):
+            yield items[i : i + size]
 
-    def _normalize_course_users(
-        self, course_users: Dict[Any, Set[Any]]
-    ) -> Dict[int, Set[int]]:
-        return {
-            self._normalize_key(course): {self._normalize_key(user) for user in users}
-            for course, users in course_users.items()
-        }
-
-    def _normalize_course_metadata(
-        self, course_metadata: Dict[Any, Dict[str, Any]]
-    ) -> Dict[int, Dict[str, Any]]:
-        return {
-            self._normalize_key(course): meta
-            for course, meta in course_metadata.items()
-        }
+    @staticmethod
+    def _warn_empty_courses(course_users: Mapping[str, Iterable[int]]) -> None:
+        """Emit a warning for courses without user engagement."""
+        for course, users in course_users.items():
+            if not users:
+                log.warning("Course %s has no user engagements", course)
 
     def _add_sparse_overlaps(
         self,
-        overlaps: Dict[Tuple[int, int], int],
-        courses_sorted: List[int],
-        course_metadata: Dict[int, Dict[str, Any]],
+        overlaps: defaultdict[OverlapKey, int],
+        sorted_courses: list[str],
+        metadata: CourseMetadata,
     ) -> None:
-        for course1, course2 in combinations(courses_sorted, 2):
-            if (course1, course2) not in overlaps:
-                meta1: Optional[str] = course_metadata.get(course1, {}).get(
-                    "department"
-                )
-                meta2: Optional[str] = course_metadata.get(course2, {}).get(
-                    "department"
-                )
-                if meta1 and meta2 and meta1 == meta2:
-                    overlaps[(course1, course2)] = self.sparse_overlap
+        """Inject minimal overlap when two courses share the same department."""
+        for c1, c2 in combinations(sorted_courses, 2):
+            if (c1, c2) in overlaps:
+                continue
+            dept_a = metadata.get(c1, {}).get("department")
+            dept_b = metadata.get(c2, {}).get("department")
+            if dept_a and dept_b and dept_a == dept_b:
+                overlaps[(c1, c2)] = self.sparse_overlap
 
     def _calculate_overlaps(
         self,
-        course_users: Dict[int, Set[int]],
-        course_metadata: Optional[Dict[int, Dict[str, Any]]] = None,
-    ) -> Dict[Tuple[int, int], int]:
-        overlaps: Dict[Tuple[int, int], int] = defaultdict(int)
-        courses_sorted: List[int] = sorted(course_users.keys())
+        course_users: CourseUsers,
+        course_metadata: CourseMetadata | None = None,
+    ) -> dict[OverlapKey, int]:
+        """Return pairwise user‑overlap counts between courses."""
+        overlaps: defaultdict[OverlapKey, int] = defaultdict(int)
+
         if self.optimize_overlap:
-            user_to_courses: Dict[int, Set[int]] = defaultdict(set)
+            # Build inverted index: user → courses
+            user_to_courses: defaultdict[int, set[str]] = defaultdict(set)
             for course, users in course_users.items():
-                for user in users:
-                    user_to_courses[user].add(course)
+                for uid in users:
+                    user_to_courses[uid].add(course)
             for courses in user_to_courses.values():
-                for course1, course2 in combinations(sorted(courses), 2):
-                    overlaps[(course1, course2)] += 1
-            method_used: str = "inverted index"
+                for a, b in combinations(sorted(courses), 2):
+                    overlaps[(a, b)] += 1
+            method = "inverted‑index"
         else:
-            for course1, course2 in combinations(courses_sorted, 2):
-                count: int = len(course_users[course1] & course_users[course2])
-                if count > 0:
-                    overlaps[(course1, course2)] = count
-            method_used = "combinations"
-        if course_metadata is not None:
-            self._add_sparse_overlaps(overlaps, courses_sorted, course_metadata)
-        log.debug(
-            f"Calculated overlaps using {method_used} for {len(course_users)} courses: {dict(overlaps)}"
-        )
+            for a, b in combinations(sorted(course_users), 2):
+                if cnt := len(course_users[a] & course_users[b]):
+                    overlaps[(a, b)] = cnt
+            method = "direct‑combinations"
+
+        if course_metadata:
+            self._add_sparse_overlaps(overlaps, sorted(course_users), course_metadata)
+
+        if log.isEnabledFor(logging.DEBUG):
+            log.debug(
+                "Calculated overlaps using %s for %d courses",
+                method,
+                len(course_users),
+            )
         return dict(overlaps)
 
-    def _compute_dynamic_threshold(self, overlaps: Dict[Tuple[int, int], int]) -> int:
-        counts = sorted(overlaps.values())
-        if not counts:
+    def _compute_dynamic_threshold(self, overlaps: Mapping[OverlapKey, int]) -> int:
+        """Return adaptive threshold = max(median · factor, MIN)."""
+        if not overlaps:
             return self.grouping_threshold
-        med = median(counts)
-        effective_threshold: int = max(int(med * self.threshold_factor), 1)
-        log.debug(
-            f"Dynamic threshold computed: median={med}, threshold_factor={self.threshold_factor}, "
-            f"effective_threshold={effective_threshold}"
-        )
-        return effective_threshold
+        med = median(overlaps.values())
+        threshold = max(int(med * self.threshold_factor), MIN_DYNAMIC_THRESHOLD)
+        log.debug("Dynamic threshold → %s (median %s)", threshold, med)
+        return threshold
 
     def _build_graph(
         self,
-        course_users: Dict[int, Set[int]],
-        course_metadata: Optional[Dict[int, Dict[str, Any]]] = None,
+        course_users: CourseUsers,
+        course_metadata: CourseMetadata | None = None,
     ) -> nx.Graph:
+        """Construct weighted graph where edge weight = user overlap."""
         graph: nx.Graph = nx.Graph()
-        graph.add_nodes_from(sorted(course_users.keys()))
-        for course, users in sorted(course_users.items()):
-            if not users:
-                log.warning(f"Course '{course}' has no user engagements.")
+        graph.add_nodes_from(course_users)
+
+        self._warn_empty_courses(course_users)
+
         overlaps = self._calculate_overlaps(course_users, course_metadata)
-        threshold: int = (
+        threshold = (
             self._compute_dynamic_threshold(overlaps)
-            if self.adaptive_threshold and overlaps
+            if self.adaptive_threshold
             else self.grouping_threshold
         )
-        for (course1, course2), weight in overlaps.items():
+
+        for (a, b), weight in overlaps.items():
             if weight >= threshold:
-                graph.add_edge(course1, course2, weight=weight)
+                graph.add_edge(a, b, weight=weight)
+
         log.debug(
-            f"Graph built: {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges."
+            "Graph built with %d nodes & %d edges",
+            graph.number_of_nodes(),
+            graph.number_of_edges(),
         )
         return graph
 
-    def _default_clustering(self, graph: nx.Graph) -> List[Set[int]]:
-        if graph.number_of_edges() == 0:
-            clusters: List[Set[int]] = [{node} for node in graph.nodes()]
-            log.debug("Graph has no edges; each course is its own cluster.")
-            return clusters
+    # --------------------------------------------------------------------- #
+    # Clustering
+    # --------------------------------------------------------------------- #
+    @staticmethod
+    def _default_clustering(graph: nx.Graph) -> ClusterList:
+        """Louvain clustering, with singleton fallback."""
+        if graph.number_of_edges() == 0:  # fully disconnected
+            return [{node} for node in graph.nodes()]
         try:
-            clusters = louvain_communities(graph, weight="weight")
-            log.debug(f"Louvain algorithm detected {len(clusters)} clusters.")
-            return clusters
-        except Exception as exc:
-            log.exception(f"Default clustering failed: {exc}")
+            return louvain_communities(graph, weight="weight")
+        except NetworkXError:
+            log.exception("Louvain clustering failed; using single cluster")
             return [set(graph.nodes())]
 
-    def _perform_clustering(self, graph: nx.Graph) -> List[Set[int]]:
+    def _perform_clustering(self, graph: nx.Graph) -> ClusterList:
+        """Invoke custom clustering with guarded error handling."""
         try:
             clusters = self.clustering_func(graph)
-            log.debug(f"Clustering performed, obtained {len(clusters)} clusters.")
-            return clusters
-        except Exception as exc:
-            log.exception(f"Error during clustering: {exc}")
+        except NetworkXError:
+            log.exception("Custom clustering failed; using single cluster")
             return [set(graph.nodes())]
+        else:
+            log.debug("Clustering produced %d clusters", len(clusters))
+            return clusters
 
-    @staticmethod
-    def _chunk_list(
-        lst: List[Any], chunk_size: int
-    ) -> Generator[List[Any], None, None]:
-        for i in range(0, len(lst), chunk_size):
-            yield lst[i : i + chunk_size]
+    # --------------------------------------------------------------------- #
+    # Mapping utilities
+    # --------------------------------------------------------------------- #
+    def _map_clusters_to_categories(self, clusters: ClusterList) -> CategoryMapping:
+        """Create *course → category‑label* mapping with deterministic labels."""
+        mapping: CategoryMapping = {}
+        total_groups = sum(ceil(len(c) / MAX_CATEGORY_CHANNELS) for c in clusters)
+        suffix_width = len(str(total_groups))
+        use_suffix = total_groups > 1
+        bucket = 1
 
-    def _map_clusters_to_categories(self, clusters: List[Set[int]]) -> Dict[int, str]:
-        mapping: Dict[int, str] = {}
-        total_subgroups: int = sum(
-            (ceil(len(cluster) / MAX_CATEGORY_CHANNELS) for cluster in clusters)
-        )
-        use_suffix: bool = total_subgroups > 1
-        subgroup_counter: int = 1
-        for cluster in sorted(clusters, key=lambda c: min(c) if c else 0):
-            courses: List[int] = sorted(cluster)
-            chunks = list(self._chunk_list(courses, MAX_CATEGORY_CHANNELS))
-            log.debug(
-                f"Mapping cluster with {len(courses)} courses into {len(chunks)} subgroup(s)."
-            )
-            for chunk in chunks:
-                category_label: str = (
-                    f"{self.category_prefix}-{subgroup_counter}"
+        for cluster in sorted(clusters, key=lambda c: min(c)):
+            for chunk in self._chunk_list(sorted(cluster), MAX_CATEGORY_CHANNELS):
+                label = (
+                    f"{self.category_prefix}-{bucket:0{suffix_width}}"
                     if use_suffix
                     else self.category_prefix
                 )
-                mapping |= {course: category_label for course in chunk}
-                log.debug(f"Assigned courses {chunk} to category '{category_label}'.")
-                subgroup_counter += 1
+                mapping.update(dict.fromkeys(chunk, label))
+                log.debug("Assigned %r → %s", chunk, label)
+                bucket += 1
         return mapping
 
+    # --------------------------------------------------------------------- #
+    # Public surface
+    # --------------------------------------------------------------------- #
     def evaluate_clusters(
-        self, graph: nx.Graph, clusters: List[Set[int]]
-    ) -> Dict[str, float]:
-        mod: float = modularity(graph, clusters, weight="weight")
-        return {"modularity": mod}
+        self,
+        graph: nx.Graph,
+        clusters: ClusterList,
+    ) -> dict[str, float]:
+        """Compute clustering‑quality metrics (currently just modularity)."""
+        return {"modularity": modularity(graph, clusters, weight="weight")}
 
     def cluster_courses(
         self,
-        course_users: Dict[Any, Set[Any]],
-        course_metadata: Optional[Dict[Any, Dict[str, Any]]] = None,
-    ) -> Dict[int, str]:
-        normalized_course_users: Dict[int, Set[int]] = self._normalize_course_users(
-            course_users
-        )
-        normalized_course_metadata: Optional[Dict[int, Dict[str, Any]]] = (
-            self._normalize_course_metadata(course_metadata)
-            if course_metadata is not None
-            else None
-        )
-        graph: nx.Graph = self._build_graph(
-            normalized_course_users, normalized_course_metadata
-        )
-        clusters: List[Set[int]] = self._perform_clustering(graph)
-        metrics: Dict[str, float] = self.evaluate_clusters(graph, clusters)
-        log.info(f"Cluster quality metrics: {metrics}")
-        mapping: Dict[int, str] = self._map_clusters_to_categories(clusters)
-        log.info(f"Final course-to-category mapping: {mapping}")
+        course_users: CourseUsers,
+        course_metadata: CourseMetadata | None = None,
+    ) -> CategoryMapping:
+        """End‑to‑end pipeline: graph → clusters → mapping.
+
+        Preserves original signature to avoid breaking callers.
+        """
+        graph = self._build_graph(course_users, course_metadata)
+        clusters = self._perform_clustering(graph)
+        log.info("Cluster quality: %s", self.evaluate_clusters(graph, clusters))
+        mapping = self._map_clusters_to_categories(clusters)
+        log.info("Final mapping: %s", mapping)
         return mapping
 
     async def run_periodic(
         self,
         interval: int,
-        get_course_users: Callable[[], Dict[Any, Set[Any]]],
-        persist_mapping: Callable[[Dict[int, str]], Any],
+        fetch_course_users: Callable[
+            [],
+            CourseUsers | Coroutine[Any, Any, CourseUsers],
+        ],
+        persist_mapping: Callable[
+            [CategoryMapping],
+            Coroutine[Any, Any, Any] | Any,
+        ],
         shutdown_event: asyncio.Event,
-        course_metadata: Optional[Dict[Any, Dict[str, Any]]] = None,
+        course_metadata: CourseMetadata | None = None,
     ) -> None:
-        log.info("Starting periodic course clustering task.")
-        iteration: int = 1
+        """Background task: refresh mapping every *interval* seconds."""
+        log.info("Periodic clustering task started")
+        iteration = 1
+
         while not shutdown_event.is_set():
-            log.info(f"Starting clustering cycle iteration {iteration}")
+            log.info("Clustering cycle #%d", iteration)
+
+            # --------------------------- fetch --------------------------- #
             try:
-                if course_users_data := get_course_users():
-                    mapping = self.cluster_courses(course_users_data, course_metadata)
-                else:
-                    log.warning("No course user data available; no mapping produced.")
-                    mapping = {}
-                persist_mapping(mapping)
-                log.info("Clustering cycle complete; mapping persisted.")
-            except Exception as exc:
-                log.exception(
-                    f"Error during clustering cycle iteration {iteration}: {exc}"
-                )
+                raw = fetch_course_users()
+                users = await raw if asyncio.iscoroutine(raw) else raw
+            except Exception:
+                log.exception("Fetching users failed; skipping cycle")
+                users = {}
+
+            # ------------------------ compute / persist ------------------ #
+            if users:
+                mapping = self.cluster_courses(users, course_metadata)
+                try:
+                    persisted = persist_mapping(mapping)
+                    if asyncio.iscoroutine(persisted):
+                        await persisted
+                    log.info("Mapping persisted")
+                except Exception:
+                    log.exception("Persisting mapping failed")
+            else:
+                log.info("No user data; nothing persisted")
+
             iteration += 1
+
+            # --------------------------- sleep --------------------------- #
             try:
                 await asyncio.wait_for(shutdown_event.wait(), timeout=interval)
             except asyncio.TimeoutError:
                 continue
-        log.info("Clustering task received shutdown signal; terminating gracefully.")
+
+        log.info("Periodic clustering task shutdown complete")
