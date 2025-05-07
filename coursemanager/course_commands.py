@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import functools
-from typing import TYPE_CHECKING, Any, Callable, Coroutine, TypeVar
+from typing import Any, Callable, Coroutine, TypeVar
 
+import discord  # noqa: TC002
 from redbot.core import Config, app_commands, commands
 from redbot.core.utils.chat_formatting import error, success
 
@@ -12,9 +13,6 @@ from .constants import GLOBAL_DEFAULTS, GROUPING_INTERVAL
 from .course_channel_clustering import CourseChannelClustering
 from .course_service import CourseService
 from .logger_util import get_logger
-
-if TYPE_CHECKING:
-    import discord
 
 log = get_logger(__name__)
 T = TypeVar("T")
@@ -219,55 +217,6 @@ class CourseChannelCog(commands.Cog):
     ) -> None:
         await self.channel_service.set_default_category(ctx, category_name)
         await ctx.send(success(f"Default category set to **{category_name}**"))
-
-    @dev_course.command(name="cluster")
-    @commands.guild_only()
-    @commands.is_owner()
-    @handle_command_errors
-    async def manual_cluster(self, ctx: commands.Context) -> None:
-        """Manually trigger course clustering using live Discord state."""
-        guild = ctx.guild
-
-        # Gather user-sets and metadata in one shot (string-keyed)
-        (
-            course_users_raw,
-            course_metadata_raw,
-        ) = await self.course_service.gather_course_user_data(
-            guild,
-            include_metadata=True,
-        )
-        if not course_users_raw:
-            await ctx.send(error("No course membership data found."))
-            return
-
-        # Convert course codes to deterministic ints
-        sorted_codes = sorted(course_users_raw)
-        code_to_id: dict[str, int] = {
-            code: idx for idx, code in enumerate(sorted_codes, start=1)
-        }
-        id_to_code: dict[int, str] = {v: k for k, v in code_to_id.items()}
-
-        course_users: dict[int, set[int]] = {
-            code_to_id[code]: users for code, users in course_users_raw.items()
-        }
-        course_metadata: dict[int, dict[str, str]] = {
-            code_to_id[code]: meta for code, meta in course_metadata_raw.items()
-        }
-
-        # Run clustering
-        mapping_int = self.clustering.cluster_courses(course_users, course_metadata)
-
-        # Convert result back to readable course codes
-        mapping: dict[str, str] = {
-            id_to_code[course_id]: category
-            for course_id, category in mapping_int.items()
-        }
-
-        # Show a sample of the result
-        preview = "\n".join(f"{k}: {v}" for k, v in list(mapping.items())[:10])
-        await ctx.send(
-            success(f"Clustering complete. Sample result (first 10):\n```{preview}```"),
-        )
 
     @dev_course.command(name="recluster")
     @commands.guild_only()
