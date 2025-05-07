@@ -4,7 +4,6 @@ import asyncio
 import logging
 from collections import defaultdict
 from itertools import combinations
-from math import ceil
 from statistics import median
 from typing import Any, Callable, Coroutine, Generator, Iterable, Mapping
 
@@ -13,7 +12,7 @@ from networkx.algorithms.community import louvain_communities
 from networkx.algorithms.community.quality import modularity
 from networkx.exception import NetworkXError
 
-from .constants import MAX_CATEGORY_CHANNELS
+from .constants import MAX_CATEGORY_CHANNELS, MIN_CATEGORY_CHANNELS
 from .logger_util import get_logger
 
 log = get_logger(__name__)
@@ -197,25 +196,68 @@ class CourseChannelClustering:
     # --------------------------------------------------------------------- #
     # Mapping utilities
     # --------------------------------------------------------------------- #
-    def _map_clusters_to_categories(self, clusters: ClusterList) -> CategoryMapping:
-        """Create *course → category‑label* mapping with deterministic labels."""
-        mapping: CategoryMapping = {}
-        total_groups = sum(ceil(len(c) / MAX_CATEGORY_CHANNELS) for c in clusters)
-        suffix_width = len(str(total_groups))
-        use_suffix = total_groups > 1
-        bucket = 1
+    def _prelim_buckets(self, clusters: ClusterList) -> list[list[str]]:
+        """Split each cluster into chunks of size ≤ MAX_CATEGORY_CHANNELS."""
+        return [
+            chunk
+            for cluster in clusters
+            for chunk in self._chunk_list(sorted(cluster), MAX_CATEGORY_CHANNELS)
+        ]
 
-        for cluster in sorted(clusters, key=lambda c: min(c)):
-            for chunk in self._chunk_list(sorted(cluster), MAX_CATEGORY_CHANNELS):
+    def _partition_buckets(
+        self,
+        prelim: list[list[str]],
+    ) -> tuple[list[list[str]], list[str]]:
+        """Return (large_buckets, orphans) based on MIN_CATEGORY_CHANNELS."""
+        large = [b for b in prelim if len(b) >= MIN_CATEGORY_CHANNELS]
+        orphans = [c for b in prelim if len(b) < MIN_CATEGORY_CHANNELS for c in b]
+        return large, orphans
+
+    def _merge_orphans(self, large: list[list[str]], orphans: list[str]) -> None:
+        """Pack orphans into existing large buckets up to capacity."""
+        for course in list(orphans):
+            for bucket in large:
+                if len(bucket) < MAX_CATEGORY_CHANNELS:
+                    bucket.append(course)
+                    orphans.remove(course)
+                    break
+
+    def _label_buckets(
+        self,
+        buckets: list[list[str]],
+        *,
+        orphans_exist: bool,
+    ) -> CategoryMapping:
+        """Assign names to buckets; use –MISC for overflow bucket if needed."""
+        mapping: CategoryMapping = {}
+        total = len(buckets)
+        width = len(str(total))
+        for idx, bucket in enumerate(
+            sorted(buckets, key=lambda b: (-len(b), b)),
+            start=1,
+        ):
+            if idx == total and orphans_exist:
+                label = f"{self.category_prefix}-MISC"
+            else:
                 label = (
-                    f"{self.category_prefix}-{bucket:0{suffix_width}}"
-                    if use_suffix
+                    f"{self.category_prefix}-{idx:0{width}}"
+                    if total > 1
                     else self.category_prefix
                 )
-                mapping.update(dict.fromkeys(chunk, label))
-                log.debug("Assigned %r → %s", chunk, label)
-                bucket += 1
+            for course in bucket:
+                mapping[course] = label
+            log.debug("Bucket → %s : %d channels", label, len(bucket))
         return mapping
+
+    def _map_clusters_to_categories(self, clusters: ClusterList) -> CategoryMapping:
+        """Orchestrate bucket creation, merging, and labeling."""
+        prelim = self._prelim_buckets(clusters)
+        large, orphans = self._partition_buckets(prelim)
+        self._merge_orphans(large, orphans)
+        if orphans:
+            large.append(sorted(orphans))
+            log.debug("Added overflow bucket with %d singleton courses", len(orphans))
+        return self._label_buckets(large, orphans_exist=bool(orphans))
 
     # --------------------------------------------------------------------- #
     # Public surface

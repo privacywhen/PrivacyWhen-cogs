@@ -17,5 +17,6 @@ GLOBAL_DEFAULTS: dict[str, Any] = {
 
 REACTION_OPTIONS: list[str] = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "❌"]
 MAX_CATEGORY_CHANNELS: int = 5
+MIN_CATEGORY_CHANNELS: int = 3
 GROUPING_INTERVAL: int = GLOBAL_DEFAULTS["grouping_interval"]  # seconds
 RATE_LIMIT_DELAY: float = 0.25
