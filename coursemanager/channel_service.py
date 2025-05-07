@@ -233,6 +233,7 @@ class ChannelService:
         """
         base_prefix = await self.config.course_category()
 
+        # 1. Move each channel into its mapped category (creating it if needed)
         for channel in _iter_course_text_channels(guild, base_prefix):
             try:
                 code = CourseCode(channel.name).canonical()
@@ -240,7 +241,8 @@ class ChannelService:
                 continue
 
             target = mapping.get(code)
-            if not target or ((cat := channel.category) and cat.name == target):
+            current_cat = channel.category.name if channel.category else None
+            if not target or current_cat == target:
                 continue
 
             new_cat = await get_or_create_category(guild, target)
@@ -248,6 +250,22 @@ class ChannelService:
                 await channel.edit(category=new_cat)
                 log.info("Moved '%s' → '%s'", channel.name, target)
                 await _safe_sleep(self.RATE_LIMIT_DELAY)
+
+        # 2. Clean up any empty, unmapped categories
+        desired = set(mapping.values())
+        for cat in get_categories_by_prefix(guild, base_prefix):
+            # If this category is not in our current mapping and has no text channels, delete it
+            if cat.name not in desired and not any(
+                isinstance(ch, discord.TextChannel) for ch in cat.channels
+            ):
+                try:
+                    await cat.delete(reason="Cleaning up stale course category")
+                    log.info("Deleted stale empty category '%s'", cat.name)
+                    await _safe_sleep(self.RATE_LIMIT_DELAY)
+                except discord.Forbidden:
+                    log.warning("No permission to delete stale category '%s'", cat.name)
+                except Exception:
+                    log.exception("Failed to delete stale category '%s'", cat.name)
 
     async def _reorder_course_categories(
         self,
