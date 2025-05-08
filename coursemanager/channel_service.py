@@ -16,9 +16,6 @@ from .utils import get_categories_by_prefix, get_or_create_category, nat_key, ut
 log = get_logger(__name__)
 
 
-# --------------------------------------------------------------------------- #
-# Module-level helpers
-# --------------------------------------------------------------------------- #
 async def _safe_sleep(seconds: float) -> None:
     """Wrap asyncio.sleep to simplify testing."""
     if seconds > 0:
@@ -41,23 +38,14 @@ class ChannelService:
 
     RATE_LIMIT_DELAY: float = RATE_LIMIT_DELAY
 
-    # --------------------------------------------------------------------- #
-    # Construction
-    # --------------------------------------------------------------------- #
     def __init__(self, bot: commands.Bot, config: Config) -> None:
         self.bot: commands.Bot = bot
         self.config: Config = config
 
-    # --------------------------------------------------------------------- #
-    # Time hook (for testability)
-    # --------------------------------------------------------------------- #
     def _now(self) -> datetime:
         """Return current UTC datetime (hookable in tests)."""
         return utcnow()
 
-    # --------------------------------------------------------------------- #
-    # Category resolution
-    # --------------------------------------------------------------------- #
     async def _resolve_default_category(
         self,
         guild: discord.Guild,
@@ -70,12 +58,13 @@ class ChannelService:
             name: str = await self.config.default_category()
             return await get_or_create_category(guild, name)
         except Exception:
-            log.exception("Unable to resolve default category for guild %s", guild.id)
+            log.exception(
+                "Unable to resolve default category %r for guild %s",
+                name,
+                guild.id,
+            )
             return None
 
-    # --------------------------------------------------------------------- #
-    # Public commands
-    # --------------------------------------------------------------------- #
     async def set_default_category(
         self,
         ctx: commands.Context,
@@ -119,8 +108,8 @@ class ChannelService:
         except discord.Forbidden:
             log.exception("Forbidden creating text channel '%s'", channel_name)
             await ctx.send(error("Insufficient permissions to create that channel."))
-        except Exception:
-            log.exception("Unexpected error creating text channel '%s'", channel_name)
+        except discord.HTTPException:
+            log.exception("HTTP error creating text channel '%s'", channel_name)
             await ctx.send(error("An unexpected error occurred during creation."))
         else:
             log.info(
@@ -134,9 +123,6 @@ class ChannelService:
                 ),
             )
 
-    # --------------------------------------------------------------------- #
-    # Prune helpers
-    # --------------------------------------------------------------------- #
     async def _compute_last_activity(
         self,
         channel: discord.TextChannel,
@@ -158,7 +144,7 @@ class ChannelService:
         channel: discord.TextChannel,
         prune_threshold: timedelta,
     ) -> None:
-        """Delete *channel* if inactivity (since last student message) exceeds *prune_threshold*."""
+        """Delete *channel* if inactivity exceeds *prune_threshold*."""
         now = self._now()
         last_activity = await self._compute_last_activity(channel)
         inactivity = now - last_activity
@@ -181,7 +167,7 @@ class ChannelService:
                 channel.name,
                 guild.id,
             )
-        except Exception:
+        except discord.HTTPException:
             log.exception(
                 "Failed deleting channel '%s' in guild %s",
                 channel.name,
@@ -207,7 +193,6 @@ class ChannelService:
                         continue
                     base_prefix = await self.config.course_category()
                     for channel in _iter_course_text_channels(guild, base_prefix):
-                        # Exceptions are handled inside channel_prune_helper
                         await self.channel_prune_helper(guild, channel, prune_threshold)
 
                 iteration += 1
@@ -219,21 +204,13 @@ class ChannelService:
         except Exception:
             log.exception("Unexpected error in auto-prune loop")
 
-    # --------------------------------------------------------------------- #
-    # Category mapping & ordering
-    # --------------------------------------------------------------------- #
-    async def apply_category_mapping(
+    async def _move_channels(
         self,
         guild: discord.Guild,
         mapping: dict[str, str],
     ) -> None:
-        """Move course text channels into the categories defined by *mapping*.
-
-        Keys are canonical course codes.
-        """
+        """Phase 1: Move each course channel into its mapped category."""
         base_prefix = await self.config.course_category()
-
-        # 1. Move each channel into its mapped category (creating it if needed)
         for channel in _iter_course_text_channels(guild, base_prefix):
             try:
                 code = CourseCode(channel.name).canonical()
@@ -251,10 +228,15 @@ class ChannelService:
                 log.info("Moved '%s' → '%s'", channel.name, target)
                 await _safe_sleep(self.RATE_LIMIT_DELAY)
 
-        # 2. Clean up any empty, unmapped categories
+    async def _cleanup_categories(
+        self,
+        guild: discord.Guild,
+        mapping: dict[str, str],
+    ) -> None:
+        """Phase 2: Delete empty categories not in the current mapping."""
+        base_prefix = await self.config.course_category()
         desired = set(mapping.values())
         for cat in get_categories_by_prefix(guild, base_prefix):
-            # If this category is not in our current mapping and has no text channels, delete it
             if cat.name not in desired and not any(
                 isinstance(ch, discord.TextChannel) for ch in cat.channels
             ):
@@ -264,8 +246,17 @@ class ChannelService:
                     await _safe_sleep(self.RATE_LIMIT_DELAY)
                 except discord.Forbidden:
                     log.warning("No permission to delete stale category '%s'", cat.name)
-                except Exception:
+                except discord.HTTPException:
                     log.exception("Failed to delete stale category '%s'", cat.name)
+
+    async def apply_category_mapping(
+        self,
+        guild: discord.Guild,
+        mapping: dict[str, str],
+    ) -> None:
+        """Orchestrate moving channels and cleaning up stale categories."""
+        await self._move_channels(guild, mapping)
+        await self._cleanup_categories(guild, mapping)
 
     async def _reorder_course_categories(
         self,

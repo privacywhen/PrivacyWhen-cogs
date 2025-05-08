@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
 
 from rapidfuzz import process
 from redbot.core.utils.menus import close_menu, menu
 
-from .constants import REACTION_OPTIONS
+from .constants import FUZZY_LIMIT, FUZZY_SCORE_CUTOFF, REACTION_OPTIONS, SCORE_MARGIN
 from .course_code import CourseCode
 from .logger_util import get_logger
 
@@ -15,9 +16,7 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 
-# --------------------------------------------------------------------------- #
 # Type aliases
-# --------------------------------------------------------------------------- #
 CourseListing = Mapping[str, Any]
 FuzzyMatch = tuple[str, CourseCode, float]
 
@@ -25,16 +24,6 @@ FuzzyMatch = tuple[str, CourseCode, float]
 class CourseCodeResolver:
     """Resolve user-supplied course codes to canonical records."""
 
-    # --------------------------------------------------------------------- #
-    # Tunables
-    # --------------------------------------------------------------------- #
-    FUZZY_LIMIT: int = 5
-    FUZZY_SCORE_CUTOFF: int = 70
-    SCORE_MARGIN: int = 10
-
-    # --------------------------------------------------------------------- #
-    # Construction
-    # --------------------------------------------------------------------- #
     def __init__(
         self,
         course_listings: CourseListing,
@@ -43,11 +32,8 @@ class CourseCodeResolver:
         self.course_listings = course_listings
         self.course_data_proxy = course_data_proxy
 
-    # --------------------------------------------------------------------- #
-    # Variant matching
-    # --------------------------------------------------------------------- #
     def find_variant_matches(self, canonical: str) -> list[str]:
-        """Return codes that share the canonical prefix but extend it."""
+        """Return codes extending the canonical prefix."""
         variants = [
             key
             for key in self.course_listings
@@ -61,7 +47,7 @@ class CourseCodeResolver:
         ctx: commands.Context,
         variants: Sequence[str],
     ) -> str | None:
-        """Prompt user to pick among variants via reaction menu."""
+        """Prompt user to choose from variants."""
         options = [(v, self.course_listings.get(v, "")) for v in variants]
         return await self.interactive_course_selector(
             ctx,
@@ -69,26 +55,20 @@ class CourseCodeResolver:
             "Multiple course variants found. Select the correct one:",
         )
 
-    # --------------------------------------------------------------------- #
-    # Parsing helpers
-    # --------------------------------------------------------------------- #
     @staticmethod
     def _parse_course_code(raw: str) -> CourseCode | None:
-        """Parse raw string into CourseCode, or return None on failure."""
+        """Parse raw string into CourseCode or return None."""
         try:
             return CourseCode(raw)
         except ValueError:
             log.debug("Invalid course code format: %s", raw)
             return None
 
-    # --------------------------------------------------------------------- #
-    # Fuzzy lookup
-    # --------------------------------------------------------------------- #
     def _filter_and_sort_fuzzy(
         self,
         matches: Sequence[tuple[str, int, Any]],
     ) -> list[FuzzyMatch]:
-        """Filter parseable candidates and sort by descending score."""
+        """Filter and sort fuzzy matches."""
         valid: list[FuzzyMatch] = []
         for cand, score, _ in matches:
             if (obj := self._parse_course_code(cand)) is not None:
@@ -102,32 +82,44 @@ class CourseCodeResolver:
         ctx: commands.Context,
         canonical: str,
     ) -> tuple[CourseCode | None, Any | None]:
-        """Use RapidFuzz to locate the best matching course when no exact or variant match exists."""
+        """Locate best match via fuzzy lookup, with retry."""
         if not self.course_listings:
             log.debug("No listings available for fuzzy lookup")
             return None, None
 
-        try:
-            raw_matches = process.extract(
-                canonical,
-                list(self.course_listings),
-                limit=self.FUZZY_LIMIT,
-                score_cutoff=self.FUZZY_SCORE_CUTOFF,
-            )
-        except Exception:
-            log.exception("Fuzzy extraction failed for %s", canonical)
-            return None, None
+        raw_matches = None
+        for attempt in range(2):
+            try:
+                raw_matches = process.extract(
+                    canonical,
+                    list(self.course_listings),
+                    limit=FUZZY_LIMIT,
+                    score_cutoff=FUZZY_SCORE_CUTOFF,
+                )
+                break
+            except Exception:
+                if attempt == 0:
+                    log.warning(
+                        "Fuzzy extraction failed (attempt 1) for %s, retrying",
+                        canonical,
+                    )
+                    await asyncio.sleep(1)
+                else:
+                    log.exception(
+                        "Fuzzy extraction failed after retry for %s",
+                        canonical,
+                    )
+                    return None, None
 
         log.debug("Raw fuzzy matches for %s → %s", canonical, raw_matches)
-        valid = self._filter_and_sort_fuzzy(raw_matches)
+        valid = self._filter_and_sort_fuzzy(raw_matches or [])
 
         if not valid:
             log.debug("No valid fuzzy candidates after parsing")
             return None, None
 
-        # Auto-select when clear winner
         if len(valid) == 1 or (
-            len(valid) > 1 and valid[0][2] - valid[1][2] >= self.SCORE_MARGIN
+            len(valid) > 1 and valid[0][2] - valid[1][2] >= SCORE_MARGIN
         ):
             selected_code, selected_obj, score = valid[0]
             log.debug("Auto-selected %s (score %s)", selected_code, score)
@@ -147,15 +139,12 @@ class CourseCodeResolver:
         data = self.course_listings.get(selected_code)
         return selected_obj, data
 
-    # --------------------------------------------------------------------- #
-    # Public API
-    # --------------------------------------------------------------------- #
     async def resolve_course_code(
         self,
         ctx: commands.Context,
         course: CourseCode | None,
     ) -> tuple[CourseCode | None, Any | None]:
-        """Resolve a CourseCode to listing data, possibly prompting the user."""
+        """Resolve a CourseCode to listing data."""
         if course is None:
             log.debug("resolve_course_code called with None")
             return None, None
@@ -178,14 +167,11 @@ class CourseCodeResolver:
         log.debug("No variants found for %s; invoking fuzzy lookup", canonical)
         return await self.fallback_fuzzy_lookup(ctx, canonical)
 
-    # --------------------------------------------------------------------- #
-    # Interactive selector
-    # --------------------------------------------------------------------- #
     @staticmethod
     def _build_menu_controls(
         options: Sequence[tuple[str, str]],
     ) -> dict[str, Callable[..., Any]]:
-        """Build reaction-emoji controls for a menu from option tuples."""
+        """Build emoji controls for a menu."""
         controls: dict[str, Callable[..., Any]] = {}
         cancel = REACTION_OPTIONS[-1]
         limited = options[: len(REACTION_OPTIONS) - 1]
@@ -229,7 +215,7 @@ class CourseCodeResolver:
         options: Sequence[tuple[str, str]],
         prompt_prefix: str,
     ) -> str | None:
-        """Display a reaction-based menu and return the user’s choice."""
+        """Display reaction menu and return choice."""
         if not options:
             log.debug("interactive_course_selector called with no options")
             return None

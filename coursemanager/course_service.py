@@ -34,7 +34,7 @@ def requires_enabled(
         **kwargs: Any,
     ) -> T:
         if not await self._check_enabled(ctx):
-            return None  # type: ignore[return-value]
+            return None
         return await func(self, ctx, *args, **kwargs)
 
     return wrapper
@@ -52,17 +52,64 @@ class CourseService:
         self._listings_cache_time: float = 0.0
         self._listings_ttl: float = 60.0
 
-    async def _get_course_listings(self) -> dict[str, str]:
-        now: float = time.monotonic()
+    async def _load_listings(self) -> dict[str, str]:
+        """Load course listings from cache or config with TTL."""
+        now = time.monotonic()
         if (
             self._listings_cache is not None
             and now - self._listings_cache_time < self._listings_ttl
         ):
             return self._listings_cache
+
         data = await self.config.course_listings()
         self._listings_cache = data.get("courses", {})
         self._listings_cache_time = now
         return self._listings_cache
+
+    async def _prepare_course_access(
+        self,
+        ctx: commands.Context,
+        course_code: str,
+    ) -> tuple[discord.Guild, discord.Member, CourseCode | None]:
+        """Validate user limit and resolve the raw course code."""
+        guild = ctx.guild
+        user = ctx.author
+        if not await self._ensure_user_channel_limit_not_exceeded(ctx, user, guild):
+            return guild, user, None
+        course_obj = await self._resolve_course(ctx, course_code)
+        return guild, user, course_obj
+
+    async def _fetch_and_validate_course_data(
+        self,
+        ctx: commands.Context,
+        course_obj: CourseCode,
+    ) -> tuple[CourseCode | None, Any]:
+        """Fetch detailed course data; notify user on failure."""
+        async with ctx.typing():
+            candidate_obj, data = await self._lookup_course_data(
+                ctx,
+                course_obj,
+                already_resolved=True,
+            )
+        if not candidate_obj or not self._is_valid_course_data(data):
+            await ctx.send(
+                error(
+                    f"No course data could be retrieved for {course_obj.canonical()}.",
+                ),
+            )
+            return None, None
+        return candidate_obj, data
+
+    async def _get_or_create_channel(
+        self,
+        guild: discord.Guild,
+        course_obj: CourseCode,
+        category: discord.CategoryChannel,
+    ) -> discord.TextChannel:
+        """Return existing channel or create a new one under the given category."""
+        if channel := self.get_course_channel(guild, course_obj):
+            return channel
+        return await self.create_course_channel(guild, category, course_obj)
 
     def _is_valid_course_data(self, data: Any) -> bool:
         return bool(data and data.get("cached_course_data"))
@@ -244,7 +291,8 @@ class CourseService:
         """Fetch fresh or cached course data with optional resolver fallback."""
         canonical = course.canonical()
         log.debug("Looking up course data for '%s'", canonical)
-        listings = await self._get_course_listings()
+        listings = await self._load_listings()
+
         if canonical in listings:
             data = await self.course_data_proxy.get_course_data(
                 canonical,
@@ -279,7 +327,7 @@ class CourseService:
         course_obj = await validate_and_resolve_course_code(
             ctx,
             safe,
-            await self._get_course_listings(),
+            await self._load_listings(),
             self.course_data_proxy,
         )
         if course_obj is None:
@@ -400,66 +448,25 @@ class CourseService:
         ctx: commands.Context,
         course_code: str,
     ) -> None:
-        """Command: grant the user access to a course channel, creating it if needed."""
-        try:
-            guild = ctx.guild
-            user = ctx.author
-            if not await self._ensure_user_channel_limit_not_exceeded(ctx, user, guild):
-                return
-            course_obj = await self._resolve_course(ctx, course_code)
-            if course_obj is None:
-                return
-            canonical = course_obj.canonical()
-            channel = self.get_course_channel(guild, course_obj)
-            if channel and await self._handle_existing_channel(
-                ctx,
-                user,
-                channel,
-                canonical,
-            ):
-                return
+        """Grant the user access to a course channel, creating it if needed."""
+        # Step 1: validate and resolve
+        guild, user, course_obj = await self._prepare_course_access(ctx, course_code)
+        if course_obj is None:
+            return
 
-            async with ctx.typing():
-                candidate_obj, data = await self._lookup_course_data(
-                    ctx,
-                    course_obj,
-                    already_resolved=True,
-                )
+        # Step 2: fetch & validate data
+        candidate_obj, _ = await self._fetch_and_validate_course_data(ctx, course_obj)
+        if candidate_obj is None:
+            return
 
-            if not candidate_obj or not self._is_valid_course_data(data):
-                await ctx.send(
-                    error(f"No course data could be retrieved for {canonical}."),
-                )
-                return
+        # Step 3: pick or create category + channel
+        category = await get_available_course_category(guild, self.category_name, ctx)
+        if category is None:
+            return
+        channel = await self._get_or_create_channel(guild, candidate_obj, category)
 
-            if self._user_already_joined(user, guild, candidate_obj):
-                await ctx.send(
-                    info(f"You are already a member of {candidate_obj.canonical()}."),
-                    delete_after=120,
-                )
-                return
-
-            category = await get_available_course_category(
-                guild,
-                self.category_name,
-                ctx,
-            )
-            if category is None:
-                return
-
-            channel = self.get_course_channel(
-                guild,
-                candidate_obj,
-            ) or await self.create_course_channel(
-                guild,
-                category,
-                candidate_obj,
-            )
-
-            await self._grant_access(ctx, channel, candidate_obj.canonical())
-        except Exception:
-            log.exception("Error in grant_course_channel_access")
-            await ctx.send(error("An error occurred while granting access."))
+        # Step 4: grant permissions
+        await self._grant_access(ctx, channel, candidate_obj.canonical())
 
     @requires_enabled
     async def revoke_course_channel_access(
@@ -511,7 +518,7 @@ class CourseService:
         year: int,
         term_id: int,
     ) -> None:
-        """Command: register a term‑to‑ID mapping."""
+        """Command: register a term-to-ID mapping."""
         term_key = f"{term_name.lower()}-{year}"
         async with self.config.term_codes() as term_codes:
             term_codes[term_key] = term_id

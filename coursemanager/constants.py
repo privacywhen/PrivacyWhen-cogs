@@ -15,8 +15,16 @@ GLOBAL_DEFAULTS: dict[str, Any] = {
     "prune_threshold_days": 7,  # Number of days of inactivity to trigger pruning
 }
 
-REACTION_OPTIONS: list[str] = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "❌"]
+
 MAX_CATEGORY_CHANNELS: int = 5
 MIN_CATEGORY_CHANNELS: int = 3
+MIN_DYNAMIC_THRESHOLD = 1
+MIN_SPARSE_OVERLAP = 1
+# course_code_resolver
+REACTION_OPTIONS: list[str] = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "❌"]
+FUZZY_LIMIT: int = 5
+FUZZY_SCORE_CUTOFF: int = 70
+SCORE_MARGIN: int = 10
+
 GROUPING_INTERVAL: int = GLOBAL_DEFAULTS["grouping_interval"]  # seconds
 RATE_LIMIT_DELAY: float = 0.25

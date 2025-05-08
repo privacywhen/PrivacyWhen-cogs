@@ -19,6 +19,9 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
+# Maximum number of alternate category suffixes to try
+ALT_CATEGORY_LIMIT: int = 100
+
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -32,7 +35,10 @@ def get_categories_by_prefix(
         cat for cat in guild.categories if cat.name.upper().startswith(prefix.upper())
     ]
     log.debug(
-        f"get_categories_by_prefix: Found {len(matching)} categories in guild '{guild.name}' with prefix '{prefix}'",
+        "get_categories_by_prefix: Found %d categories in guild %s with prefix %s",
+        len(matching),
+        guild.name,
+        prefix,
     )
     return matching
 
@@ -46,16 +52,22 @@ async def get_or_create_category(
         try:
             category = await guild.create_category(category_name)
             log.debug(
-                f"get_or_create_category: Created category '{category_name}' in guild '{guild.name}'",
+                "get_or_create_category: Created category %s in guild %s",
+                category_name,
+                guild.name,
             )
         except discord.Forbidden:
             log.exception(
-                f"get_or_create_category: No permission to create category '{category_name}' in guild '{guild.name}'",
+                "get_or_create_category: No permission to create category %s in guild %s",
+                category_name,
+                guild.name,
             )
             return None
     else:
         log.debug(
-            f"get_or_create_category: Found existing category '{category_name}' in guild '{guild.name}'",
+            "get_or_create_category: Found existing category %s in guild %s",
+            category_name,
+            guild.name,
         )
     return category
 
@@ -76,7 +88,7 @@ async def get_available_course_category(
         return None
     if len(category.channels) < max_channels:
         return category
-    for i in range(2, 100):
+    for i in range(2, ALT_CATEGORY_LIMIT):
         alt_name = f"{base_name}-{i}"
         alt_category = discord.utils.get(guild.categories, name=alt_name)
         if alt_category is None:
@@ -105,7 +117,8 @@ async def validate_and_resolve_course_code(
         course_obj: CourseCode = CourseCode(raw_input)
     except ValueError:
         log.debug(
-            f"Failed to parse '{raw_input}' using CourseCode. Attempting to resolve using CourseCodeResolver.",
+            "Failed to parse '%s' using CourseCode. Attempting to resolve using CourseCodeResolver.",
+            raw_input,
         )
         resolved, _ = await resolver.fallback_fuzzy_lookup(ctx, raw_input.strip())
         if not resolved:
@@ -122,8 +135,5 @@ _RE_NUM = re.compile(r"(\d+|\D+)")
 
 
 def nat_key(s: str) -> list[int | str]:
-    """Perform the special utility operation.
-
-    This function takes arg1 and arg2, does X, Y, and Z, and returns the result.
-    """
+    """Split digits and non-digit segments for natural sorting."""
     return [int(tok) if tok.isdigit() else tok.casefold() for tok in _RE_NUM.findall(s)]

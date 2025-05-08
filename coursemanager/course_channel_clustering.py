@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from collections import defaultdict
 from itertools import combinations
+from logging import DEBUG
 from statistics import median
 from typing import Any, Callable, Coroutine, Generator, Iterable, Mapping
 
@@ -12,14 +12,19 @@ from networkx.algorithms.community import louvain_communities
 from networkx.algorithms.community.quality import modularity
 from networkx.exception import NetworkXError
 
-from .constants import MAX_CATEGORY_CHANNELS, MIN_CATEGORY_CHANNELS
+from .constants import (
+    MAX_CATEGORY_CHANNELS,
+    MIN_CATEGORY_CHANNELS,
+    MIN_DYNAMIC_THRESHOLD,
+    MIN_SPARSE_OVERLAP,
+)
 from .logger_util import get_logger
 
 log = get_logger(__name__)
 
-# --------------------------------------------------------------------------- #
+
 # Type aliases - keep public surface identical to earlier versions
-# --------------------------------------------------------------------------- #
+
 CourseUsers = dict[str, set[int]]
 CourseMetadata = dict[str, dict[str, Any]]
 OverlapKey = tuple[str, str]
@@ -27,19 +32,12 @@ Cluster = set[str]
 ClusterList = list[Cluster]
 CategoryMapping = dict[str, str]
 
-# --------------------------------------------------------------------------- #
-# Tunables / magic-number constants
-# --------------------------------------------------------------------------- #
-MIN_DYNAMIC_THRESHOLD = 1
-MIN_SPARSE_OVERLAP = 1
-
 
 class CourseChannelClustering:
     """Compute *course → Discord-category* mappings."""
 
-    # --------------------------------------------------------------------- #
     # Construction
-    # --------------------------------------------------------------------- #
+
     def __init__(
         self,
         *,
@@ -64,12 +62,11 @@ class CourseChannelClustering:
         self.threshold_factor: float = threshold_factor
         self.sparse_overlap: int = sparse_overlap
 
-    # --------------------------------------------------------------------- #
     # Internal helpers
-    # --------------------------------------------------------------------- #
+
     @staticmethod
     def _chunk_list(items: list[Any], size: int) -> Generator[list[Any], None, None]:
-        """Yield *size*‑length chunks from *items* (preserves order)."""
+        """Yield *size*-length chunks from *items* (preserves order)."""
         for i in range(0, len(items), size):
             yield items[i : i + size]
 
@@ -94,13 +91,20 @@ class CourseChannelClustering:
             dept_b = metadata.get(c2, {}).get("department")
             if dept_a and dept_b and dept_a == dept_b:
                 overlaps[(c1, c2)] = self.sparse_overlap
+                if log.isEnabledFor(DEBUG):
+                    log.debug(
+                        "Injected sparse overlap for %s and %s: %d",
+                        c1,
+                        c2,
+                        self.sparse_overlap,
+                    )
 
     def _calculate_overlaps(
         self,
         course_users: CourseUsers,
         course_metadata: CourseMetadata | None = None,
     ) -> dict[OverlapKey, int]:
-        """Return pairwise user‑overlap counts between courses."""
+        """Return pairwise user-overlap counts between courses."""
         overlaps: defaultdict[OverlapKey, int] = defaultdict(int)
 
         if self.optimize_overlap:
@@ -112,17 +116,17 @@ class CourseChannelClustering:
             for courses in user_to_courses.values():
                 for a, b in combinations(sorted(courses), 2):
                     overlaps[(a, b)] += 1
-            method = "inverted‑index"
+            method = "inverted-index"
         else:
             for a, b in combinations(sorted(course_users), 2):
                 if cnt := len(course_users[a] & course_users[b]):
                     overlaps[(a, b)] = cnt
-            method = "direct‑combinations"
+            method = "direct-combinations"
 
         if course_metadata:
             self._add_sparse_overlaps(overlaps, sorted(course_users), course_metadata)
 
-        if log.isEnabledFor(logging.DEBUG):
+        if log.isEnabledFor(DEBUG):
             log.debug(
                 "Calculated overlaps using %s for %d courses",
                 method,
@@ -168,9 +172,8 @@ class CourseChannelClustering:
         )
         return graph
 
-    # --------------------------------------------------------------------- #
     # Clustering
-    # --------------------------------------------------------------------- #
+
     @staticmethod
     def _default_clustering(graph: nx.Graph) -> ClusterList:
         """Louvain clustering, with singleton fallback."""
@@ -193,9 +196,8 @@ class CourseChannelClustering:
             log.debug("Clustering produced %d clusters", len(clusters))
             return clusters
 
-    # --------------------------------------------------------------------- #
     # Mapping utilities
-    # --------------------------------------------------------------------- #
+
     def _prelim_buckets(self, clusters: ClusterList) -> list[list[str]]:
         """Split each cluster into chunks of size ≤ MAX_CATEGORY_CHANNELS."""
         return [
@@ -226,7 +228,7 @@ class CourseChannelClustering:
         self,
         buckets: list[list[str]],
         *,
-        orphans_exist: bool,
+        has_overflow_bucket: bool,
     ) -> CategoryMapping:
         """Assign names to buckets; use –MISC for overflow bucket if needed."""
         mapping: CategoryMapping = {}
@@ -236,7 +238,7 @@ class CourseChannelClustering:
             sorted(buckets, key=lambda b: (-len(b), b)),
             start=1,
         ):
-            if idx == total and orphans_exist:
+            if idx == total and has_overflow_bucket:
                 label = f"{self.category_prefix}-MISC"
             else:
                 label = (
@@ -254,20 +256,22 @@ class CourseChannelClustering:
         prelim = self._prelim_buckets(clusters)
         large, orphans = self._partition_buckets(prelim)
         self._merge_orphans(large, orphans)
-        if orphans:
+
+        has_overflow_bucket = bool(orphans)
+        if has_overflow_bucket:
             large.append(sorted(orphans))
             log.debug("Added overflow bucket with %d singleton courses", len(orphans))
-        return self._label_buckets(large, orphans_exist=bool(orphans))
 
-    # --------------------------------------------------------------------- #
+        return self._label_buckets(large, has_overflow_bucket=has_overflow_bucket)
+
     # Public surface
-    # --------------------------------------------------------------------- #
+
     def evaluate_clusters(
         self,
         graph: nx.Graph,
         clusters: ClusterList,
     ) -> dict[str, float]:
-        """Compute clustering‑quality metrics (currently just modularity)."""
+        """Compute clustering-quality metrics (currently just modularity)."""
         return {"modularity": modularity(graph, clusters, weight="weight")}
 
     def cluster_courses(
@@ -275,7 +279,7 @@ class CourseChannelClustering:
         course_users: CourseUsers,
         course_metadata: CourseMetadata | None = None,
     ) -> CategoryMapping:
-        """End‑to‑end pipeline: graph → clusters → mapping.
+        """End-to-end pipeline: graph → clusters → mapping.
 
         Preserves original signature to avoid breaking callers.
         """
@@ -304,36 +308,37 @@ class CourseChannelClustering:
         log.info("Periodic clustering task started")
         iteration = 1
 
-        while not shutdown_event.is_set():
-            log.info("Clustering cycle #%d", iteration)
+        try:
+            while not shutdown_event.is_set():
+                log.info("Clustering cycle #%d", iteration)
 
-            # --------------------------- fetch --------------------------- #
-            try:
-                raw = fetch_course_users()
-                users = await raw if asyncio.iscoroutine(raw) else raw
-            except Exception:
-                log.exception("Fetching users failed; skipping cycle")
-                users = {}
-
-            # ------------------------ compute / persist ------------------ #
-            if users:
-                mapping = self.cluster_courses(users, course_metadata)
                 try:
-                    persisted = persist_mapping(mapping)
-                    if asyncio.iscoroutine(persisted):
-                        await persisted
-                    log.info("Mapping persisted")
+                    raw = fetch_course_users()
+                    users = await raw if asyncio.iscoroutine(raw) else raw
                 except Exception:
-                    log.exception("Persisting mapping failed")
-            else:
-                log.info("No user data; nothing persisted")
+                    log.exception("Fetching users failed; skipping cycle")
+                    users = {}
 
-            iteration += 1
+                if users:
+                    mapping = self.cluster_courses(users, course_metadata)
+                    try:
+                        persisted = persist_mapping(mapping)
+                        if asyncio.iscoroutine(persisted):
+                            await persisted
+                        log.info("Mapping persisted")
+                    except Exception:
+                        log.exception("Persisting mapping failed")
+                else:
+                    log.info("No user data; nothing persisted")
 
-            # --------------------------- sleep --------------------------- #
-            try:
-                await asyncio.wait_for(shutdown_event.wait(), timeout=interval)
-            except asyncio.TimeoutError:
-                continue
+                iteration += 1
 
-        log.info("Periodic clustering task shutdown complete")
+                try:
+                    await asyncio.wait_for(shutdown_event.wait(), timeout=interval)
+                except asyncio.TimeoutError:
+                    continue
+        except asyncio.CancelledError:
+            log.info("Periodic clustering task cancelled")
+            raise
+        else:
+            log.info("Periodic clustering task shutdown complete")
