@@ -215,7 +215,6 @@ class CourseChannelCog(commands.Cog):
     @course.command(name="join")
     @commands.cooldown(1, 5, commands.BucketType.user)
     @app_commands.describe(course_code="The course code you wish to join")
-    @handle_command_errors
     async def join_course(self, ctx: commands.Context, *, course_code: str) -> None:
         """Grant access to a course channel for the user.
 
