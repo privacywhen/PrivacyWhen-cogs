@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
-from typing import Any, Callable, Coroutine, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
 import discord  # noqa: TC002
 from redbot.core import Config, app_commands, commands
@@ -14,6 +14,9 @@ from .course_channel_clustering import CourseChannelClustering
 from .course_service import CourseService
 from .logger_util import get_logger
 
+if TYPE_CHECKING:
+    from collections.abc import Coroutine
+
 log = get_logger(__name__)
 T = TypeVar("T")
 
@@ -22,9 +25,14 @@ def handle_command_errors(
     func: Callable[..., Coroutine[Any, Any, T]],
 ) -> Callable[..., Coroutine[Any, Any, T]]:
     @functools.wraps(func)
-    async def wrapper(self: Any, ctx: commands.Context, *args: Any, **kwargs: Any) -> T:
+    async def wrapper(
+        self: commands.Cog,
+        ctx: commands.Context,
+        *args: object,
+        **kwargs: object,
+    ) -> T:
         try:
-            return await func(self, ctx, *args, **kwargs)
+            return await func(self, ctx, *args, **kwargs)  # type: ignore[arg-type]
         except Exception:
             log.exception("Error in command '%s'", func.__name__)
             await ctx.send(error("An unexpected error occurred."))
@@ -238,6 +246,6 @@ class CourseChannelCog(commands.Cog):
 
         await ctx.send(
             success(
-                "Reclustered and moved course channels according to the latest clusters.",
+                "Reclustered and moved course channels according to clusters.",
             ),
         )

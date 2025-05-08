@@ -1,9 +1,14 @@
+"""Utilities for logging function entry/exit and creating loggers with StreamHandler."""
+
 from __future__ import annotations
 
 import functools
 import inspect
 import logging
-from typing import Any, Awaitable, Callable, TypeVar
+from typing import TYPE_CHECKING, Callable, TypeVar
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable
 
 T = TypeVar("T")
 
@@ -41,7 +46,7 @@ def log_entry_exit(
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         if inspect.iscoroutinefunction(func):
 
-            async def async_wrapper(*args: Any, **kwargs: Any) -> T:
+            async def async_wrapper(*args: object, **kwargs: object) -> T:
                 logger.debug("Entering %s", func.__name__)
                 try:
                     result = await func(*args, **kwargs)
@@ -54,7 +59,7 @@ def log_entry_exit(
 
             return functools.wraps(func)(async_wrapper)
 
-        def sync_wrapper(*args: Any, **kwargs: Any) -> T:
+        def sync_wrapper(*args: object, **kwargs: object) -> T:
             logger.debug("Entering %s", func.__name__)
             try:
                 result = func(*args, **kwargs)

@@ -1,3 +1,5 @@
+"""Manages course data retrieval, caching, term resolution, and HTTP retries/backoff."""
+
 from __future__ import annotations
 
 import asyncio
@@ -5,8 +7,9 @@ import random
 import re
 from datetime import datetime, timedelta, timezone
 from math import floor
+from re import Pattern
 from time import time
-from typing import TYPE_CHECKING, Any, Pattern
+from typing import TYPE_CHECKING, Any
 
 from aiohttp import (
     ClientConnectionError,
@@ -92,6 +95,7 @@ class TermHelper:
 
     @staticmethod
     def resolve_term_year(term: str, now: datetime) -> int:
+        """Return the resolved year for the given term based on the current date."""
         if term == "winter":
             return now.year + (1 if now.month >= WINTER_THRESHOLD_MONTH else 0)
         if term == "spring":
@@ -102,6 +106,7 @@ class TermHelper:
 
     @staticmethod
     def hints_to_order(hints: list[TermHint], now: datetime) -> TermOrder:
+        """Convert term hints into an ordered list of (season, year) tuples."""
         ordered: TermOrder = []
         seen: set[tuple[str, int]] = set()
         for season, yr in hints:
@@ -114,13 +119,15 @@ class TermHelper:
 
     @staticmethod
     def fallback_order(now: datetime) -> TermOrder:
+        """Return a fallback list of terms for the current year."""
         return [(season, now.year) for season in TERM_NAMES]
 
 
 class CourseDataProxy:
-    """Fetch, cache, and parse McMaster course data with in‑memory and persistent TTL."""
+    """Fetch, cache, and parse course data with in-memory and persistent TTL."""
 
     def __init__(self, config: Config, logger: logging.Logger) -> None:
+        """Initialize CourseDataProxy with config, logger, session, and caches."""
         self.config = config
         self.log = logger
         self._session: ClientSession | None = None
@@ -320,7 +327,7 @@ class CourseDataProxy:
         term_key: str,
         pair: tuple[str, str],
     ) -> tuple[BeautifulSoup | None, str | None]:
-        """Fetch a URL with exponential backoff, handle transient errors, and invalidate bad pairs."""
+        """Fetch a URL with backoff, handle errors, and invalidate bad pairs."""
         last_err: str | None = None
         for attempt in range(MAX_ATTEMPTS):
             if attempt:
@@ -350,7 +357,7 @@ class CourseDataProxy:
         return None, last_err
 
     def _should_skip_invalid(self, pair: tuple[str, str]) -> bool:
-        """Return True if this course‑term pair is still in its invalidation TTL."""
+        """Return True if this course-term pair is still in its invalidation TTL."""
         ts = self._invalid_course_term_cache.get(pair)
         if ts and (self._now() - ts) < INVALID_PAIR_TTL:
             return True

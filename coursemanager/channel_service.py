@@ -1,8 +1,10 @@
+"""Manage creation, pruning, and ordering of course channels/categories."""
+
 from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta
-from typing import Iterable, Sequence
+from typing import TYPE_CHECKING
 
 import discord
 from redbot.core import Config, commands  # noqa: TC002
@@ -11,7 +13,10 @@ from redbot.core.utils.chat_formatting import error, success
 from .constants import RATE_LIMIT_DELAY
 from .course_code import CourseCode
 from .logger_util import get_logger
-from .utils import get_categories_by_prefix, get_or_create_category, nat_key, utcnow
+from .utils import get_categories_by_prefix, get_or_create_category, utcnow
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 log = get_logger(__name__)
 
@@ -39,6 +44,7 @@ class ChannelService:
     RATE_LIMIT_DELAY: float = RATE_LIMIT_DELAY
 
     def __init__(self, bot: commands.Bot, config: Config) -> None:
+        """Initialize ChannelService with a Bot instance and its Config."""
         self.bot: commands.Bot = bot
         self.config: Config = config
 
@@ -78,7 +84,11 @@ class ChannelService:
             log.exception("Failed to set default category")
             await ctx.send(error("Unable to set the default category."))
         else:
-            await ctx.send(success(f"Default category set to **{category_name}**."))
+            await ctx.send(
+                success(
+                    f"Default category set to **{category_name}**.",
+                ),
+            )
 
     async def create_channel(
         self,
@@ -119,7 +129,7 @@ class ChannelService:
             )
             await ctx.send(
                 success(
-                    f"Channel {channel.mention} created in category **{category.name}**.",
+                    f"Created channel {channel.mention} in **{category.name}**.",
                 ),
             )
 
@@ -254,25 +264,27 @@ class ChannelService:
         guild: discord.Guild,
         mapping: dict[str, str],
     ) -> None:
-        """Orchestrate moving channels and cleaning up stale categories."""
-        await self._move_channels(guild, mapping)
-        await self._cleanup_categories(guild, mapping)
+        """Coordinate channel moves, stale-category cleanup, and category reordering."""
+        base_prefix: str = await self.config.course_category()
 
-    async def _reorder_course_categories(
-        self,
-        guild: discord.Guild,
-        prefix: str,
-    ) -> None:
-        """Ensure course categories appear alphabetically after other categories."""
-        non_course = [
-            c for c in guild.categories if not c.name.upper().startswith(prefix)
-        ]
-        course_cats = sorted(
-            (c for c in guild.categories if c.name.upper().startswith(prefix)),
-            key=lambda c: nat_key(c.name),
-        )
-        desired: Sequence[discord.CategoryChannel] = (*non_course, *course_cats)
-        for idx, cat in enumerate(desired):
-            if cat.position != idx:
-                await cat.edit(position=idx)
-                await _safe_sleep(self.RATE_LIMIT_DELAY)
+        # Phase 1: Move channels into their mapped categories
+        try:
+            await self._move_channels(guild, mapping)
+        except Exception:
+            log.exception("Failed during channel move phase for guild %s", guild.id)
+
+        # Phase 2: Delete categories that have become empty and are not desired
+        try:
+            await self._cleanup_categories(guild, mapping)
+        except Exception:
+            log.exception("Failed during cleanup phase for guild %s", guild.id)
+
+        # Phase 3: Reorder course categories to maintain natural order
+        try:
+            await self._reorder_course_categories(guild, base_prefix)
+        except Exception:
+            log.exception(
+                "Failed to reorder course categories with prefix '%s' for guild %s",
+                base_prefix,
+                guild.id,
+            )

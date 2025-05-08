@@ -1,7 +1,10 @@
+"""Maps user input to canonical course codes with exact, variant, and fuzzy matching."""
+
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Callable
 
 from rapidfuzz import process
 from redbot.core.utils.menus import close_menu, menu
@@ -12,6 +15,8 @@ from .logger_util import get_logger
 
 if TYPE_CHECKING:
     from redbot.core import commands
+
+    from coursemanager.course_data_proxy import CourseDataProxy
 
 log = get_logger(__name__)
 
@@ -27,8 +32,9 @@ class CourseCodeResolver:
     def __init__(
         self,
         course_listings: CourseListing,
-        course_data_proxy: Any | None = None,
+        course_data_proxy: CourseDataProxy | None = None,
     ) -> None:
+        """Initialize with available listings and optional data proxy."""
         self.course_listings = course_listings
         self.course_data_proxy = course_data_proxy
 
@@ -170,26 +176,34 @@ class CourseCodeResolver:
     @staticmethod
     def _build_menu_controls(
         options: Sequence[tuple[str, str]],
-    ) -> dict[str, Callable[..., Any]]:
-        """Build emoji controls for a menu."""
-        controls: dict[str, Callable[..., Any]] = {}
-        cancel = REACTION_OPTIONS[-1]
+    ) -> dict[str, Callable[..., Awaitable[str]]]:
+        """Construct emoji-keyed handlers for the menu.
+
+        The handler will be called with positional args:
+        (ctx, pages, controls, message, page, timeout, reacted_emoji)
+        and may receive 'user' as a keyword argument.
+        """
+        controls: dict[str, Callable[..., Awaitable[str]]] = {}
+        cancel_emoji = REACTION_OPTIONS[-1]
         limited = options[: len(REACTION_OPTIONS) - 1]
 
-        def make_handler(value: str, *, is_cancel: bool = False) -> Callable[..., Any]:
-            async def handler(
-                ctx_: commands.Context,
+        def make_handler(
+            value: str,
+            *,
+            is_cancel: bool = False,
+        ) -> Callable[..., Awaitable[str]]:
+            async def handler(  # noqa: PLR0913
+                ctx: commands.Context,
                 pages: list[str],
-                controls: dict,
-                message: Any,
+                controls: dict[str, Callable[..., Awaitable[str]]],
+                message: object,
                 page: int,
                 timeout: float,
                 reacted_emoji: str,
-                *,
-                user: Any | None = None,
+                user: commands.Member | None = None,
             ) -> str:
                 await close_menu(
-                    ctx_,
+                    ctx,
                     pages,
                     controls,
                     message,
@@ -203,10 +217,10 @@ class CourseCodeResolver:
             return handler
 
         for idx, (opt, _) in enumerate(limited):
-            emoji = REACTION_OPTIONS[idx]
-            controls[emoji] = make_handler(opt)
+            controls[REACTION_OPTIONS[idx]] = make_handler(opt)
 
-        controls[cancel] = make_handler("CANCELLED", is_cancel=True)
+        # Always include a cancel option
+        controls[cancel_emoji] = make_handler("CANCELLED", is_cancel=True)
         return controls
 
     @staticmethod

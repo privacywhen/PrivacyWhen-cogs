@@ -1,9 +1,11 @@
+"""Handle course data management, user access, and course channel clustering."""
+
 from __future__ import annotations
 
 import asyncio
 import functools
 import time
-from typing import TYPE_CHECKING, Any, Callable, Coroutine, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
 import discord
 from redbot.core import Config, commands  # noqa: TC002
@@ -16,6 +18,8 @@ from .logger_util import get_logger
 from .utils import get_available_course_category, get_categories_by_prefix
 
 if TYPE_CHECKING:
+    from collections.abc import Coroutine
+
     from .channel_service import ChannelService
     from .course_channel_clustering import CourseChannelClustering
 
@@ -26,12 +30,14 @@ T = TypeVar("T")
 def requires_enabled(
     func: Callable[..., Coroutine[Any, Any, T]],
 ) -> Callable[..., Coroutine[Any, Any, T]]:
+    """Ensure the course manager is enabled for the current server context."""
+
     @functools.wraps(func)
     async def wrapper(
         self: CourseService,
         ctx: commands.Context,
-        *args: Any,
-        **kwargs: Any,
+        *args: object,
+        **kwargs: object,
     ) -> T:
         if not await self._check_enabled(ctx):
             return None
@@ -41,7 +47,10 @@ def requires_enabled(
 
 
 class CourseService:
+    """Fetch, cache, and manage course data with optional term resolution."""
+
     def __init__(self, bot: commands.Bot, config: Config) -> None:
+        """Initialize CourseService with bot, config, and necessary data."""
         self.bot: commands.Bot = bot
         self.config: Config = config
         self.category_name: str = "COURSES"
@@ -111,7 +120,7 @@ class CourseService:
             return channel
         return await self.create_course_channel(guild, category, course_obj)
 
-    def _is_valid_course_data(self, data: Any) -> bool:
+    def _is_valid_course_data(self, data: object) -> bool:
         return bool(data and data.get("cached_course_data"))
 
     async def _check_enabled(self, ctx: commands.Context) -> bool:
@@ -119,7 +128,7 @@ class CourseService:
         if ctx.guild.id not in enabled_guilds:
             await ctx.send(
                 error(
-                    "Course Manager is disabled in this server. Please enable it using the 'course enable' command.",
+                    "Course Manager is disabled. Enable it with the 'course' command.",
                 ),
             )
             return False
@@ -147,9 +156,11 @@ class CourseService:
             await ctx.send("Course Manager has been disabled on this server.")
 
     async def enable(self, ctx: commands.Context) -> None:
+        """Enable the course manager for the current guild."""
         await self._update_enabled_status(ctx, enable=True)
 
     async def disable(self, ctx: commands.Context) -> None:
+        """Disable the course manager for the current guild."""
         await self._update_enabled_status(ctx, enable=False)
 
     def get_category(self, guild: discord.Guild) -> discord.CategoryChannel | None:
@@ -275,7 +286,7 @@ class CourseService:
         if self._user_channel_limit_reached(user, guild):
             await ctx.send(
                 error(
-                    f"You have reached your course channel limit of {self.max_courses}.",
+                    f"You have reached the {self.max_courses} course channel limit.",
                 ),
             )
             return False
@@ -388,7 +399,7 @@ class CourseService:
             embed.add_field(name="Antirequisite(s)", value=anti, inline=True)
         return embed
 
-    async def _update_channel_permissions(
+    async def _update_channel_permissions(  # noqa: PLR0913
         self,
         ctx: commands.Context,
         channel: discord.TextChannel,
@@ -474,7 +485,7 @@ class CourseService:
         ctx: commands.Context,
         course_code: str,
     ) -> None:
-        """Command: revoke the user’s access to a course channel."""
+        """Command: revoke the user's access to a course channel."""
         try:
             guild = ctx.guild
             course_obj = await self._resolve_course(ctx, course_code)
@@ -540,7 +551,7 @@ class CourseService:
             await menu(ctx, pages, timeout=60.0, user=ctx.author)
         else:
             await ctx.send(
-                "No course list available. Please run the 'populate' command to fetch courses.",
+                "No course list. Run 'populate' to fetch courses.",
             )
 
     async def populate_courses(self, ctx: commands.Context) -> None:
@@ -552,7 +563,7 @@ class CourseService:
         else:
             await ctx.send(
                 warning(
-                    "No courses were fetched. Please check the console log for details.",
+                    "No courses fetched. Check the console for details.",
                 ),
             )
 
@@ -661,7 +672,7 @@ class CourseService:
         *,
         include_metadata: bool = False,
     ) -> dict[str, set[int]] | tuple[dict[str, set[int]], dict[str, dict[str, str]]]:
-        """Collect mapping of canonical course codes → member ID sets (with optional metadata)."""
+        """Collect course code to member ID mapping (with optional metadata)."""
         prefix = await self.config.course_category()
         users_raw: dict[str, set[int]] = {}
         meta_raw: dict[str, dict[str, str]] = {}

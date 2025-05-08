@@ -1,3 +1,5 @@
+"""Constants and global defaults for the Course Manager cog."""
+
 from typing import Any
 
 GLOBAL_DEFAULTS: dict[str, Any] = {
@@ -10,7 +12,7 @@ GLOBAL_DEFAULTS: dict[str, Any] = {
     "courses": {},  # Cached courses data
     "course_listings": {},  # Cached course listings
     "enabled_guilds": [],  # List of guild IDs where Course Manager is enabled
-    "channel_prune_history_limit": 10,  # Number of messages to check for activity in pruning
+    "channel_prune_history_limit": 15,  # Messages to scan for pruning activity
     "channel_prune_interval": 2628000,  # Interval in seconds for pruning task
     "prune_threshold_days": 7,  # Number of days of inactivity to trigger pruning
 }

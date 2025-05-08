@@ -1,3 +1,5 @@
+"""Utilities for managing categories, resolving course codes, and sorting keys."""
+
 from __future__ import annotations
 
 import re
@@ -24,6 +26,7 @@ ALT_CATEGORY_LIMIT: int = 100
 
 
 def utcnow() -> datetime:
+    """Return the current UTC datetime."""
     return datetime.now(timezone.utc)
 
 
@@ -31,6 +34,7 @@ def get_categories_by_prefix(
     guild: discord.Guild,
     prefix: str,
 ) -> list[discord.CategoryChannel]:
+    """Get categories starting with the given prefix in the specified guild."""
     matching: list[discord.CategoryChannel] = [
         cat for cat in guild.categories if cat.name.upper().startswith(prefix.upper())
     ]
@@ -47,6 +51,7 @@ async def get_or_create_category(
     guild: discord.Guild,
     category_name: str,
 ) -> discord.CategoryChannel | None:
+    """Get or create a category with the given name in the specified guild."""
     category = discord.utils.get(guild.categories, name=category_name)
     if category is None:
         try:
@@ -58,7 +63,7 @@ async def get_or_create_category(
             )
         except discord.Forbidden:
             log.exception(
-                "get_or_create_category: No permission to create category %s in guild %s",
+                "get_or_create_category: No permission to create %s in guild %s",
                 category_name,
                 guild.name,
             )
@@ -78,6 +83,7 @@ async def get_available_course_category(
     ctx: commands.Context,
     max_channels: int = MAX_CATEGORY_CHANNELS,
 ) -> discord.CategoryChannel | None:
+    """Get an available category for courses, creating one if necessary."""
     category = discord.utils.get(guild.categories, name=base_name)
     if category is None:
         category = await get_or_create_category(guild, base_name)
@@ -112,12 +118,13 @@ async def validate_and_resolve_course_code(
     listings: dict[str, Any],
     course_data_proxy: CourseDataProxy,
 ) -> CourseCode | None:
+    """Validate and resolve the course code to a CourseCode object."""
     resolver = CourseCodeResolver(listings, course_data_proxy=course_data_proxy)
     try:
         course_obj: CourseCode = CourseCode(raw_input)
     except ValueError:
         log.debug(
-            "Failed to parse '%s' using CourseCode. Attempting to resolve using CourseCodeResolver.",
+            "Failed to parse '%s' with CourseCode. Resolving with CourseCodeResolver.",
             raw_input,
         )
         resolved, _ = await resolver.fallback_fuzzy_lookup(ctx, raw_input.strip())

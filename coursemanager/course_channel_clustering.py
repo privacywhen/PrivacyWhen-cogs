@@ -1,11 +1,12 @@
+"""Compute clusters of courses and map them to Discord category labels."""
+
 from __future__ import annotations
 
-import asyncio
 from collections import defaultdict
 from itertools import combinations
 from logging import DEBUG
 from statistics import median
-from typing import Any, Callable, Coroutine, Generator, Iterable, Mapping
+from typing import TYPE_CHECKING, Any, Callable
 
 import networkx as nx
 from networkx.algorithms.community import louvain_communities
@@ -19,6 +20,9 @@ from .constants import (
     MIN_SPARSE_OVERLAP,
 )
 from .logger_util import get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Generator, Iterable, Mapping
 
 log = get_logger(__name__)
 
@@ -49,6 +53,7 @@ class CourseChannelClustering:
         threshold_factor: float = 1.0,
         sparse_overlap: int = MIN_SPARSE_OVERLAP,
     ) -> None:
+        """Initialize clustering parameters and thresholds."""
         if grouping_threshold < MIN_DYNAMIC_THRESHOLD:
             msg = "grouping_threshold must be at least 1"
             raise ValueError(msg)
@@ -135,12 +140,12 @@ class CourseChannelClustering:
         return dict(overlaps)
 
     def _compute_dynamic_threshold(self, overlaps: Mapping[OverlapKey, int]) -> int:
-        """Return adaptive threshold = max(median · factor, MIN)."""
+        """Return adaptive threshold = max(median · factor, MIN)."""
         if not overlaps:
             return self.grouping_threshold
         med = median(overlaps.values())
         threshold = max(int(med * self.threshold_factor), MIN_DYNAMIC_THRESHOLD)
-        log.debug("Dynamic threshold → %s (median %s)", threshold, med)
+        log.debug("Dynamic threshold → %s (median %s)", threshold, med)
         return threshold
 
     def _build_graph(
@@ -148,7 +153,7 @@ class CourseChannelClustering:
         course_users: CourseUsers,
         course_metadata: CourseMetadata | None = None,
     ) -> nx.Graph:
-        """Construct weighted graph where edge weight = user overlap."""
+        """Construct weighted graph where edge weight = user overlap."""
         graph: nx.Graph = nx.Graph()
         graph.add_nodes_from(course_users)
 
@@ -230,7 +235,7 @@ class CourseChannelClustering:
         *,
         has_overflow_bucket: bool,
     ) -> CategoryMapping:
-        """Assign names to buckets; use –MISC for overflow bucket if needed."""
+        """Assign names to buckets; use -MISC for overflow bucket if needed."""
         mapping: CategoryMapping = {}
         total = len(buckets)
         width = len(str(total))
@@ -289,56 +294,3 @@ class CourseChannelClustering:
         mapping = self._map_clusters_to_categories(clusters)
         log.info("Final mapping: %s", mapping)
         return mapping
-
-    async def run_periodic(
-        self,
-        interval: int,
-        fetch_course_users: Callable[
-            [],
-            CourseUsers | Coroutine[Any, Any, CourseUsers],
-        ],
-        persist_mapping: Callable[
-            [CategoryMapping],
-            Coroutine[Any, Any, Any] | Any,
-        ],
-        shutdown_event: asyncio.Event,
-        course_metadata: CourseMetadata | None = None,
-    ) -> None:
-        """Background task: refresh mapping every *interval* seconds."""
-        log.info("Periodic clustering task started")
-        iteration = 1
-
-        try:
-            while not shutdown_event.is_set():
-                log.info("Clustering cycle #%d", iteration)
-
-                try:
-                    raw = fetch_course_users()
-                    users = await raw if asyncio.iscoroutine(raw) else raw
-                except Exception:
-                    log.exception("Fetching users failed; skipping cycle")
-                    users = {}
-
-                if users:
-                    mapping = self.cluster_courses(users, course_metadata)
-                    try:
-                        persisted = persist_mapping(mapping)
-                        if asyncio.iscoroutine(persisted):
-                            await persisted
-                        log.info("Mapping persisted")
-                    except Exception:
-                        log.exception("Persisting mapping failed")
-                else:
-                    log.info("No user data; nothing persisted")
-
-                iteration += 1
-
-                try:
-                    await asyncio.wait_for(shutdown_event.wait(), timeout=interval)
-                except asyncio.TimeoutError:
-                    continue
-        except asyncio.CancelledError:
-            log.info("Periodic clustering task cancelled")
-            raise
-        else:
-            log.info("Periodic clustering task shutdown complete")
