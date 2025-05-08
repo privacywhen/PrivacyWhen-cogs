@@ -238,6 +238,23 @@ class ChannelService:
                 log.info("Moved '%s' → '%s'", channel.name, target)
                 await _safe_sleep(self.RATE_LIMIT_DELAY)
 
+    @staticmethod
+    def _nat_key(s: str) -> list:
+        return [
+            int(tok) if tok.isdigit() else tok.casefold()
+            for tok in ChannelService._re_num.findall(s)
+        ]
+
+    async def _sort_category_channels(self, category: discord.CategoryChannel) -> None:
+        text_channels = [
+            c for c in category.channels if isinstance(c, discord.TextChannel)
+        ]
+        sorted_chans = sorted(text_channels, key=lambda c: self._nat_key(c.name))
+        for idx, chan in enumerate(sorted_chans):
+            if chan.position != idx:
+                await chan.edit(position=idx)
+                await asyncio.sleep(self.RATE_LIMIT_DELAY)
+
     async def _reorder_course_categories(
         self,
         guild: discord.Guild,
