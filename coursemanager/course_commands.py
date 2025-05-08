@@ -115,33 +115,6 @@ class CourseChannelCog(commands.Cog):
         )
         log.debug("CourseChannelCog initialized.")
 
-    async def cog_command_error(
-        self,
-        ctx: commands.Context,
-        exc: Exception,
-    ) -> None:
-        """Handle errors that occur during command execution, sending appropriate messages based on the exception type.
-
-        Args:
-            ctx (commands.Context): The context for the command that raised the error.
-            exc (Exception): The exception that was raised during command execution.
-
-        """
-        if isinstance(exc, commands.CommandOnCooldown):
-            await ctx.send(
-                error(
-                    f"You're on cooldown. Try again in {exc.retry_after:.2f}\u202fs.",
-                ),
-            )
-            return
-
-        if isinstance(exc, commands.MissingPermissions):
-            await ctx.send(error("You lack the required permissions for this command."))
-            return
-
-        log.exception("Unhandled exception in CourseChannelCog command: %s", exc)
-        await ctx.send(error("An unexpected error occurred. Please try again later."))
-
     async def cog_check(self, ctx: commands.Context) -> bool:
         """Check if a command is allowed to run, depending on the state of the server.
 
