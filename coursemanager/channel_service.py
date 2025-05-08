@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import discord
 from redbot.core import Config, commands  # noqa: TC002
 from redbot.core.utils.chat_formatting import error, success
+from sympy import re
 
 from .constants import RATE_LIMIT_DELAY
 from .course_code import CourseCode
@@ -42,6 +43,7 @@ class ChannelService:
     """Manage creation, sorting, and pruning of course channels/categories."""
 
     RATE_LIMIT_DELAY: float = RATE_LIMIT_DELAY
+    _re_num = re.compile(r"(\d+|\D+)")
 
     def __init__(self, bot: commands.Bot, config: Config) -> None:
         """Initialize ChannelService with a Bot instance and its Config."""
