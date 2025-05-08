@@ -1,3 +1,19 @@
+"""Module: CourseChannelCog.
+
+This module defines the `CourseChannelCog` class, which handles course management commands
+for a Discord bot using Redbot. The cog supports course-specific functionalities such as
+joining or leaving courses, displaying course details, and configuring logging channels.
+It also handles the clustering of course channels and provides commands for developers to
+enable or disable the course manager, manage term codes, and more.
+
+Dependencies:
+- redbot.core: Provides core functionality for commands, config, and context handling.
+- discord: Used for interacting with Discord's API, specifically for creating and managing channels.
+- ChannelService: Manages the creation, modification, and deletion of channels.
+- CourseService: Handles the management of course data and user access to course channels.
+- CourseChannelClustering: Groups courses into categories based on clustering logic.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -24,6 +40,19 @@ T = TypeVar("T")
 def handle_command_errors(
     func: Callable[..., Coroutine[Any, Any, T]],
 ) -> Callable[..., Coroutine[Any, Any, T]]:
+    """Handle errors in commands.
+
+    Catches any exceptions raised in the command function, logs them,
+    and sends a user-friendly error message to the context.
+
+    Args:
+        func (Callable[..., Coroutine[Any, Any, T]]): The command function to be wrapped.
+
+    Returns:
+        Callable[..., Coroutine[Any, Any, T]]: The wrapped command function with error handling.
+
+    """
+
     @functools.wraps(func)
     async def wrapper(
         self: commands.Cog,
@@ -41,7 +70,28 @@ def handle_command_errors(
 
 
 class CourseChannelCog(commands.Cog):
+    """Cog that manages course-related commands such as joining and leaving courses,
+    displaying course details, and configuring logging channels. It also manages the
+    clustering and pruning of course channels in a Discord server.
+
+    Attributes:
+        bot (commands.Bot): The instance of the bot.
+        config (Config): The configuration object for persistent storage.
+        channel_service (ChannelService): The service responsible for managing channels.
+        course_service (CourseService): The service responsible for managing courses.
+        clustering (CourseChannelClustering): The clustering logic for course channels.
+        _prune_task (asyncio.Task | None): The task responsible for pruning channels.
+        _cluster_task (asyncio.Task | None): The task responsible for clustering course channels.
+
+    """
+
     def __init__(self, bot: commands.Bot) -> None:
+        """Initialize the `CourseChannelCog` class with the given bot instance.
+
+        Args:
+            bot (commands.Bot): The bot instance to associate with the cog.
+
+        """
         self.bot: commands.Bot = bot
         self.config: Config = Config.get_conf(
             self,
@@ -72,6 +122,14 @@ class CourseChannelCog(commands.Cog):
         ctx: commands.Context,
         exc: Exception,
     ) -> None:
+        """Handle errors that occur during command execution, sending appropriate messages
+        based on the exception type.
+
+        Args:
+            ctx (commands.Context): The context for the command that raised the error.
+            exc (Exception): The exception that was raised during command execution.
+
+        """
         if isinstance(exc, commands.CommandOnCooldown):
             await ctx.send(
                 error(
@@ -88,6 +146,15 @@ class CourseChannelCog(commands.Cog):
         await ctx.send(error("An unexpected error occurred. Please try again later."))
 
     async def cog_check(self, ctx: commands.Context) -> bool:
+        """Check if a command is allowed to run, depending on the state of the server.
+
+        Args:
+            ctx (commands.Context): The context for the command to check.
+
+        Returns:
+            bool: Whether the command is allowed to run in the given context.
+
+        """
         if ctx.guild is None:
             return True
         if ctx.command.qualified_name.lower().startswith(
@@ -108,6 +175,7 @@ class CourseChannelCog(commands.Cog):
         return True
 
     def cog_unload(self) -> None:
+        """Unload the cog, canceling background tasks and cleaning up resources."""
         log.debug("Unloading CourseChannelCog; cancelling background tasks.")
         for task in (self._prune_task, getattr(self, "_cluster_task", None)):
             if task:
@@ -126,6 +194,12 @@ class CourseChannelCog(commands.Cog):
         case_insensitive=True,
     )
     async def course(self, ctx: commands.Context) -> None:
+        """Provide help for the `course` command group.
+
+        Args:
+            ctx (commands.Context): The context for the command.
+
+        """
         await ctx.send_help(ctx.command)
 
     @course.command(name="join")
@@ -133,6 +207,15 @@ class CourseChannelCog(commands.Cog):
     @app_commands.describe(course_code="The course code you wish to join")
     @handle_command_errors
     async def join_course(self, ctx: commands.Context, *, course_code: str) -> None:
+        """Grant access to a course channel for the user.
+
+        This command allows users to join a course channel based on the provided course code.
+
+        Args:
+            ctx (commands.Context): The context for the command.
+            course_code (str): The course code the user wishes to join.
+
+        """
         await self.course_service.grant_course_channel_access(ctx, course_code)
 
     @course.command(name="leave")
@@ -140,6 +223,15 @@ class CourseChannelCog(commands.Cog):
     @app_commands.describe(course_code="The course code you wish to leave")
     @handle_command_errors
     async def leave_course(self, ctx: commands.Context, *, course_code: str) -> None:
+        """Revoke access to a course channel for the user.
+
+        This command allows users to leave a course channel based on the provided course code.
+
+        Args:
+            ctx (commands.Context): The context for the command.
+            course_code (str): The course code the user wishes to leave.
+
+        """
         await self.course_service.revoke_course_channel_access(ctx, course_code)
 
     @course.command(name="details")
@@ -147,6 +239,15 @@ class CourseChannelCog(commands.Cog):
     @app_commands.describe(course_code="The course code to view details for")
     @handle_command_errors
     async def course_details(self, ctx: commands.Context, *, course_code: str) -> None:
+        """Show details for the specified course.
+
+        This command provides detailed information about a course based on the course code.
+
+        Args:
+            ctx (commands.Context): The context for the command.
+            course_code (str): The course code to retrieve details for.
+
+        """
         await self.course_service.course_details(ctx, course_code)
 
     @course.command(name="setlogging")
@@ -158,11 +259,29 @@ class CourseChannelCog(commands.Cog):
         ctx: commands.Context,
         channel: discord.TextChannel,
     ) -> None:
+        """Set the specified channel as the logging channel for course-related activities.
+
+        This command configures the bot to send course-related logs to the given text channel.
+
+        Args:
+            ctx (commands.Context): The context for the command.
+            channel (discord.TextChannel): The text channel to set as the logging channel.
+
+        """
         await self.course_service.set_logging(ctx, channel)
 
     @commands.is_owner()
     @commands.group(name="dc", invoke_without_command=True)
     async def dev_course(self, ctx: commands.Context) -> None:
+        """Provide help for the 'dc' command group.
+
+        This command serves as the entry point for the 'dev_course' command group.
+        When invoked without subcommands, it sends help information for the group.
+
+        Args:
+            ctx (commands.Context): The context for the command.
+
+        """
         await ctx.send_help(ctx.command)
 
     @dev_course.command(name="enable")
@@ -170,6 +289,15 @@ class CourseChannelCog(commands.Cog):
     @commands.has_permissions(administrator=True)
     @handle_command_errors
     async def enable(self, ctx: commands.Context) -> None:
+        """Enable the course manager for the current server.
+
+        This command enables the course manager system on the current server, allowing
+        users to access course channels and related functionality.
+
+        Args:
+            ctx (commands.Context): The context for the command.
+
+        """
         await self.course_service.enable(ctx)
 
     @dev_course.command(name="disable")
@@ -177,6 +305,15 @@ class CourseChannelCog(commands.Cog):
     @commands.has_permissions(administrator=True)
     @handle_command_errors
     async def disable(self, ctx: commands.Context) -> None:
+        """Disable the course manager for the current server.
+
+        This command disables the course manager system on the current server, preventing
+        users from interacting with course channels.
+
+        Args:
+            ctx (commands.Context): The context for the command.
+
+        """
         await self.course_service.disable(ctx)
 
     @dev_course.command(name="term")
@@ -188,31 +325,85 @@ class CourseChannelCog(commands.Cog):
         year: int,
         term_id: int,
     ) -> None:
+        """Set the term code for a specific term.
+
+        This command updates the term information, allowing users to assign a term
+        to a course based on the term name, year, and term ID.
+
+        Args:
+            ctx (commands.Context): The context for the command.
+            term_name (str): The name of the term (e.g., Spring, Fall).
+            year (int): The year of the term.
+            term_id (int): The identifier for the term.
+
+        """
         await self.course_service.set_term_code(ctx, term_name, year, term_id)
 
     @dev_course.command(name="populate")
     @handle_command_errors
     async def populate_courses(self, ctx: commands.Context) -> None:
+        """Populate the course database with new courses.
+
+        This command adds new courses to the database by gathering the required
+        course information and populating the system.
+
+        Args:
+            ctx (commands.Context): The context for the command.
+
+        """
         await self.course_service.populate_courses(ctx)
 
     @dev_course.command(name="listall")
     @handle_command_errors
     async def list_all_courses(self, ctx: commands.Context) -> None:
+        """List all available courses.
+
+        This command retrieves and displays a list of all courses in the system.
+
+        Args:
+            ctx (commands.Context): The context for the command.
+
+        """
         await self.course_service.list_all_courses(ctx)
 
     @dev_course.command(name="refresh")
     @handle_command_errors
     async def refresh_course(self, ctx: commands.Context, *, course_code: str) -> None:
+        """Refresh the data for a specific course.
+
+        This command updates the course data for the specified course code.
+
+        Args:
+            ctx (commands.Context): The context for the command.
+            course_code (str): The course code to refresh.
+
+        """
         await self.course_service.refresh_course_data(ctx, course_code)
 
     @dev_course.command(name="printconfig")
     @handle_command_errors
     async def print_config(self, ctx: commands.Context) -> None:
+        """Print the current configuration of the course system.
+
+        This command shows the current configuration settings for the course manager.
+
+        Args:
+            ctx (commands.Context): The context for the command.
+
+        """
         await self.course_service.print_config(ctx)
 
     @dev_course.command(name="clearall")
     @handle_command_errors
     async def reset_config(self, ctx: commands.Context) -> None:
+        """Reset the course configuration to its default settings.
+
+        This command clears all custom configurations and restores the default settings.
+
+        Args:
+            ctx (commands.Context): The context for the command.
+
+        """
         await self.course_service.reset_config(ctx)
 
     @dev_course.command(name="setdefaultcategory")
@@ -223,6 +414,16 @@ class CourseChannelCog(commands.Cog):
         *,
         category_name: str,
     ) -> None:
+        """Set the default category for course channels.
+
+        This command configures the default category to which new course channels
+        will be assigned.
+
+        Args:
+            ctx (commands.Context): The context for the command.
+            category_name (str): The name of the default category to set.
+
+        """
         await self.channel_service.set_default_category(ctx, category_name)
         await ctx.send(success(f"Default category set to **{category_name}**"))
 
@@ -231,7 +432,15 @@ class CourseChannelCog(commands.Cog):
     @commands.has_permissions(administrator=True)
     @handle_command_errors
     async def recluster(self, ctx: commands.Context) -> None:
-        """Recompute clustering and move course channels into their new categories."""
+        """Recompute clustering and move course channels into their new categories.
+
+        This command triggers the recomputation of course channel clusters based on
+        the current user groupings and applies the new category mapping.
+
+        Args:
+            ctx (commands.Context): The context for the command.
+
+        """
         guild = ctx.guild
 
         # 1) Gather current membership
