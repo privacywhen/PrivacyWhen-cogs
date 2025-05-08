@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 import discord
 from redbot.core import Config, commands  # noqa: TC002
 from redbot.core.utils.chat_formatting import error, success
-from sympy import re
 
 from .constants import RATE_LIMIT_DELAY
 from .course_code import CourseCode
