@@ -21,6 +21,7 @@ import functools
 from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
 import discord  # noqa: TC002
+from discord.ext.commands import MissingRequiredArgument
 from redbot.core import Config, app_commands, commands
 from redbot.core.utils.chat_formatting import error, success
 
@@ -62,11 +63,17 @@ def handle_command_errors(
     ) -> T:
         try:
             return await func(self, ctx, *args, **kwargs)  # type: ignore[arg-type]
+        except MissingRequiredArgument as e:
+            # Handle missing arguments and show the user what they missed
+            missing_arg = e.param.name
+            await ctx.send(
+                f"Oops! You missed the required argument `{missing_arg}`. Please use the command like this:\n`=course details <course_code>`",
+            )
         except Exception:
-            # Catch all other exceptions that are not related to missing arguments
+            # Handle any other exceptions and log them
             log.exception("Error in command '%s'", func.__name__)
             await ctx.send(
-                error("An unexpected error occurred. Please try again later.")
+                error("An unexpected error occurred. Please try again later."),
             )
 
     return wrapper
