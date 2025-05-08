@@ -238,6 +238,27 @@ class ChannelService:
                 log.info("Moved '%s' → '%s'", channel.name, target)
                 await _safe_sleep(self.RATE_LIMIT_DELAY)
 
+    async def _reorder_course_categories(
+        self,
+        guild: discord.Guild,
+        base_prefix: str,
+    ) -> None:
+        """Reorder course categories below non-course categories in the guild."""
+        non_course = [
+            c for c in guild.categories if not c.name.upper().startswith(base_prefix)
+        ]
+        course_cats = sorted(
+            (c for c in guild.categories if c.name.upper().startswith(base_prefix)),
+            key=lambda c: self._nat_key(c.name),  # Using natural sorting
+        )
+        desired = (*non_course, *course_cats)
+
+        # Reorder categories to maintain proper order
+        for idx, cat in enumerate(desired):
+            if cat.position != idx:
+                await cat.edit(position=idx)
+                await _safe_sleep(self.RATE_LIMIT_DELAY)
+
     async def _cleanup_categories(
         self,
         guild: discord.Guild,
