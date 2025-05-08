@@ -1,16 +1,16 @@
 """Module: CourseChannelCog.
 
-This module defines the `CourseChannelCog` class, which handles course management commands
+Module defines the `CourseChannelCog` class, which handles course management commands
 for a Discord bot using Redbot. The cog supports course-specific functionalities such as
 joining or leaving courses, displaying course details, and configuring logging channels.
-It also handles the clustering of course channels and provides commands for developers to
+Also handles the clustering of course channels and provides commands for developers to
 enable or disable the course manager, manage term codes, and more.
 
 Dependencies:
 - redbot.core: Provides core functionality for commands, config, and context handling.
-- discord: Used for interacting with Discord's API, specifically for creating and managing channels.
+- discord: Used for interacting with Discord's API, e.g. creating and managing channels.
 - ChannelService: Manages the creation, modification, and deletion of channels.
-- CourseService: Handles the management of course data and user access to course channels.
+- CourseService: Handles management of course data and user access to course channels.
 - CourseChannelClustering: Groups courses into categories based on clustering logic.
 """
 
@@ -46,10 +46,10 @@ def handle_command_errors(
     and sends a user-friendly error message to the context.
 
     Args:
-        func (Callable[..., Coroutine[Any, Any, T]]): The command function to be wrapped.
+        func (Callable[..., Coroutine[Any, Any, T]]): Command function to be wrapped.
 
     Returns:
-        Callable[..., Coroutine[Any, Any, T]]: The wrapped command function with error handling.
+        Callable[..., Coroutine[Any, Any, T]]: Wrapped command function error handling.
 
     """
 
@@ -70,9 +70,7 @@ def handle_command_errors(
 
 
 class CourseChannelCog(commands.Cog):
-    """Cog that manages course-related commands such as joining and leaving courses,
-    displaying course details, and configuring logging channels. It also manages the
-    clustering and pruning of course channels in a Discord server.
+    """Cog managing course commands, logging channels, and course channel clustering and pruning.
 
     Attributes:
         bot (commands.Bot): The instance of the bot.
@@ -122,8 +120,7 @@ class CourseChannelCog(commands.Cog):
         ctx: commands.Context,
         exc: Exception,
     ) -> None:
-        """Handle errors that occur during command execution, sending appropriate messages
-        based on the exception type.
+        """Handle errors that occur during command execution, sending appropriate messages based on the exception type.
 
         Args:
             ctx (commands.Context): The context for the command that raised the error.
@@ -205,10 +202,11 @@ class CourseChannelCog(commands.Cog):
     @course.command(name="join")
     @commands.cooldown(1, 5, commands.BucketType.user)
     @app_commands.describe(course_code="The course code you wish to join")
+    @handle_command_errors
     async def join_course(self, ctx: commands.Context, *, course_code: str) -> None:
         """Grant access to a course channel for the user.
 
-        This command allows users to join a course channel based on the provided course code.
+        Command allows users to join a course channel based on the provided course code.
 
         Args:
             ctx (commands.Context): The context for the command.
@@ -236,6 +234,7 @@ class CourseChannelCog(commands.Cog):
     @course.command(name="details")
     @commands.cooldown(1, 5, commands.BucketType.user)
     @app_commands.describe(course_code="The course code to view details for")
+    @handle_command_errors
     async def course_details(self, ctx: commands.Context, *, course_code: str) -> None:
         """Show details for the specified course.
 
