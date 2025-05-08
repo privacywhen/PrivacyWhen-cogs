@@ -63,8 +63,11 @@ def handle_command_errors(
         try:
             return await func(self, ctx, *args, **kwargs)  # type: ignore[arg-type]
         except Exception:
+            # Catch all other exceptions that are not related to missing arguments
             log.exception("Error in command '%s'", func.__name__)
-            await ctx.send(error("An unexpected error occurred."))
+            await ctx.send(
+                error("An unexpected error occurred. Please try again later.")
+            )
 
     return wrapper
 
