@@ -1,4 +1,5 @@
-"""This module provides a unified approach to parsing, normalizing, and converting course codes.
+"""Module provides a unified approach to parsing, normalizing, and converting course codes.
+
 The CourseCode class extracts and standardizes course code information, ensuring consistency
 across the codebase.
 
@@ -12,11 +13,13 @@ Example:
 
 """
 
+from __future__ import annotations
+
 import re
 
 from .logger_util import get_logger
 
-log = get_logger("red.course_code")
+log = get_logger(__name__)
 
 
 class CourseCode:
@@ -44,7 +47,8 @@ class CourseCode:
         match = self._pattern.match(self._raw)
         if match is None:
             log.error(f"Failed to parse course code: '{self._raw}'")
-            raise ValueError(f"Invalid course code format: '{self._raw}'")
+            msg = f"Invalid course code format: '{self._raw}'"
+            raise ValueError(msg)
         self._department, self._code, suffix = match.group(1, 2, 3)
         self._department = self._department.upper()
         self._code = self._code.upper()
@@ -75,4 +79,5 @@ class CourseCode:
         return f"{self.department.lower()}-{self.code.lower()}"
 
     def __str__(self) -> str:
+        """Return the canonical course code string for human-readable output."""
         return self.canonical()

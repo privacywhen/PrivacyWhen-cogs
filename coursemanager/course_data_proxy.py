@@ -1,13 +1,15 @@
+"""Manages course data retrieval, caching, term resolution, and HTTP retries/backoff."""
+
 from __future__ import annotations
 
 import asyncio
-import logging
 import random
 import re
 from datetime import datetime, timedelta, timezone
 from math import floor
+from re import Pattern
 from time import time
-from typing import Any, Dict, List, Optional, Pattern, Set, Tuple
+from typing import TYPE_CHECKING, Any
 
 from aiohttp import (
     ClientConnectionError,
@@ -16,20 +18,21 @@ from aiohttp import (
     ClientTimeout,
 )
 from bs4 import BeautifulSoup, Tag
-from redbot.core import Config
+from redbot.core import Config  # noqa: TC002
 
 from .course_code import CourseCode
 from .logger_util import get_logger
 from .utils import utcnow
 
-log = get_logger("red.course_data_proxy")
+if TYPE_CHECKING:
+    import logging
 
-# ────────────────────────────── constants ───────────────────────────── #
+log = get_logger(__name__)
 
+# ────────────────────────── Constants / Tunables ───────────────────────── #
 CACHE_STALE_DAYS_BASIC = 90
 CACHE_PURGE_DAYS = 180
-
-TERM_NAMES: List[str] = ["winter", "spring", "fall"]
+INVALID_PAIR_TTL = timedelta(hours=12)
 
 URL_BASE = (
     "https://mytimetable.mcmaster.ca/api/class-data"
@@ -43,26 +46,41 @@ LISTING_URL = (
 
 MAX_ATTEMPTS = 2
 BASE_DELAY_SECONDS = 2
+
 XML_PARSER = "lxml-xml"
 BR_TAG_REGEX: Pattern[str] = re.compile(r"<br\s*/?>", flags=re.IGNORECASE)
 
-INVALID_PAIR_TTL = timedelta(hours=12)
+HTTP_STATUS_OK = 200
+HTTP_STATUS_INTERNAL_ERROR = 500
+
+TERM_NAMES: list[str] = ["winter", "spring", "fall"]
+WINTER_THRESHOLD_MONTH = 10
+SPRING_THRESHOLD_MONTH = 5
+FALL_THRESHOLD_MONTH = 8
 
 PATTERN_TERM_YEAR = re.compile(r"\b(Winter|Spring|Fall)\s+(\d{4})", re.IGNORECASE)
 PATTERN_YEAR_TERM = re.compile(r"(\d{4})\s+(Winter|Spring|Fall)", re.IGNORECASE)
 PATTERN_TERM_ONLY = re.compile(r"\b(Winter|Spring|Fall)\s+only", re.IGNORECASE)
 
-# Transient XML errors (environmental) that should not mark the pair invalid
-TRANSIENT_XML_ERRORS: List[str] = [
+TRANSIENT_XML_ERRORS: list[str] = [
     "timezone",
     "device's time",
     "correct your clock",
 ]
 
+# ───────────────────────────── Type Aliases ────────────────────────────── #
 
-def extract_caption_hints(caption: str) -> List[Tuple[str, Optional[int]]]:
-    """Extract term/year hints from listing captions."""
-    hints: List[Tuple[str, Optional[int]]] = [
+CourseData = dict[str, Any]
+TermHint = tuple[str, int | None]
+TermOrder = list[tuple[str, int]]
+
+
+# ──────────────────────── Helper Functions ────────────────────────────── #
+
+
+def extract_caption_hints(caption: str) -> list[TermHint]:
+    """Pull out term/year pairs (and 'term only') from a listing caption."""
+    hints: list[TermHint] = [
         (term.lower(), int(year)) for term, year in PATTERN_TERM_YEAR.findall(caption)
     ]
     hints.extend(
@@ -73,28 +91,24 @@ def extract_caption_hints(caption: str) -> List[Tuple[str, Optional[int]]]:
 
 
 class TermHelper:
-    """Helper for resolving and ordering academic terms."""
+    """Resolve and rank academic terms for fetching."""
 
     @staticmethod
     def resolve_term_year(term: str, now: datetime) -> int:
-        month = now.month
-        year = now.year
+        """Return the resolved year for the given term based on the current date."""
         if term == "winter":
-            return year + (1 if month >= 10 else 0)
+            return now.year + (1 if now.month >= WINTER_THRESHOLD_MONTH else 0)
         if term == "spring":
-            return year + (1 if month >= 5 else 0)
+            return now.year + (1 if now.month >= SPRING_THRESHOLD_MONTH else 0)
         if term == "fall":
-            return year if month >= 8 else year - 1
-        return year
+            return now.year if now.month >= FALL_THRESHOLD_MONTH else now.year - 1
+        return now.year
 
     @staticmethod
-    def hints_to_order(
-        hints: List[Tuple[str, Optional[int]]],
-        now: datetime,
-    ) -> List[Tuple[str, int]]:
-        """Convert raw hints into a deduplicated ordered list of (term, year)."""
-        ordered: List[Tuple[str, int]] = []
-        seen: Set[Tuple[str, int]] = set()
+    def hints_to_order(hints: list[TermHint], now: datetime) -> TermOrder:
+        """Convert term hints into an ordered list of (season, year) tuples."""
+        ordered: TermOrder = []
+        seen: set[tuple[str, int]] = set()
         for season, yr in hints:
             resolved = yr or TermHelper.resolve_term_year(season, now)
             pair = (season, resolved)
@@ -104,315 +118,274 @@ class TermHelper:
         return ordered
 
     @staticmethod
-    def fallback_order(now: datetime) -> List[Tuple[str, int]]:
-        """Return default fallback order: current year Winter, Spring, Fall."""
+    def fallback_order(now: datetime) -> TermOrder:
+        """Return a fallback list of terms for the current year."""
         return [(season, now.year) for season in TERM_NAMES]
 
 
 class CourseDataProxy:
-    """Scrapes McMaster timetable API, caches results in Config,
-    uses in-memory TTL caches, and prunes invalid course-term pairs briefly.
-    """
+    """Fetch, cache, and parse course data with in-memory and persistent TTL."""
 
     def __init__(self, config: Config, logger: logging.Logger) -> None:
+        """Initialize CourseDataProxy with config, logger, session, and caches."""
         self.config = config
         self.log = logger
-        self._session: Optional[ClientSession] = None
+        self._session: ClientSession | None = None
 
-        # TTL caches
-        self._term_codes_cache: Dict[str, int] = {}
-        self._term_codes_last_update: datetime = datetime.min.replace(
-            tzinfo=timezone.utc,
-        )
-        self._listings_cache: Dict[str, str] = {}
-        self._listings_last_update: datetime = datetime.min.replace(tzinfo=timezone.utc)
+        self._term_codes_cache: dict[str, int] = {}
+        self._term_codes_last_update = datetime.min.replace(tzinfo=timezone.utc)
 
-        # Invalid pair cache with timestamps
-        self._invalid_course_term_cache: Dict[Tuple[str, str], datetime] = {}
+        self._listings_cache: dict[str, str] = {}
+        self._listings_last_update = datetime.min.replace(tzinfo=timezone.utc)
 
-        self.log.debug(
-            "CourseDataProxy initialized with TTL-based invalid-pair pruning.",
-        )
+        self._invalid_course_term_cache: dict[tuple[str, str], datetime] = {}
 
-    # ───────────────────── session management ───────────────────── #
+        self.log.debug("CourseDataProxy initialized with TTL caches")
+
+    def _now(self) -> datetime:
+        """Return current UTC time. Overrideable in tests."""
+        return utcnow()
 
     async def _get_session(self) -> ClientSession:
-        """Get or create the aiohttp ClientSession."""
+        """Ensure an aiohttp session with reasonable timeouts."""
         if not self._session or self._session.closed:
             self._session = ClientSession(
                 timeout=ClientTimeout(connect=10, sock_read=10),
             )
-            self.log.debug("Created new HTTP session.")
+            self.log.debug("Created new HTTP session")
         return self._session
 
     async def close(self) -> None:
-        """Close the HTTP session if open."""
+        """Shut down the HTTP session if it's open."""
         if self._session:
             await self._session.close()
             self._session = None
-            self.log.debug("HTTP session closed.")
+            self.log.debug("HTTP session closed")
 
-    # ───────────────────────── public API ───────────────────────── #
+    async def _load_from_cache(
+        self,
+        course_code: str,
+        *,
+        detailed: bool = False,
+    ) -> CourseData | None:
+        """Return cached entry if within TTL, otherwise None."""
+        dept, num, suffix = self._get_course_keys(course_code)
+        cache_key = "detailed" if detailed else "basic"
+        all_cache = await self.config.courses()
+        entry = self._get_cache_entry(all_cache, dept, num, suffix, cache_key)
+        threshold = CACHE_PURGE_DAYS if detailed else CACHE_STALE_DAYS_BASIC
+        if entry and not self._is_stale(entry.get("last_updated", ""), threshold):
+            self.log.debug("Using cached %s data for %s", cache_key, course_code)
+            return entry
+        return None
+
+    async def _save_to_cache(
+        self,
+        course_code: str,
+        *,
+        detailed: bool = False,
+        data: CourseData,
+    ) -> None:
+        """Store fresh course data into persistent config."""
+        dept, num, suffix = self._get_course_keys(course_code)
+        cache_key = "detailed" if detailed else "basic"
+        await self._update_cache_entry(dept, num, suffix, cache_key, data)
+        self.log.debug("Saved %s data to cache for %s", cache_key, course_code)
 
     async def get_course_data(
         self,
         course_code: str,
         *,
-        hints: Optional[List[Tuple[str, Optional[int]]]] = None,
+        hints: list[TermHint] | None = None,
         detailed: bool = False,
-    ) -> Dict[str, Any]:
-        """Main entry: return cached or freshly fetched course data.
-        Falls back to basic data on detailed fetch failures.
+    ) -> CourseData:
+        """Return course data, preferring cache.
+
+        Falls back from detailed → basic on failure,
+        and persists fresh results back into cache.
         """
-        department, course_number, suffix_str = self._get_course_keys(course_code)
         cache_key = "detailed" if detailed else "basic"
-        now_iso = utcnow().isoformat()
 
-        courses_cache = await self.config.courses()
-        cached_entry = self._get_cache_entry(
-            courses_cache,
-            department,
-            course_number,
-            suffix_str,
-            cache_key,
-        )
-        threshold = CACHE_PURGE_DAYS if detailed else CACHE_STALE_DAYS_BASIC
-
-        if cached_entry and not self._is_stale(
-            cached_entry.get("last_updated", ""),
-            threshold,
-        ):
-            self.log.debug("Using cached %s data for %s", cache_key, course_code)
-            return cached_entry
+        if cached := await self._load_from_cache(course_code, detailed=detailed):
+            return cached
 
         normalized = CourseCode(course_code).canonical()
         if hints is None:
             await self._maybe_refresh_listings()
-            if listing_info := self._listings_cache.get(normalized):
-                hints = extract_caption_hints(listing_info)
+            if info := self._listings_cache.get(normalized):
+                hints = extract_caption_hints(info)
 
         self.log.debug("Fetching %s data for %s", cache_key, normalized)
-        soup, error_msg = await self._fetch_course_online(normalized, hints=hints)
+        soup, err = await self._fetch_course_online(normalized, hints=hints)
         if not soup:
-            self.log.error(
-                "Error fetching %s for %s: %s",
-                cache_key,
-                normalized,
-                error_msg,
-            )
-            if detailed:
-                if fallback := self._get_cache_entry(
-                    courses_cache,
-                    department,
-                    course_number,
-                    suffix_str,
-                    "basic",
-                ):
-                    self.log.debug("Falling back to basic data for %s", normalized)
-                    return fallback
+            self.log.error("Fetch error for %s %s: %s", cache_key, normalized, err)
+            if detailed and (
+                fallback := await self._load_from_cache(course_code, detailed=False)
+            ):
+                self.log.debug("Falling back to basic data for %s", normalized)
+                return fallback
             return {}
 
         processed = self._process_course_data(soup)
-        new_entry: Dict[str, Any] = {
+        new_entry: CourseData = {
             "cached_course_data": processed,
-            "last_updated": now_iso,
+            "last_updated": self._now().isoformat(),
         }
         if not detailed:
             new_entry["available_terms"] = await self._determine_term_order_refined(
                 normalized,
             )
 
-        if new_entry != cached_entry:
-            await self._update_cache_entry(
-                department,
-                course_number,
-                suffix_str,
-                cache_key,
-                new_entry,
-            )
-            self.log.debug("Updated cache for %s data on %s", cache_key, normalized)
-
+        await self._save_to_cache(course_code, detailed=detailed, data=new_entry)
         return new_entry
 
-    # ───────────────────── internal – listings TTL ───────────────────── #
-
+    # ───────────────────── Internal - Listings TTL ───────────────────── #
     async def _maybe_refresh_listings(self) -> None:
-        """Refresh the in-memory listings cache once per hour."""
-        if (utcnow() - self._listings_last_update) > timedelta(hours=1):
+        """Refresh listings cache once per hour."""
+        if (self._now() - self._listings_last_update) > timedelta(hours=1):
             listings = await self.config.course_listings()
             self._listings_cache = listings.get("courses", {})
-            self._listings_last_update = utcnow()
+            self._listings_last_update = self._now()
 
-    # ───────────────────── internal – term resolution ──────────────────── #
-
+    # ──────────────────── Internal - Term Resolution ──────────────────── #
     async def _determine_term_order_refined(
         self,
-        normalized_course: Optional[str] = None,
-    ) -> List[Tuple[str, int]]:
-        """Build a prioritized term list: extracted candidate first, then other terms."""
+        normalized_course: str,
+    ) -> TermOrder:
+        """Build prioritized term list: extracted candidate first, then others."""
         await self._maybe_refresh_listings()
-        candidate = None
-        if normalized_course:
-            candidate = await self._extract_term_from_listing(normalized_course)
+        candidate: tuple[str, int] | None = await self._extract_term_from_listing(
+            normalized_course,
+        )
 
-        now = utcnow()
-        refined = [(s, TermHelper.resolve_term_year(s, now)) for s in TERM_NAMES]
-        if candidate and candidate in refined:
-            refined.remove(candidate)
-        if candidate:
-            refined.insert(0, candidate)
+        now = self._now()
+        order = [(s, TermHelper.resolve_term_year(s, now)) for s in TERM_NAMES]
+        if candidate and candidate in order:
+            order.remove(candidate)
+            order.insert(0, candidate)
 
-        self.log.debug("Refined term order: %s", refined)
-        return refined
+        self.log.debug("Refined term order for %s → %s", normalized_course, order)
+        return order
 
-    def _determine_term_order_fallback(self) -> List[Tuple[str, int]]:
-        """Default fallback: Winter, Spring, Fall of current year."""
-        now = utcnow()
-        fallback = TermHelper.fallback_order(now)
-        self.log.debug("Fallback term order: %s", fallback)
-        return fallback
+    def _determine_term_order_fallback(self) -> TermOrder:
+        """Return fallback term order: Winter, Spring, Fall of current year."""
+        order = TermHelper.fallback_order(self._now())
+        self.log.debug("Fallback term order → %s", order)
+        return order
 
-    # ─────────────────────── HTTP + retry logic ─────────────────────── #
-
+    # ────────────────── HTTP & Retry Logic ────────────────── #
     async def _fetch_course_online(
         self,
         normalized_course: str,
         *,
-        hints: Optional[List[Tuple[str, Optional[int]]]] = None,
-    ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
-        """Unified fetch: smart hints first, then fallback, in one pass."""
-        now = utcnow()
-
-        # Build merged candidate list
-        smart = (
+        hints: list[TermHint] | None = None,
+    ) -> tuple[BeautifulSoup | None, str | None]:
+        """Orchestrate fetch attempts over prioritized term orders."""
+        now = self._now()
+        primary = (
             TermHelper.hints_to_order(hints, now)
             if hints
             else await self._determine_term_order_refined(normalized_course)
         )
-        brute = self._determine_term_order_fallback()
+        fallback = self._determine_term_order_fallback()
+        seen: set[tuple[str, int]] = set()
 
-        seen: Set[Tuple[str, int]] = set()
-        candidates: List[Tuple[str, int]] = []
-        for season, year in (*smart, *brute):
-            if (season, year) not in seen:
-                candidates.append((season, year))
-                seen.add((season, year))
-
-        last_error: Optional[str] = None
-
-        # Single pass over merged candidates
-        for season, year in candidates:
+        for season, year in (*primary, *fallback):
+            if (season, year) in seen:
+                continue
+            seen.add((season, year))
             term_key = f"{season}-{year}"
-            course_term = (normalized_course, term_key)
+            pair = (normalized_course, term_key)
 
-            if self._should_skip_invalid(course_term):
+            if self._should_skip_invalid(pair):
                 self.log.debug("Skipping invalidated %s", term_key)
                 continue
 
             term_id = await self._get_term_id(term_key)
             if not term_id:
-                self.log.debug("No term ID for %s; skipping", term_key)
+                self.log.debug("No term ID for %s", term_key)
                 continue
 
-            self.log.debug("Fetching %s (term_id=%s)", term_key, term_id)
-            soup, err = await self._attempt_term_fetch(
-                term_key,
-                term_id,
-                normalized_course,
-                course_term,
-            )
+            url = self._build_url(term_id, normalized_course)
+            self.log.debug("Attempting fetch for %s (term_id=%s)", term_key, term_id)
+            soup, err = await self._fetch_with_backoff(url, term_key, pair)
 
-            # Transient XML errors: return immediately (no invalidation)
             if err and any(tok in err.lower() for tok in TRANSIENT_XML_ERRORS):
                 self.log.warning("Transient XML error on %s: %s", term_key, err)
                 return None, err
 
-            # Success or definitive not-found
-            if soup or (err and "not found" in err.lower()):
-                if err and "not found" in err.lower():
-                    self._record_invalid(course_term)
-                return soup, err
-
-            last_error = err
-
-        return None, last_error or "Unknown error fetching course data."
-
-    def _should_skip_invalid(self, pair: Tuple[str, str]) -> bool:
-        """Return True if this course-term pair is known invalid within TTL."""
-        if ts := self._invalid_course_term_cache.get(pair):
-            if utcnow() - ts < INVALID_PAIR_TTL:
-                return True
-            del self._invalid_course_term_cache[pair]
-        return False
-
-    def _record_invalid(self, pair: Tuple[str, str]) -> None:
-        """Mark a course-term pair as invalid starting now."""
-        self._invalid_course_term_cache[pair] = utcnow()
-
-    async def _attempt_term_fetch(
-        self,
-        term_key: str,
-        term_id: int,
-        normalized_course: str,
-        pair: Tuple[str, str],
-    ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
-        """Try fetching data for one term, with retries and invalid-pair pruning."""
-        url = self._build_url(term_id, normalized_course)
-        last_error: Optional[str] = None
-
-        for attempt in range(MAX_ATTEMPTS):
-            if attempt:
-                delay = BASE_DELAY_SECONDS * 2 ** (attempt - 1) + random.uniform(
-                    0,
-                    BASE_DELAY_SECONDS,
-                )
-                await asyncio.sleep(delay)
-
-            self.log.debug("Attempt %d for URL %s", attempt + 1, url)
-            soup, err = await self._fetch_and_parse(url)
-
-            # Transient XML errors: skip invalidation, return immediately
-            if err and any(tok in err.lower() for tok in TRANSIENT_XML_ERRORS):
-                self.log.warning("Transient XML error on %s: %s", term_key, err)
-                return None, err
-
-            # Success or explicit not-found
             if soup or (err and "not found" in err.lower()):
                 if err and "not found" in err.lower():
                     self._record_invalid(pair)
                 return soup, err
 
-            last_error = err
+        return None, "Unknown error fetching course data."
 
-            # Permanent client error: mark invalid and stop retries
-            if last_error and not last_error.startswith("HTTP 500"):
+    async def _fetch_with_backoff(
+        self,
+        url: str,
+        term_key: str,
+        pair: tuple[str, str],
+    ) -> tuple[BeautifulSoup | None, str | None]:
+        """Fetch a URL with backoff, handle errors, and invalidate bad pairs."""
+        last_err: str | None = None
+        for attempt in range(MAX_ATTEMPTS):
+            if attempt:
+                delay = BASE_DELAY_SECONDS * 2 ** (attempt - 1) + random.uniform(  # noqa: S311
+                    0,
+                    BASE_DELAY_SECONDS,
+                )
+                await asyncio.sleep(delay)
+            self.log.debug("Fetch attempt %d for URL %s", attempt + 1, url)
+            soup, err = await self._fetch_and_parse(url)
+            # handle transient XML/parser errors immediately
+            if err and any(tok in err.lower() for tok in TRANSIENT_XML_ERRORS):
+                self.log.warning("Transient XML error on %s: %s", term_key, err)
+                return None, err
+            # success or permanent “not found” → return
+            if soup or (err and "not found" in err.lower()):
+                if err and "not found" in err.lower():
+                    self._record_invalid(pair)
+                return soup, err
+            last_err = err
+            # non-500 errors mark this pair invalid
+            if last_err and not last_err.startswith(
+                f"HTTP {HTTP_STATUS_INTERNAL_ERROR}",
+            ):
                 self._record_invalid(pair)
                 break
+        return None, last_err
 
-        return None, last_error
+    def _should_skip_invalid(self, pair: tuple[str, str]) -> bool:
+        """Return True if this course-term pair is still in its invalidation TTL."""
+        ts = self._invalid_course_term_cache.get(pair)
+        if ts and (self._now() - ts) < INVALID_PAIR_TTL:
+            return True
+        self._invalid_course_term_cache.pop(pair, None)
+        return False
+
+    def _record_invalid(self, pair: tuple[str, str]) -> None:
+        """Mark a course-term pair as invalid, starting now."""
+        self._invalid_course_term_cache[pair] = self._now()
 
     async def _fetch_and_parse(
         self,
         url: str,
-    ) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
-        """Perform a single HTTP GET and parse the XML or return an error."""
+    ) -> tuple[BeautifulSoup | None, str | None]:
+        """Perform HTTP GET and parse XML or return an error string."""
         session = await self._get_session()
         try:
             async with session.get(url) as resp:
-                if resp.status == 500:
-                    return None, "HTTP 500"
-                if resp.status != 200:
+                if resp.status == HTTP_STATUS_INTERNAL_ERROR:
+                    return None, f"HTTP {HTTP_STATUS_INTERNAL_ERROR}"
+                if resp.status != HTTP_STATUS_OK:
                     return None, f"HTTP {resp.status}"
                 text = await resp.text()
-        except (
-            ClientResponseError,
-            ClientConnectionError,
-            asyncio.TimeoutError,
-        ) as exc:
-            self.log.exception("HTTP error: %s", exc)
+        except (ClientResponseError, ClientConnectionError, asyncio.TimeoutError):
+            self.log.exception("HTTP error during GET %s", url)
             return None, "network error"
-        except Exception as exc:
-            self.log.exception("Unexpected error: %s", exc)
+        except Exception:
+            self.log.exception("Unexpected error during GET %s", url)
             return None, "unexpected error"
 
         soup = BeautifulSoup(text, XML_PARSER)
@@ -421,7 +394,7 @@ class CourseDataProxy:
         return soup, None
 
     def _build_url(self, term_id: int, normalized_course: str) -> str:
-        """Construct the API URL with time_code and entropy."""
+        """Construct API URL with time_code and entropy."""
         time_code = floor(time() / 60) % 1000
         entropy = time_code % 3 + time_code % 39 + time_code % 42
         return URL_BASE.format(
@@ -432,30 +405,28 @@ class CourseDataProxy:
         )
 
     # ─────────────────────── term-id caching ─────────────────────── #
-
-    async def _get_term_id(self, term_key: str) -> Optional[int]:
+    async def _get_term_id(self, term_key: str) -> int | None:
         """Fetch or refresh term-id cache (hourly TTL)."""
-        now = utcnow()
+        now = self._now()
         if (now - self._term_codes_last_update) > timedelta(hours=1):
             self._term_codes_cache = await self.config.term_codes()
             self._term_codes_last_update = now
         return self._term_codes_cache.get(term_key.lower())
 
-    # ───────────────────────── caching utils ───────────────────────── #
-
+    # ──────────────────── caching utilities ───────────────────────── #
     @staticmethod
-    def _get_course_keys(course_code: str) -> Tuple[str, str, str]:
+    def _get_course_keys(course_code: str) -> tuple[str, str, str]:
         obj = CourseCode(course_code)
         return obj.department, obj.code, obj.suffix or "__nosuffix__"
 
     @staticmethod
     def _get_cache_entry(
-        courses: Dict[str, Any],
+        courses: dict[str, Any],
         department: str,
         code: str,
         suffix: str,
         key: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         return courses.get(department, {}).get(code, {}).get(suffix, {}).get(key)
 
     async def _update_cache_entry(
@@ -464,53 +435,49 @@ class CourseDataProxy:
         code: str,
         suffix: str,
         key: str,
-        value: Dict[str, Any],
+        value: dict[str, Any],
     ) -> None:
-        """Atomically update Config cache for a given course entry."""
-        async with self.config.courses() as courses_update:
-            dept = courses_update.setdefault(department, {})
-            course_dict = dept.setdefault(code, {})
+        """Atomically update Config cache for a course entry."""
+        async with self.config.courses() as cache:
+            dept_dict = cache.setdefault(department, {})
+            course_dict = dept_dict.setdefault(code, {})
             suffix_dict = course_dict.setdefault(suffix, {})
             suffix_dict[key] = value
 
     @staticmethod
-    def _is_stale(last_updated_str: str, threshold_days: int) -> bool:
-        """Return True if an isoformatted timestamp is older than threshold."""
+    def _is_stale(last_updated: str, threshold: int) -> bool:
+        """Return True if an ISO timestamp is older than threshold days."""
         try:
-            dt = datetime.fromisoformat(last_updated_str)
-            if not dt.tzinfo:
+            dt = datetime.fromisoformat(last_updated)
+            if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
-            return utcnow() - dt > timedelta(days=threshold_days)
+            return utcnow() - dt > timedelta(days=threshold)
         except ValueError:
             return True
 
-    # ─────────────────── parsing functions ─────────────────── #
-
+    # ─────────────────── parsing utilities ────────────────────────── #
     @staticmethod
-    def _get_tag_attr(tag: Optional[Tag], attr: str, default: str = "") -> str:
+    def _get_tag_attr(tag: Tag | None, attr: str, default: str = "") -> str:
         """Safely fetch an attribute from a BeautifulSoup Tag."""
         return tag.get(attr, default) if tag else default
 
-    def _process_course_data(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
-        """Extract structured course info from the fetched XML soup."""
+    def _process_course_data(self, soup: BeautifulSoup) -> list[dict[str, Any]]:
+        """Extract structured course info from fetched XML soup."""
         courses = soup.find_all("course")
-        self.log.debug("Found %d course entries", len(courses))
-        result: List[Dict[str, Any]] = []
+        self.log.debug("Found %d <course> entries", len(courses))
+        result: list[dict[str, Any]] = []
         for c in courses:
             offering = c.find("offering")
-            title = self._get_tag_attr(offering, "title")
             desc, prereq, antireq = self._parse_offering(offering)
-            selection = c.find("selection")
-            credits = self._get_tag_attr(selection, "credits")
-            teacher = self._get_tag_attr(c.find("block"), "teacher")
+            block = c.find("block")
             result.append(
                 {
-                    "title": title,
+                    "title": self._get_tag_attr(offering, "title"),
                     "term_found": self._get_tag_attr(c.find("term"), "v"),
-                    "teacher": teacher,
+                    "teacher": self._get_tag_attr(block, "teacher"),
                     "course_code": c.get("code", ""),
                     "course_number": c.get("number", ""),
-                    "credits": credits,
+                    "credits": self._get_tag_attr(c.find("selection"), "credits"),
                     "description": desc,
                     "prerequisites": prereq,
                     "antirequisites": antireq,
@@ -518,59 +485,66 @@ class CourseDataProxy:
             )
         return result
 
-    def _parse_offering(self, offering: Optional[Tag]) -> Tuple[str, str, str]:
-        """Parse the offering tag for description, prerequisites, antirequisites."""
-        description = prerequisites = antirequisites = ""
+    def _parse_offering(self, offering: Tag | None) -> tuple[str, str, str]:
+        """Parse offering tag for description, prerequisites, antirequisites."""
+        desc = prereq = antireq = ""
         if not offering:
-            return description, prerequisites, antirequisites
-        if raw := offering.get("desc", ""):
-            lines = [ln.strip() for ln in BR_TAG_REGEX.split(raw) if ln.strip()]
-            if lines:
-                description = lines[0]
-            for ln in lines:
-                lower = ln.lower()
-                if lower.startswith("prerequisite"):
-                    prerequisites = ln.split(":", 1)[1].strip() if ":" in ln else ""
-                elif lower.startswith("antirequisite"):
-                    antirequisites = ln.split(":", 1)[1].strip() if ":" in ln else ""
-        return description, prerequisites, antirequisites
+            return desc, prereq, antireq
+        raw = offering.get("desc", "")
+        lines = [ln.strip() for ln in BR_TAG_REGEX.split(raw) if ln.strip()]
+        if lines:
+            desc = lines[0]
+        for ln in lines:
+            lower = ln.lower()
+            if lower.startswith("prerequisite"):
+                prereq = ln.split(":", 1)[1].strip() if ":" in ln else ""
+            elif lower.startswith("antirequisite"):
+                antireq = ln.split(":", 1)[1].strip() if ":" in ln else ""
+        return desc, prereq, antireq
 
-    # ─────────────────── course listings ─────────────────── #
-
-    async def update_course_listing(self) -> Optional[str]:
-        """Fetch and cache the full course listings."""
+    # ─────────────────── course listings ────────────────────────── #
+    async def update_course_listing(self) -> str | None:
+        """Fetch and cache full course listings."""
         self.log.debug("Retrieving full course listings")
-        soup, error_msg = await self._fetch_and_parse(LISTING_URL)
+        soup, err = await self._fetch_and_parse(LISTING_URL)
         if soup:
             listing = self._process_course_listing(soup)
             await self.config.course_listings.set(
-                {"courses": listing, "date_updated": utcnow().isoformat()},
+                {
+                    "courses": listing,
+                    "date_updated": self._now().isoformat(),
+                },
             )
             self.log.debug("Cached %d listings", len(listing))
             return str(len(listing))
-        if error_msg:
-            self.log.error("Error fetching listings: %s", error_msg)
+        if err:
+            self.log.error("Error fetching listings: %s", err)
             return "0"
         return None
 
-    def _process_course_listing(self, soup: BeautifulSoup) -> Dict[str, str]:
+    def _process_course_listing(self, soup: BeautifulSoup) -> dict[str, str]:
         """Parse listing XML into a dict of {course_code: info}."""
         entries = soup.find_all("rs")
         self.log.debug("Found %d listing entries", len(entries))
-        out: Dict[str, str] = {}
+        out: dict[str, str] = {}
         for rs in entries:
-            code_raw = rs.text.strip()
+            raw = rs.text.strip()
             try:
-                code_norm = CourseCode(code_raw).canonical()
+                norm = CourseCode(raw).canonical()
             except ValueError:
-                self.log.exception("Invalid code %s", code_raw)
+                self.log.exception("Invalid code %s", raw)
                 continue
             info = BR_TAG_REGEX.sub(" ", rs.get("info", ""))
-            out[code_norm] = info
+            out[norm] = info
         return out
 
-    async def force_mark_stale(self, course_code: str, detailed: bool = True) -> bool:
-        """Force cache entry for a course to be considered stale."""
+    async def force_mark_stale(
+        self,
+        course_code: str,
+        *,
+        detailed: bool = True,
+    ) -> bool:
+        """Force a cache entry to be considered stale."""
         dept, num, suffix = self._get_course_keys(course_code)
         key = "detailed" if detailed else "basic"
         cache = await self.config.courses()
@@ -584,22 +558,22 @@ class CourseDataProxy:
     async def _extract_term_from_listing(
         self,
         normalized_course: str,
-    ) -> Optional[Tuple[str, int]]:
-        """Derive a single preferred term from listing info, if present."""
+    ) -> tuple[str, int] | None:
+        """Derive preferred term from cached listing info, if any."""
         info = self._listings_cache.get(normalized_course)
         if not info:
             return None
         candidates = {
-            (m.group("term").lower(), int(m.group("year")))
+            (m.group(1).lower(), int(m.group(2)))
             for m in PATTERN_TERM_YEAR.finditer(info)
         } | {
-            (m.group("term").lower(), int(m.group("year")))
+            (m.group(2).lower(), int(m.group(1)))
             for m in PATTERN_YEAR_TERM.finditer(info)
         }
         if not candidates:
             return None
         rank = {"winter": 1, "spring": 2, "fall": 3}
-        now_year = utcnow().year
+        now_year = self._now().year
         future = [c for c in candidates if c[1] >= now_year]
         chosen = min(future or candidates, key=lambda x: (x[1], rank.get(x[0], 99)))
         self.log.debug("Extracted term %s → %s", normalized_course, chosen)

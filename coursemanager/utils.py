@@ -1,8 +1,12 @@
+"""Utilities for managing categories, resolving course codes, and sorting keys."""
+
+from __future__ import annotations
+
+import re
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 import discord
-from redbot.core import commands
 from redbot.core.utils.chat_formatting import error
 
 from .constants import MAX_CATEGORY_CHANNELS
@@ -11,24 +15,34 @@ from .course_code_resolver import CourseCodeResolver
 from .logger_util import get_logger
 
 if TYPE_CHECKING:
+    from redbot.core import commands
+
     from .course_data_proxy import CourseDataProxy
 
-log = get_logger("red.utils")
+log = get_logger(__name__)
+
+# Maximum number of alternate category suffixes to try
+ALT_CATEGORY_LIMIT: int = 100
 
 
 def utcnow() -> datetime:
+    """Return the current UTC datetime."""
     return datetime.now(timezone.utc)
 
 
 def get_categories_by_prefix(
     guild: discord.Guild,
     prefix: str,
-) -> List[discord.CategoryChannel]:
-    matching: List[discord.CategoryChannel] = [
+) -> list[discord.CategoryChannel]:
+    """Get categories starting with the given prefix in the specified guild."""
+    matching: list[discord.CategoryChannel] = [
         cat for cat in guild.categories if cat.name.upper().startswith(prefix.upper())
     ]
     log.debug(
-        f"get_categories_by_prefix: Found {len(matching)} categories in guild '{guild.name}' with prefix '{prefix}'",
+        "get_categories_by_prefix: Found %d categories in guild %s with prefix %s",
+        len(matching),
+        guild.name,
+        prefix,
     )
     return matching
 
@@ -36,22 +50,29 @@ def get_categories_by_prefix(
 async def get_or_create_category(
     guild: discord.Guild,
     category_name: str,
-) -> Optional[discord.CategoryChannel]:
+) -> discord.CategoryChannel | None:
+    """Get or create a category with the given name in the specified guild."""
     category = discord.utils.get(guild.categories, name=category_name)
     if category is None:
         try:
             category = await guild.create_category(category_name)
             log.debug(
-                f"get_or_create_category: Created category '{category_name}' in guild '{guild.name}'",
+                "get_or_create_category: Created category %s in guild %s",
+                category_name,
+                guild.name,
             )
         except discord.Forbidden:
-            log.error(
-                f"get_or_create_category: No permission to create category '{category_name}' in guild '{guild.name}'",
+            log.exception(
+                "get_or_create_category: No permission to create %s in guild %s",
+                category_name,
+                guild.name,
             )
             return None
     else:
         log.debug(
-            f"get_or_create_category: Found existing category '{category_name}' in guild '{guild.name}'",
+            "get_or_create_category: Found existing category %s in guild %s",
+            category_name,
+            guild.name,
         )
     return category
 
@@ -61,7 +82,8 @@ async def get_available_course_category(
     base_name: str,
     ctx: commands.Context,
     max_channels: int = MAX_CATEGORY_CHANNELS,
-) -> Optional[discord.CategoryChannel]:
+) -> discord.CategoryChannel | None:
+    """Get an available category for courses, creating one if necessary."""
     category = discord.utils.get(guild.categories, name=base_name)
     if category is None:
         category = await get_or_create_category(guild, base_name)
@@ -72,7 +94,7 @@ async def get_available_course_category(
         return None
     if len(category.channels) < max_channels:
         return category
-    for i in range(2, 100):
+    for i in range(2, ALT_CATEGORY_LIMIT):
         alt_name = f"{base_name}-{i}"
         alt_category = discord.utils.get(guild.categories, name=alt_name)
         if alt_category is None:
@@ -93,15 +115,17 @@ async def get_available_course_category(
 async def validate_and_resolve_course_code(
     ctx: commands.Context,
     raw_input: str,
-    listings: Dict[str, Any],
-    course_data_proxy: "CourseDataProxy",
-) -> Optional[CourseCode]:
+    listings: dict[str, Any],
+    course_data_proxy: CourseDataProxy,
+) -> CourseCode | None:
+    """Validate and resolve the course code to a CourseCode object."""
     resolver = CourseCodeResolver(listings, course_data_proxy=course_data_proxy)
     try:
         course_obj: CourseCode = CourseCode(raw_input)
     except ValueError:
         log.debug(
-            f"Failed to parse '{raw_input}' using CourseCode. Attempting to resolve using CourseCodeResolver.",
+            "Failed to parse '%s' with CourseCode. Resolving with CourseCodeResolver.",
+            raw_input,
         )
         resolved, _ = await resolver.fallback_fuzzy_lookup(ctx, raw_input.strip())
         if not resolved:
@@ -112,3 +136,11 @@ async def validate_and_resolve_course_code(
         if resolved:
             course_obj = resolved
     return course_obj
+
+
+_RE_NUM = re.compile(r"(\d+|\D+)")
+
+
+def nat_key(s: str) -> list[int | str]:
+    """Split digits and non-digit segments for natural sorting."""
+    return [int(tok) if tok.isdigit() else tok.casefold() for tok in _RE_NUM.findall(s)]
