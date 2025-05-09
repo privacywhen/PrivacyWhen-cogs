@@ -5,7 +5,7 @@ from typing import Any
 GLOBAL_DEFAULTS: dict[str, Any] = {
     "default_category": "CHANNELS",  # Default category for channels
     "grouping_threshold": 2,  # Minimum overlap threshold for grouping
-    "grouping_interval": 86400,  # Grouping interval in seconds
+    "grouping_interval": 1800,  # Grouping interval in seconds
     "course_groups": {},  # Dictionary for course groups mapping
     "course_category": "COURSES",  # Category name for courses
     "term_codes": {},  # Term codes mapping
