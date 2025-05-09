@@ -143,12 +143,11 @@ class CourseService:
         *,
         enable: bool,
     ) -> None:
-        async with self.lock:
-            # Synchronize access to the enabled guilds
+        async with (
+            self.lock
+        ):  # Acquire the lock to prevent concurrent modification of enabled_guilds
             async with self.config.enabled_guilds() as enabled_guilds:
                 log.debug(f"Before update, Enabled guilds: {enabled_guilds}")
-
-                # Handle enabling and disabling logic
                 if enable:
                     if ctx.guild.id in enabled_guilds:
                         await ctx.send(
@@ -170,11 +169,8 @@ class CourseService:
                     enabled_guilds.remove(ctx.guild.id)
                     await ctx.send("Course Manager has been disabled on this server.")
                     log.debug(f"Guild {ctx.guild.id} disabled Course Manager.")
-
-                # Log and verify the update after the operation
+                # Confirm the update and ensure the list is saved
                 log.debug(f"After update, Enabled guilds: {enabled_guilds}")
-                # Ensure the list is saved to the configuration state
-                await self.config.enabled_guilds.set(enabled_guilds)
 
     async def enable(self, ctx: commands.Context) -> None:
         """Enable the course manager for the current guild."""
