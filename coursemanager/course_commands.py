@@ -129,7 +129,6 @@ class CourseChannelCog(commands.Cog):
             return True
         enabled_guilds = await self.config.enabled_guilds()
         log.debug(f"Enabled guilds: {enabled_guilds}, Checking guild: {ctx.guild.id}")
-
         if ctx.guild.id not in enabled_guilds:
             await ctx.send(
                 error(
