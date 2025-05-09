@@ -53,6 +53,9 @@ class CourseService:
         """Initialize CourseService with bot, config, and necessary data."""
         self.bot: commands.Bot = bot
         self.config: Config = config
+        self.lock = (
+            asyncio.Lock()
+        )  # Initialize a lock for the enabled_guilds configuration
         self.category_name: str = "COURSES"
         self.max_courses: int = 10
         self.logging_channel: discord.TextChannel | None = None
@@ -135,24 +138,39 @@ class CourseService:
         return True
 
     async def _update_enabled_status(
-        self, ctx: commands.Context, *, enable: bool
+        self,
+        ctx: commands.Context,
+        *,
+        enable: bool,
     ) -> None:
-        async with self.config.enabled_guilds() as enabled_guilds:
-            if enable:
-                if ctx.guild.id in enabled_guilds:
-                    await ctx.send("Course Manager is already enabled on this server.")
-                    log.debug(f"Guild {ctx.guild.id} already enabled Course Manager.")
+        async with (
+            self.lock
+        ):  # Acquire the lock to prevent concurrent modification of enabled_guilds
+            async with self.config.enabled_guilds() as enabled_guilds:
+                log.debug(f"Before update, Enabled guilds: {enabled_guilds}")
+                if enable:
+                    if ctx.guild.id in enabled_guilds:
+                        await ctx.send(
+                            "Course Manager is already enabled on this server.",
+                        )
+                        log.debug(
+                            f"Guild {ctx.guild.id} already enabled Course Manager.",
+                        )
+                    else:
+                        enabled_guilds.append(ctx.guild.id)
+                        await ctx.send(
+                            "Course Manager has been enabled on this server.",
+                        )
+                        log.debug(f"Guild {ctx.guild.id} enabled Course Manager.")
+                elif ctx.guild.id not in enabled_guilds:
+                    await ctx.send("Course Manager is already disabled on this server.")
+                    log.debug(f"Guild {ctx.guild.id} already disabled Course Manager.")
                 else:
-                    enabled_guilds.append(ctx.guild.id)
-                    await ctx.send("Course Manager has been enabled on this server.")
-                    log.debug(f"Guild {ctx.guild.id} enabled Course Manager.")
-            elif ctx.guild.id not in enabled_guilds:
-                await ctx.send("Course Manager is already disabled on this server.")
-                log.debug(f"Guild {ctx.guild.id} already disabled Course Manager.")
-            else:
-                enabled_guilds.remove(ctx.guild.id)
-                await ctx.send("Course Manager has been disabled on this server.")
-                log.debug(f"Guild {ctx.guild.id} disabled Course Manager.")
+                    enabled_guilds.remove(ctx.guild.id)
+                    await ctx.send("Course Manager has been disabled on this server.")
+                    log.debug(f"Guild {ctx.guild.id} disabled Course Manager.")
+                # Confirm the update and ensure the list is saved
+                log.debug(f"After update, Enabled guilds: {enabled_guilds}")
 
     async def enable(self, ctx: commands.Context) -> None:
         """Enable the course manager for the current guild."""
