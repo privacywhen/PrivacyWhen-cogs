@@ -5,7 +5,7 @@ from typing import Any
 GLOBAL_DEFAULTS: dict[str, Any] = {
     "default_category": "CHANNELS",  # Default category for channels
     "grouping_threshold": 2,  # Minimum overlap threshold for grouping
-    "grouping_interval": 3600,  # Grouping interval in seconds
+    "grouping_interval": 86400,  # Grouping interval in seconds
     "course_groups": {},  # Dictionary for course groups mapping
     "course_category": "COURSES",  # Category name for courses
     "term_codes": {},  # Term codes mapping
@@ -13,8 +13,8 @@ GLOBAL_DEFAULTS: dict[str, Any] = {
     "course_listings": {},  # Cached course listings
     "enabled_guilds": [],  # List of guild IDs where Course Manager is enabled
     "channel_prune_history_limit": 15,  # Messages to scan for pruning activity
-    "channel_prune_interval": 2628000,  # Interval in seconds for pruning task
-    "prune_threshold_days": 7,  # Number of days of inactivity to trigger pruning
+    "channel_prune_interval": 86400,  # Interval in seconds for pruning task
+    "prune_threshold_days": 90,  # Number of days of inactivity to trigger pruning
 }
 
 
