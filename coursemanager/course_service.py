@@ -135,24 +135,25 @@ class CourseService:
         return True
 
     async def _update_enabled_status(
-        self, ctx: commands.Context, *, enable: bool
+        self,
+        ctx: commands.Context,
+        *,
+        enable: bool,
     ) -> None:
-        async with self.config.enabled_guilds() as enabled_guilds:
-            if enable:
-                if ctx.guild.id in enabled_guilds:
-                    await ctx.send("Course Manager is already enabled on this server.")
-                    log.debug(f"Guild {ctx.guild.id} already enabled Course Manager.")
-                else:
-                    enabled_guilds.append(ctx.guild.id)
-                    await ctx.send("Course Manager has been enabled on this server.")
-                    log.debug(f"Guild {ctx.guild.id} enabled Course Manager.")
-            elif ctx.guild.id not in enabled_guilds:
-                await ctx.send("Course Manager is already disabled on this server.")
-                log.debug(f"Guild {ctx.guild.id} already disabled Course Manager.")
+        enabled_guilds: list[int] = await self.config.enabled_guilds()
+        if enable:
+            if ctx.guild.id in enabled_guilds:
+                await ctx.send("Course Manager is already enabled on this server.")
             else:
-                enabled_guilds.remove(ctx.guild.id)
-                await ctx.send("Course Manager has been disabled on this server.")
-                log.debug(f"Guild {ctx.guild.id} disabled Course Manager.")
+                enabled_guilds.append(ctx.guild.id)
+                await self.config.enabled_guilds.set(enabled_guilds)
+                await ctx.send("Course Manager has been enabled on this server.")
+        elif ctx.guild.id not in enabled_guilds:
+            await ctx.send("Course Manager is already disabled on this server.")
+        else:
+            enabled_guilds.remove(ctx.guild.id)
+            await self.config.enabled_guilds.set(enabled_guilds)
+            await ctx.send("Course Manager has been disabled on this server.")
 
     async def enable(self, ctx: commands.Context) -> None:
         """Enable the course manager for the current guild."""

@@ -127,15 +127,21 @@ class CourseChannelCog(commands.Cog):
         """
         if ctx.guild is None:
             return True
-        enabled_guilds = await self.config.enabled_guilds()
-        log.debug(f"Enabled guilds: {enabled_guilds}, Checking guild: {ctx.guild.id}")
-        if ctx.guild.id not in enabled_guilds:
-            await ctx.send(
-                error(
-                    "The Course Manager is currently disabled in this server. Please enable it using the `/course enable` command.",
-                ),
-            )
-            return False
+        if ctx.command.qualified_name.lower().startswith(
+            "course",
+        ) and ctx.command.name.lower() not in {
+            "enable",
+            "disable",
+            "course",
+        }:
+            enabled = await self.config.enabled_guilds()
+            if ctx.guild.id not in enabled:
+                await ctx.send(
+                    error(
+                        "The Course Manager is currently disabled in this server. Please enable it using the `/course enable` command.",
+                    ),
+                )
+                return False
         return True
 
     def cog_unload(self) -> None:
