@@ -127,12 +127,8 @@ class CourseChannelCog(commands.Cog):
         """
         if ctx.guild is None:
             return True
-        # Ensure we're using the latest configuration
-        await self.config.reload()
-
         enabled_guilds = await self.config.enabled_guilds()
         log.debug(f"Enabled guilds: {enabled_guilds}, Checking guild: {ctx.guild.id}")
-
         if ctx.guild.id not in enabled_guilds:
             await ctx.send(
                 error(
