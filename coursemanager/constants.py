@@ -14,11 +14,11 @@ GLOBAL_DEFAULTS: dict[str, Any] = {
     "enabled_guilds": [],  # List of guild IDs where Course Manager is enabled
     "channel_prune_history_limit": 15,  # Messages to scan for pruning activity
     "channel_prune_interval": 86400,  # Interval in seconds for pruning task
-    "prune_threshold_days": 90,  # Number of days of inactivity to trigger pruning
+    "prune_threshold_days": 120,  # Number of days of inactivity to trigger pruning
 }
 
 
-MAX_CATEGORY_CHANNELS: int = 15
+MAX_CATEGORY_CHANNELS: int = 30
 MIN_CATEGORY_CHANNELS: int = 5
 MIN_DYNAMIC_THRESHOLD = 1
 MIN_SPARSE_OVERLAP = 1
