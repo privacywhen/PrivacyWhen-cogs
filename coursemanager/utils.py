@@ -112,6 +112,16 @@ async def get_available_course_category(
     return None
 
 
+def _unwrap_course_input(raw_input: str) -> str:
+    """Remove one complete help-style angle-bracket wrapper from course input."""
+    stripped = raw_input.strip()
+    if len(stripped) >= 3 and stripped[0] == "<" and stripped[-1] == ">":
+        inner = stripped[1:-1].strip()
+        if inner and "<" not in inner and ">" not in inner:
+            return inner
+    return raw_input
+
+
 async def validate_and_resolve_course_code(
     ctx: commands.Context,
     raw_input: str,
@@ -120,14 +130,15 @@ async def validate_and_resolve_course_code(
 ) -> CourseCode | None:
     """Validate and resolve the course code to a CourseCode object."""
     resolver = CourseCodeResolver(listings, course_data_proxy=course_data_proxy)
+    course_input = _unwrap_course_input(raw_input)
     try:
-        course_obj: CourseCode = CourseCode(raw_input)
+        course_obj: CourseCode = CourseCode(course_input)
     except ValueError:
         log.debug(
             "Failed to parse '%s' with CourseCode. Resolving with CourseCodeResolver.",
             raw_input,
         )
-        resolved, _ = await resolver.fallback_fuzzy_lookup(ctx, raw_input.strip())
+        resolved, _ = await resolver.fallback_fuzzy_lookup(ctx, course_input.strip())
         if not resolved:
             return None
         course_obj = resolved
