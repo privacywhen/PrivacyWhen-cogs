@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import time
+from contextlib import AsyncExitStack
 from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
 import discord
@@ -94,12 +95,21 @@ class CourseService:
         course_obj: CourseCode,
     ) -> tuple[CourseCode | None, Any]:
         """Fetch detailed course data; notify user on failure."""
-        async with ctx.typing():
+        async with AsyncExitStack() as stack:
+            try:
+                await stack.enter_async_context(ctx.typing())
+            except discord.HTTPException:
+                log.warning(
+                    "Failed to start typing indicator; continuing course lookup",
+                    exc_info=True,
+                )
+
             candidate_obj, data = await self._lookup_course_data(
                 ctx,
                 course_obj,
                 already_resolved=True,
             )
+
         if not candidate_obj or not self._is_valid_course_data(data):
             await ctx.send(
                 error(
