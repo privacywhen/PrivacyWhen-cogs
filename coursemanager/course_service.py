@@ -7,12 +7,14 @@ import functools
 import time
 from contextlib import AsyncExitStack
 from typing import TYPE_CHECKING, Any, Callable, TypeVar
+from weakref import WeakValueDictionary
 
 import discord
 from redbot.core import Config, commands  # noqa: TC002
 from redbot.core.utils.chat_formatting import error, info, pagify, success, warning
 from redbot.core.utils.menus import menu
 
+from .channel_service import MappingResult
 from .course_code import CourseCode
 from .course_data_proxy import CourseDataProxy
 from .logger_util import get_logger
@@ -61,6 +63,7 @@ class CourseService:
         self._listings_cache: dict[str, str] | None = None
         self._listings_cache_time: float = 0.0
         self._listings_ttl: float = 60.0
+        self._channel_creation_locks: WeakValueDictionary[tuple[int, str], asyncio.Lock] = WeakValueDictionary()
 
     async def _load_listings(self) -> dict[str, str]:
         """Load course listings from cache or config with TTL."""
@@ -126,9 +129,15 @@ class CourseService:
         category: discord.CategoryChannel,
     ) -> discord.TextChannel:
         """Return existing channel or create a new one under the given category."""
-        if channel := self.get_course_channel(guild, course_obj):
-            return channel
-        return await self.create_course_channel(guild, category, course_obj)
+        key = (guild.id, course_obj.formatted_channel_name())
+        lock = self._channel_creation_locks.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._channel_creation_locks[key] = lock
+        async with lock:
+            if channel := self.get_course_channel(guild, course_obj):
+                return channel
+            return await self.create_course_channel(guild, category, course_obj)
 
     def _is_valid_course_data(self, data: object) -> bool:
         return bool(data and data.get("cached_course_data"))
@@ -543,6 +552,7 @@ class CourseService:
         term_key = f"{term_name.lower()}-{year}"
         async with self.config.term_codes() as term_codes:
             term_codes[term_key] = term_id
+        self.course_data_proxy.invalidate_term_code(term_key)
         log.debug("Set term code for %s to %s", term_key, term_id)
         await ctx.send(
             success(f"Term code for {term_name.capitalize()} {year} set to: {term_id}"),
@@ -659,7 +669,13 @@ class CourseService:
                         course_users = await self.gather_course_user_data(guild)
                         mapping = clustering.cluster_courses(course_users)
                         await self.config.course_groups.set(mapping)
-                        await channel_service.apply_category_mapping(guild, mapping)
+                        result = await channel_service.apply_category_mapping(guild, mapping)
+                        if result is MappingResult.PARTIAL:
+                            log.warning("Automatic course clustering partly applied in guild %s", guild.id)
+                        elif result is MappingResult.FAILED:
+                            log.error("Automatic course clustering could not be applied in guild %s", guild.id)
+                        elif result is MappingResult.SUCCESS_WITH_WARNINGS:
+                            log.warning("Automatic course clustering applied with cleanup/ordering warnings in guild %s", guild.id)
                     except Exception:
                         log.exception(
                             "Error clustering guild %s (%s)",

@@ -289,6 +289,8 @@ class CourseDataProxy:
         )
         fallback = self._determine_term_order_fallback()
         seen: set[tuple[str, int]] = set()
+        last_not_found: str | None = None
+        other_failure = False
 
         for season, year in (*primary, *fallback):
             if (season, year) in seen:
@@ -304,6 +306,7 @@ class CourseDataProxy:
             term_id = await self._get_term_id(term_key)
             if not term_id:
                 self.log.debug("No term ID for %s", term_key)
+                other_failure = True  # This candidate term has not been checked.
                 continue
 
             url = self._build_url(term_id, normalized_course)
@@ -314,12 +317,19 @@ class CourseDataProxy:
                 self.log.warning("Transient XML error on %s: %s", term_key, err)
                 return None, err
 
-            if soup or (err and "not found" in err.lower()):
-                if err and "not found" in err.lower():
-                    self._record_invalid(pair)
+            if soup:
                 return soup, err
+            if err and "not found" in err.lower():
+                self._record_invalid(pair)
+                last_not_found = err
+            else:
+                other_failure = True
 
-        return None, "Unknown error fetching course data."
+        return None, (
+            last_not_found
+            if last_not_found and not other_failure
+            else "Unknown error fetching course data."
+        )
 
     async def _fetch_with_backoff(
         self,
@@ -348,11 +358,14 @@ class CourseDataProxy:
                     self._record_invalid(pair)
                 return soup, err
             last_err = err
-            # non-500 errors mark this pair invalid
-            if last_err and not last_err.startswith(
-                f"HTTP {HTTP_STATUS_INTERNAL_ERROR}",
-            ):
+            # Only confirmed absence is specific to this course-term pair.
+            if last_err and (last_err == "HTTP 404" or "not found" in last_err.lower()):
                 self._record_invalid(pair)
+                break
+            if last_err and not (
+                last_err in {"network error", "unexpected error", "HTTP 429"}
+                or last_err.startswith("HTTP 5")
+            ):
                 break
         return None, last_err
 
@@ -405,6 +418,13 @@ class CourseDataProxy:
         )
 
     # ─────────────────────── term-id caching ─────────────────────── #
+    def invalidate_term_code(self, term_key: str) -> None:
+        """Refresh term IDs after a configured mapping changes."""
+        self._term_codes_last_update = datetime.min.replace(tzinfo=timezone.utc)
+        for pair in list(self._invalid_course_term_cache):
+            if pair[1] == term_key:
+                del self._invalid_course_term_cache[pair]
+
     async def _get_term_id(self, term_key: str) -> int | None:
         """Fetch or refresh term-id cache (hourly TTL)."""
         now = self._now()

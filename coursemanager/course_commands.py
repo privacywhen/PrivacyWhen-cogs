@@ -24,7 +24,7 @@ import discord  # noqa: TC002
 from redbot.core import Config, app_commands, commands
 from redbot.core.utils.chat_formatting import error, success
 
-from .channel_service import ChannelService
+from .channel_service import ChannelService, MappingResult
 from .constants import GLOBAL_DEFAULTS, GROUPING_INTERVAL
 from .course_channel_clustering import CourseChannelClustering
 from .course_service import CourseService
@@ -395,7 +395,6 @@ class CourseChannelCog(commands.Cog):
 
         """
         await self.channel_service.set_default_category(ctx, category_name)
-        await ctx.send(success(f"Default category set to **{category_name}**"))
 
     @dev_course.command(name="recluster")
     @commands.guild_only()
@@ -421,10 +420,12 @@ class CourseChannelCog(commands.Cog):
 
         # 3) Persist and apply
         await self.config.course_groups.set(mapping)
-        await self.channel_service.apply_category_mapping(guild, mapping)
-
-        await ctx.send(
-            success(
-                "Reclustered and moved course channels according to clusters.",
-            ),
-        )
+        result = await self.channel_service.apply_category_mapping(guild, mapping)
+        if result is MappingResult.SUCCESS:
+            await ctx.send(success("Reclustered and moved course channels according to clusters."))
+        elif result is MappingResult.SUCCESS_WITH_WARNINGS:
+            await ctx.send("Course channels moved, but category cleanup or ordering was incomplete.")
+        elif result is MappingResult.PARTIAL:
+            await ctx.send(error("Some course channels could not be moved. Check permissions and retry recluster."))
+        else:
+            await ctx.send(error("Course channels could not be reclustered. Check permissions and retry."))

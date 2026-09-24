@@ -243,7 +243,7 @@ class CourseChannelClustering:
             sorted(buckets, key=lambda b: (-len(b), b)),
             start=1,
         ):
-            if idx == total and has_overflow_bucket:
+            if has_overflow_bucket and bucket is buckets[-1]:
                 label = f"{self.category_prefix}-MISC"
             else:
                 label = (
@@ -264,8 +264,8 @@ class CourseChannelClustering:
 
         has_overflow_bucket = bool(orphans)
         if has_overflow_bucket:
-            large.append(sorted(orphans))
-            log.debug("Added overflow bucket with %d singleton courses", len(orphans))
+            large.extend(self._chunk_list(sorted(orphans), MAX_CATEGORY_CHANNELS))
+            log.debug("Added overflow buckets for %d singleton courses", len(orphans))
 
         return self._label_buckets(large, has_overflow_bucket=has_overflow_bucket)
 
@@ -277,6 +277,8 @@ class CourseChannelClustering:
         clusters: ClusterList,
     ) -> dict[str, float]:
         """Compute clustering-quality metrics (currently just modularity)."""
+        if graph.number_of_edges() == 0:
+            return {"modularity": 0.0}
         return {"modularity": modularity(graph, clusters, weight="weight")}
 
     def cluster_courses(

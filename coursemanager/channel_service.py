@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import re
 from datetime import datetime, timedelta
+from enum import Enum
 from typing import TYPE_CHECKING
 
 import discord
@@ -20,6 +21,12 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
 log = get_logger(__name__)
+
+class MappingResult(Enum):
+    SUCCESS = "success"
+    SUCCESS_WITH_WARNINGS = "success_with_warnings"
+    PARTIAL = "partial"
+    FAILED = "failed"
 
 
 async def _safe_sleep(seconds: float) -> None:
@@ -62,8 +69,9 @@ class ChannelService:
 
         Returns None on failure or missing permissions.
         """
+        name: str | None = None
         try:
-            name: str = await self.config.default_category()
+            name = await self.config.default_category()
             return await get_or_create_category(guild, name)
         except Exception:
             log.exception(
@@ -138,16 +146,20 @@ class ChannelService:
     async def _compute_last_activity(
         self,
         channel: discord.TextChannel,
-    ) -> datetime:
-        """Return timestamp of last non-bot message or channel creation time."""
+    ) -> datetime | None:
+        """Return last user activity, or None when bounded history is inconclusive."""
         if (msg := channel.last_message) and not msg.author.bot:
             return msg.created_at
 
         limit = await self.config.channel_prune_history_limit()
+        scanned = 0
         async for message in channel.history(limit=limit):
+            scanned += 1
             if not message.author.bot:
                 return message.created_at
 
+        if scanned >= limit:
+            return None  # Older user messages may be hidden behind bot messages.
         return channel.created_at
 
     async def channel_prune_helper(
@@ -159,6 +171,8 @@ class ChannelService:
         """Delete *channel* if inactivity exceeds *prune_threshold*."""
         now = self._now()
         last_activity = await self._compute_last_activity(channel)
+        if last_activity is None:
+            return
         inactivity = now - last_activity
 
         if inactivity <= prune_threshold:
@@ -203,9 +217,15 @@ class ChannelService:
                 for guild in self.bot.guilds:
                     if guild.id not in enabled:
                         continue
-                    base_prefix = await self.config.course_category()
-                    for channel in _iter_course_text_channels(guild, base_prefix):
-                        await self.channel_prune_helper(guild, channel, prune_threshold)
+                    try:
+                        base_prefix = await self.config.course_category()
+                        for channel in _iter_course_text_channels(guild, base_prefix):
+                            try:
+                                await self.channel_prune_helper(guild, channel, prune_threshold)
+                            except Exception:
+                                log.exception("Failed to inspect channel in guild %s", guild.id)
+                    except Exception:
+                        log.exception("Failed to enumerate course channels in guild %s", guild.id)
 
                 iteration += 1
                 log.debug("Prune cycle complete; sleeping %s s", prune_interval)
@@ -220,9 +240,11 @@ class ChannelService:
         self,
         guild: discord.Guild,
         mapping: dict[str, str],
-    ) -> None:
-        """Phase 1: Move each course channel into its mapped category."""
+    ) -> tuple[int, int]:
+        """Return required and applied channel counts for the mapping."""
         base_prefix = await self.config.course_category()
+        required = applied = 0
+        encountered: set[str] = set()
         for channel in _iter_course_text_channels(guild, base_prefix):
             try:
                 code = CourseCode(channel.name).canonical()
@@ -230,15 +252,28 @@ class ChannelService:
                 continue
 
             target = mapping.get(code)
+            if not target:
+                continue
+            encountered.add(code)
+            required += 1
             current_cat = channel.category.name if channel.category else None
-            if not target or current_cat == target:
+            if current_cat == target:
+                applied += 1
                 continue
 
-            new_cat = await get_or_create_category(guild, target)
-            if new_cat:
+            try:
+                new_cat = await get_or_create_category(guild, target)
+                if new_cat is None:
+                    log.error("Cannot move channel %s in guild %s: category %s unavailable", channel.name, guild.id, target)
+                    continue
                 await channel.edit(category=new_cat)
+                applied += 1
                 log.info("Moved '%s' → '%s'", channel.name, target)
                 await _safe_sleep(self.RATE_LIMIT_DELAY)
+            except Exception:
+                log.exception("Failed moving channel %s in guild %s to %s", channel.name, guild.id, target)
+        required += len(mapping.keys() - encountered)
+        return required, applied
 
     @staticmethod
     def _nat_key(s: str) -> list:
@@ -282,10 +317,11 @@ class ChannelService:
         self,
         guild: discord.Guild,
         mapping: dict[str, str],
-    ) -> None:
-        """Phase 2: Delete empty categories not in the current mapping."""
+    ) -> bool:
+        """Delete empty obsolete categories; report whether cleanup completed."""
         base_prefix = await self.config.course_category()
         desired = set(mapping.values())
+        completed = True
         for cat in get_categories_by_prefix(guild, base_prefix):
             if cat.name not in desired and not any(
                 isinstance(ch, discord.TextChannel) for ch in cat.channels
@@ -296,35 +332,38 @@ class ChannelService:
                     await _safe_sleep(self.RATE_LIMIT_DELAY)
                 except discord.Forbidden:
                     log.warning("No permission to delete stale category '%s'", cat.name)
+                    completed = False
                 except discord.HTTPException:
                     log.exception("Failed to delete stale category '%s'", cat.name)
+                    completed = False
+        return completed
 
     async def apply_category_mapping(
         self,
         guild: discord.Guild,
         mapping: dict[str, str],
-    ) -> None:
-        """Coordinate channel moves, stale-category cleanup, and category reordering."""
-        base_prefix: str = await self.config.course_category()
-
-        # Phase 1: Move channels into their mapped categories
+    ) -> MappingResult:
+        """Apply required moves, then best-effort cleanup and ordering."""
         try:
-            await self._move_channels(guild, mapping)
+            required, applied = await self._move_channels(guild, mapping)
         except Exception:
             log.exception("Failed during channel move phase for guild %s", guild.id)
+            return MappingResult.FAILED
+        if applied < required:
+            log.warning("Category mapping incomplete in guild %s (%s/%s channels applied)", guild.id, applied, required)
+            return MappingResult.PARTIAL if applied else MappingResult.FAILED
 
-        # Phase 2: Delete categories that have become empty and are not desired
+        warnings = False
         try:
-            await self._cleanup_categories(guild, mapping)
+            warnings = not await self._cleanup_categories(guild, mapping)
         except Exception:
             log.exception("Failed during cleanup phase for guild %s", guild.id)
+            warnings = True
 
-        # Phase 3: Reorder course categories to maintain natural order
         try:
+            base_prefix = await self.config.course_category()
             await self._reorder_course_categories(guild, base_prefix)
         except Exception:
-            log.exception(
-                "Failed to reorder course categories with prefix '%s' for guild %s",
-                base_prefix,
-                guild.id,
-            )
+            log.exception("Failed to reorder course categories in guild %s", guild.id)
+            warnings = True
+        return MappingResult.SUCCESS_WITH_WARNINGS if warnings else MappingResult.SUCCESS
